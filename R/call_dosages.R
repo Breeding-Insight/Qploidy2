@@ -195,7 +195,7 @@ call_BAF_dosages <- function(baf_vec, selected_model = NULL, bw = NULL, dist = N
     plot_obj <- ggplot(df_plot, aes(x = BAF, y = after_stat(density))) +
       geom_density(data = df_plot, aes(x = BAF), color = NA, fill = "#848d98", alpha = 0.3) +
       geom_point(aes(y = 0, color = color_blend), size = 6) +
-      geom_vline(xintercept = peak_pos, color = "black", linetype = "dashed", size = 0.7) +
+      geom_vline(xintercept = peak_pos, color = "black", linetype = "dashed", linewidth = 0.7) +
       scale_color_identity() +
       labs(title = paste0("BAF Dosage Assignment (CN=", cn, ", dist=", dist, ")"),
            x = "BAF",
