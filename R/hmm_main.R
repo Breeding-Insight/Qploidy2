@@ -334,7 +334,7 @@ hmm_estimate_CN <- function(
       d[["Position"]] <= win_df$End[i]
     baf_list[[i]] <- d[[baf_col]][wrows]
     if (length(baf_list[[i]]) == 0 || all(is.na(baf_list[[i]]))) {
-      warning(sprintf("Window %d (Chr %s, WindowID %s) has no valid BAF values.",
+      warning(sprintf("Window %d (Chr %s, WindowID %s) has no valid BAF values. Consider increasing the min_snps_per_window value",
                       i, win_df$Chr[i], win_df$WindowID[i]))
     }
   }
