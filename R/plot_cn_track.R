@@ -463,13 +463,17 @@ plot_cn_track <- function(hmm_CN,
   if (!"z" %in% names(plot_df) && "R" %in% names(plot_df))
     plot_df$z <- as.numeric(plot_df$R)
   plot_df$Position <- as.numeric(plot_df$Position)
+
   dens_list <- lapply(split(plot_df, plot_df$Chr), function(df) {
-    if (nrow(df) < 2) return(NULL)
-    dens <- stats::density(df$baf, na.rm = TRUE)
+    baf_vals <- df$baf[!is.na(df$baf)]
+    if (length(baf_vals) < 2) return(NULL)
+    dens <- stats::density(baf_vals, from = 0, to = 1, bw=0.05)
+    # Add zero-density anchors at y=0 and y=1 so the polygon always closes
+    # cleanly at pos_min (left edge) regardless of boundary density values
     data.frame(
       Chr = unique(df$Chr),
-      y = dens$x,
-      density = dens$y
+      y = c(0, dens$x, 1),
+      density = c(0, dens$y, 0)
     )
   })
   dens_df <- do.call(rbind, dens_list)

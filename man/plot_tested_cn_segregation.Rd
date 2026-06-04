@@ -36,16 +36,19 @@ single panel with colours.}
     \code{"-1 × 0"} and \code{"0 × -1"} receive the same colour.}
 }}
 
-\item{significance_line}{Numeric or \code{NULL}. Nominal significance
-threshold before Bonferroni correction. A vertical dashed line is drawn
-at \code{significance_line / n_tests}, where \code{n_tests} is the number
-of markers tested per parent combination (or across all combinations when
-\code{facet = FALSE}). Set to \code{NULL} to suppress the line.
+\item{significance_line}{Numeric or \code{NULL}. Significance threshold for
+the vertical dashed line. When \code{bonferroni = TRUE} (default), the
+line is drawn at \code{significance_line} on the \code{p.adj} axis (the
+Bonferroni-adjusted p-values pre-computed by
+\code{\link{test_cn_segregation}} on only the tested markers). When
+\code{bonferroni = FALSE}, the line is drawn at \code{significance_line}
+on the raw p-value axis. Set to \code{NULL} to suppress the line.
 Default \code{0.05}.}
 
-\item{bonferroni}{Logical. If \code{TRUE} (default), the significance line
-is drawn at \code{significance_line / n_tests}. If \code{FALSE}, the raw
-\code{significance_line} value is used.}
+\item{bonferroni}{Logical. If \code{TRUE} (default), plots the
+\code{p.adj} column (Bonferroni-adjusted p-values, computed over tested
+markers only) and draws the significance line at \code{significance_line}.
+If \code{FALSE}, plots raw \code{p.value} instead.}
 }
 \value{
 A \code{ggplot} object.

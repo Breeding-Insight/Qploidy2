@@ -14,6 +14,7 @@ test_cn_segregation(
   cn_col = "CN_call",
   chrom_col = NULL,
   progeny_names = NULL,
+  skip_noninformative = TRUE,
   error_rate = 1e-04
 )
 }
@@ -55,6 +56,14 @@ with \code{ploidy_P}/\code{ploidy_Q} = mode(chrom). If \code{NULL}
 If \code{NULL} (default), all samples not listed in \code{parent_names_P}
 or \code{parent_names_Q} are used as progeny.}
 
+\item{skip_noninformative}{Logical. If \code{TRUE} (default), markers where
+both parents have \code{cn_dev == 0} AND the same effective ploidy are
+excluded from testing. Such markers produce 100\% of progeny at the
+reference CN and carry no segregation information. Markers where parents
+share \code{cn_dev == 0} but differ in ploidy (e.g. a 3x × 4x cross) are
+retained because unequal gamete sizes still produce a non-trivial progeny
+distribution. Set to \code{FALSE} to retain all markers.}
+
 \item{error_rate}{Numeric in (0, 1). A small probability substituted for any
 zero-probability expected class that has at least one observed count.
 This allows the chi-square test to run even when the theoretical model
@@ -68,7 +77,9 @@ A named list of class \code{tested_cn_segregation} with two
   \describe{
     \item{summary}{A \code{data.frame} with one row per (parent combination,
       marker), with columns \code{parent_P}, \code{parent_Q}, \code{marker},
-      \code{cn_dev_P}, \code{cn_dev_Q}, \code{ploidy_P}, \code{ploidy_Q}, \code{p.value}.}
+      \code{cn_dev_P}, \code{cn_dev_Q}, \code{ploidy_P}, \code{ploidy_Q},
+      \code{p.value}, \code{p.adj} (Bonferroni-adjusted p-value, computed
+      only over the markers actually tested within each parent combination).}
     \item{cn_detail}{A \code{data.frame} with one row per (parent
       combination, marker, CN state), with columns \code{parent_P},
       \code{parent_Q}, \code{marker}, \code{cn}, \code{prob}, \code{count}.}

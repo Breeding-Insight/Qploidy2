@@ -169,6 +169,13 @@ segreg_poly_cn <- function(cn_P, cn_Q, pop_ploidy = NULL, ploidy_P = NULL, ploid
 #' @param progeny_names Character vector of sample names to treat as progeny.
 #'   If \code{NULL} (default), all samples not listed in \code{parent_names_P}
 #'   or \code{parent_names_Q} are used as progeny.
+#' @param skip_noninformative Logical. If \code{TRUE} (default), markers where
+#'   both parents have \code{cn_dev == 0} AND the same effective ploidy are
+#'   excluded from testing. Such markers produce 100\% of progeny at the
+#'   reference CN and carry no segregation information. Markers where parents
+#'   share \code{cn_dev == 0} but differ in ploidy (e.g. a 3x × 4x cross) are
+#'   retained because unequal gamete sizes still produce a non-trivial progeny
+#'   distribution. Set to \code{FALSE} to retain all markers.
 #' @param error_rate Numeric in (0, 1). A small probability substituted for any
 #'   zero-probability expected class that has at least one observed count.
 #'   This allows the chi-square test to run even when the theoretical model
@@ -181,7 +188,9 @@ segreg_poly_cn <- function(cn_P, cn_Q, pop_ploidy = NULL, ploidy_P = NULL, ploid
 #'   \describe{
 #'     \item{summary}{A \code{data.frame} with one row per (parent combination,
 #'       marker), with columns \code{parent_P}, \code{parent_Q}, \code{marker},
-#'       \code{cn_dev_P}, \code{cn_dev_Q}, \code{ploidy_P}, \code{ploidy_Q}, \code{p.value}.}
+#'       \code{cn_dev_P}, \code{cn_dev_Q}, \code{ploidy_P}, \code{ploidy_Q},
+#'       \code{p.value}, \code{p.adj} (Bonferroni-adjusted p-value, computed
+#'       only over the markers actually tested within each parent combination).}
 #'     \item{cn_detail}{A \code{data.frame} with one row per (parent
 #'       combination, marker, CN state), with columns \code{parent_P},
 #'       \code{parent_Q}, \code{marker}, \code{cn}, \code{prob}, \code{count}.}
@@ -205,9 +214,10 @@ test_cn_segregation <- function(dosages,
                                 sample_col    = "SampleName",
                                 marker_col    = "MarkerName",
                                 cn_col        = "CN_call",
-                                chrom_col     = NULL,
-                                progeny_names = NULL,
-                                error_rate    = 0.0001) {
+                                chrom_col            = NULL,
+                                progeny_names        = NULL,
+                                skip_noninformative  = TRUE,
+                                error_rate           = 0.0001) {
 
   if (!is.numeric(error_rate) || length(error_rate) != 1 ||
       error_rate <= 0 || error_rate >= 1)
@@ -292,6 +302,13 @@ test_cn_segregation <- function(dosages,
     # eff_ploidy_P / eff_ploidy_Q are kept separate — parents may differ
     shared <- shared[!is.na(shared$cn_dev_P) & !is.na(shared$cn_dev_Q), ]
 
+    # Optionally drop markers with no CNV in either parent (uninformative).
+    # Keep markers where parents differ in ploidy even if both cn_dev == 0,
+    # because gamete sizes will differ and progeny won't be a single class.
+    if (skip_noninformative)
+      shared <- shared[!(shared$cn_dev_P == 0 & shared$cn_dev_Q == 0 &
+                           shared$eff_ploidy_P == shared$eff_ploidy_Q), ]
+
     if (nrow(shared) == 0) next
 
     # ── A. Compute expected distributions for unique (cn_dev_P, cn_dev_Q, eff_ploidy_P, eff_ploidy_Q) tuples
@@ -372,8 +389,11 @@ test_cn_segregation <- function(dosages,
     summary_combo$parent_Q <- pQ
     colnames(summary_combo)[colnames(summary_combo) == "eff_ploidy_P"] <- "ploidy_P"
     colnames(summary_combo)[colnames(summary_combo) == "eff_ploidy_Q"] <- "ploidy_Q"
+    # Bonferroni adjustment: n = number of markers tested in this combination
+    summary_combo$p.adj <- p.adjust(summary_combo$p.value, method = "bonferroni")
     summary_combo <- summary_combo[, c("parent_P", "parent_Q", "marker",
-                                       "cn_dev_P", "cn_dev_Q", "ploidy_P", "ploidy_Q", "p.value")]
+                                       "cn_dev_P", "cn_dev_Q", "ploidy_P", "ploidy_Q",
+                                       "p.value", "p.adj")]
     summary_combo <- summary_combo[order(summary_combo$marker), ]
 
     # cn_detail: one row per marker × cn — expected prob + observed count
@@ -412,11 +432,13 @@ test_cn_segregation <- function(dosages,
 #' @param facet Logical. If \code{TRUE} (default), each parent combination gets
 #'   its own facet panel. If \code{FALSE}, all combinations are overlaid in a
 #'   single panel with colours.
-#' @param significance_line Numeric or \code{NULL}. Nominal significance
-#'   threshold before Bonferroni correction. A vertical dashed line is drawn
-#'   at \code{significance_line / n_tests}, where \code{n_tests} is the number
-#'   of markers tested per parent combination (or across all combinations when
-#'   \code{facet = FALSE}). Set to \code{NULL} to suppress the line.
+#' @param significance_line Numeric or \code{NULL}. Significance threshold for
+#'   the vertical dashed line. When \code{bonferroni = TRUE} (default), the
+#'   line is drawn at \code{significance_line} on the \code{p.adj} axis (the
+#'   Bonferroni-adjusted p-values pre-computed by
+#'   \code{\link{test_cn_segregation}} on only the tested markers). When
+#'   \code{bonferroni = FALSE}, the line is drawn at \code{significance_line}
+#'   on the raw p-value axis. Set to \code{NULL} to suppress the line.
 #'   Default \code{0.05}.
 #' @param color_by Character. What to use for colours/fills. One of:
 #'   \describe{
@@ -426,9 +448,10 @@ test_cn_segregation <- function(dosages,
 #'       pair (e.g. \code{"-1 × 0"}). The pair is sorted so that
 #'       \code{"-1 × 0"} and \code{"0 × -1"} receive the same colour.}
 #'   }
-#' @param bonferroni Logical. If \code{TRUE} (default), the significance line
-#'   is drawn at \code{significance_line / n_tests}. If \code{FALSE}, the raw
-#'   \code{significance_line} value is used.
+#' @param bonferroni Logical. If \code{TRUE} (default), plots the
+#'   \code{p.adj} column (Bonferroni-adjusted p-values, computed over tested
+#'   markers only) and draws the significance line at \code{significance_line}.
+#'   If \code{FALSE}, plots raw \code{p.value} instead.
 #'
 #' @return A \code{ggplot} object.
 #'
@@ -464,27 +487,19 @@ plot_tested_cn_segregation <- function(x,
   # For facets keep combination label regardless of colour_by
   x$combination <- paste(x$parent_P, "\u00d7", x$parent_Q)
 
-  # Compute Bonferroni-corrected threshold per facet group (or globally)
-  get_threshold <- function(df, alpha, bonferroni) {
-    if (is.null(alpha)) return(NULL)
-    if (!bonferroni) return(alpha)
-    n <- nrow(df)
-    if (n == 0) return(alpha)
-    alpha / n
-  }
+  # When bonferroni = TRUE, plot the pre-computed p.adj and draw a fixed line
+  # at significance_line. When FALSE, plot raw p.value with the same line.
+  x_col <- if (bonferroni && "p.adj" %in% colnames(x)) "p.adj" else "p.value"
+  x_lab <- if (x_col == "p.adj") "Adjusted p-value (Bonferroni)" else "p-value"
 
   if (facet) {
-    # One threshold per combination panel
-    thresholds <- lapply(split(x, x$combination), get_threshold,
-                         alpha = significance_line, bonferroni = bonferroni)
     vline_df <- data.frame(
-      combination = names(thresholds),
-      xintercept  = unlist(thresholds),
+      combination = unique(x$combination),
+      xintercept  = significance_line,
       stringsAsFactors = FALSE
     )
   } else {
-    # Single global threshold across all tests
-    global_thresh <- get_threshold(x, significance_line, bonferroni)
+    global_thresh <- significance_line
   }
 
   # Discrete viridis palette scales to any number of levels
@@ -494,7 +509,7 @@ plot_tested_cn_segregation <- function(x,
                                                name = legend_title)
 
   if (facet) {
-    p <- ggplot(x, aes(x = p.value, fill = colour_group)) +
+    p <- ggplot(x, aes(x = .data[[x_col]], fill = colour_group)) +
       geom_histogram(bins = bins, alpha = alpha,
                               colour = "white", linewidth = 0.2) +
       colour_scale_fill +
@@ -504,7 +519,7 @@ plot_tested_cn_segregation <- function(x,
         legend.position = if (color_by == "cn_pair") "right" else "none"
       )
   } else {
-    p <- ggplot(x, aes(x = p.value, colour = colour_group)) +
+    p <- ggplot(x, aes(x = .data[[x_col]], colour = colour_group)) +
       geom_freqpoly(bins = bins, linewidth = 0.8, alpha = alpha) +
       colour_scale_color +
       ggplot2::theme(
@@ -514,14 +529,14 @@ plot_tested_cn_segregation <- function(x,
 
   p <- p +
     labs(
-      x        = "p-value",
+      x        = x_lab,
       y        = "Number of markers",
       title    = "CN segregation test: p-value distribution",
       subtitle = if (!is.null(significance_line) && bonferroni)
-        paste0("Red dashed line: Bonferroni-corrected \u03b1 = ",
-               significance_line, " / n markers per combination")
+        paste0("Red dashed line: alpha = ", significance_line,
+               " (applied to pre-computed Bonferroni-adjusted p-values)")
         else if (!is.null(significance_line))
-        paste0("Red dashed line: \u03b1 = ", significance_line)
+        paste0("Red dashed line: alpha = ", significance_line)
         else NULL
     ) +
     theme_bw() +
