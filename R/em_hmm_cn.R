@@ -37,6 +37,7 @@ em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, 
         if(correct_scale) {
           llb <- llb/ n_baf
         }
+        if(any(is.nan(llb))) llb[which(is.nan(llb))] <- 0 # If not BAF is present in the window, only z-score is considered
         ll_em[, k] <- (1-w_baf) * llz + w_baf * llb
       }
     }
