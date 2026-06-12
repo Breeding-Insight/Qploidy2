@@ -100,9 +100,15 @@ standardize <- function(data = NULL,
                         cluster_median = TRUE,
                         filter_R = FALSE){
 
-  if(is.null(data) || is.null(genos) || is.null(geno.pos) ||
-     is.null(ploidy.standardization) || is.null(threshold.n.clusters)) {
-    stop("Not all required inputs were defined.")
+  missing_inputs <- c(
+    if (is.null(data))                    "data",
+    if (is.null(genos))                   "genos",
+    if (is.null(geno.pos))                "geno.pos",
+    if (is.null(ploidy.standardization))  "ploidy.standardization"
+  )
+  if (length(missing_inputs) > 0) {
+    stop("The following required inputs are missing (NULL): ",
+         paste(missing_inputs, collapse = ", "), ".")
   }
 
   # Scalar type checks

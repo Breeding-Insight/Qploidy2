@@ -1,3 +1,8 @@
+# Qploidy2 1.9.2
+
+* Specific error messages for standardization when required inputs are not provided
+* threshold.n.clusters made as optional. Defaul is ploidy.standardization + 1
+
 # Qploidy2 1.9.1
 
 * Add `GenoBrew` links 
