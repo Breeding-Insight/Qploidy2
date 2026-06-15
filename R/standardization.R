@@ -56,6 +56,8 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##' @param rm_outlier Logical. If TRUE, uses Bonferroni-Holm corrected residuals to remove outliers before estimating cluster centers.
 ##' @param cluster_median Logical. If TRUE, uses the median of theta values to estimate cluster centers. If FALSE, uses the mean.
 ##' @param filter_R Logical. If TRUE, calculates Z-scores only for markers that passed missing data filter (default: FALSE).
+##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
+##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
 ##'
 ##' @return An object of class `qploidy_standardization` (list) with the following components:
 ##'   - info: Named vector of standardization parameters
@@ -98,11 +100,19 @@ standardize <- function(data = NULL,
                         verbose = TRUE,
                         rm_outlier = TRUE,
                         cluster_median = TRUE,
-                        filter_R = FALSE){
+                        filter_R = FALSE,
+                        min.depth = NULL,
+                        max.depth = NULL){
 
-  if(is.null(data) || is.null(genos) || is.null(geno.pos) ||
-     is.null(ploidy.standardization) || is.null(threshold.n.clusters)) {
-    stop("Not all required inputs were defined.")
+  missing_inputs <- c(
+    if (is.null(data))                    "data",
+    if (is.null(genos))                   "genos",
+    if (is.null(geno.pos))                "geno.pos",
+    if (is.null(ploidy.standardization))  "ploidy.standardization"
+  )
+  if (length(missing_inputs) > 0) {
+    stop("The following required inputs are missing (NULL): ",
+         paste(missing_inputs, collapse = ", "), ".")
   }
 
   # Scalar type checks
@@ -153,6 +163,13 @@ standardize <- function(data = NULL,
   if (!is.logical(cluster_median)|| length(cluster_median) != 1) stop("'cluster_median' must be a single logical value.")
   if (!is.logical(filter_R)      || length(filter_R) != 1)      stop("'filter_R' must be a single logical value.")
 
+  if (!is.null(min.depth) && (!is.numeric(min.depth) || length(min.depth) != 1 || min.depth < 0))
+    stop("'min.depth' must be a single non-negative numeric value or NULL.")
+  if (!is.null(max.depth) && (!is.numeric(max.depth) || length(max.depth) != 1 || max.depth < 0))
+    stop("'max.depth' must be a single non-negative numeric value or NULL.")
+  if (!is.null(min.depth) && !is.null(max.depth) && min.depth >= max.depth)
+    stop("'min.depth' must be strictly less than 'max.depth'.")
+
   if (!is.null(multidog_obj) && !inherits(multidog_obj, "multidog"))
     stop("'multidog_obj' must be an object of class 'multidog' (from the updog package) or NULL.")
 
@@ -193,6 +210,39 @@ standardize <- function(data = NULL,
 
   vmsg("Generating standardized BAFs", verbose = verbose, level = 0, type = ">>")
   if(is.null(threshold.n.clusters)) threshold.n.clusters <- ploidy.standardization + 1
+
+  ## Filter by depth (min.depth / max.depth)
+  depth.rm <- 0L
+  if (!is.null(min.depth) || !is.null(max.depth)) {
+    depth_mask <- rep(FALSE, nrow(data))
+    if (!is.null(min.depth)) depth_mask <- depth_mask | (data$R < min.depth)
+    if (!is.null(max.depth)) depth_mask <- depth_mask | (data$R > max.depth)
+    depth.rm <- sum(depth_mask, na.rm = TRUE)
+    if (depth.rm > 0) {
+      data$ratio[depth_mask] <- NA
+      data$R[depth_mask]     <- NA
+      # Null out corresponding genotype calls in genos using integer hashing
+      # (avoids slow string paste + %in% on character vectors)
+      mk_levels   <- unique(c(data$MarkerName, genos$MarkerName))
+      sa_levels   <- unique(c(data$SampleName, genos$SampleName))
+      n_sa        <- length(sa_levels)
+      depth_hash  <- match(data$MarkerName[depth_mask], mk_levels) * n_sa +
+                     match(data$SampleName[depth_mask], sa_levels)
+      genos_hash  <- match(genos$MarkerName, mk_levels) * n_sa +
+                     match(genos$SampleName, sa_levels)
+      genos$geno[genos_hash %in% depth_hash] <- NA
+    }
+    depth_range_str <- paste0(
+      if (!is.null(min.depth)) paste0("min = ", min.depth) else "",
+      if (!is.null(min.depth) && !is.null(max.depth)) ", " else "",
+      if (!is.null(max.depth)) paste0("max = ", max.depth) else ""
+    )
+    vmsg(
+      "Datapoints removed by depth filter (%s): %s (%.2f %%)",
+      verbose = verbose, level = 2, type = ">>",
+      depth_range_str, depth.rm, depth.rm / nrow(data) * 100
+    )
+  }
 
   ## Filter by prob (only if prob column is present)
   if (has_prob_col) {
@@ -347,10 +397,13 @@ standardize <- function(data = NULL,
                                     threshold.geno.prob = threshold.geno.prob,
                                     ploidy.standardization = ploidy.standardization,
                                     threshold.n.clusters = threshold.n.clusters,
+                                    min.depth = if (!is.null(min.depth)) min.depth else NA,
+                                    max.depth = if (!is.null(max.depth)) max.depth else NA,
                                     out_filename = out_filename,
                                     type = if(!is.null(multidog_obj)) "updog" else type),
                            filters = c(n.markers.start = length(unique(data$MarkerName)),
                                        geno.prob.rm = prob.rm,
+                                       depth.rm = depth.rm,
                                        miss.rm = mis.rm,
                                        clusters.rm= clusters.rm,
                                        no.geno.info.rm = no.geno.info,
@@ -358,7 +411,7 @@ standardize <- function(data = NULL,
                            data = qploidy_data), class = "qploidy_standardization")
 
   if(!is.null(out_filename)) {
-    vmsg("Writting QploidyApp input file: %s", verbose = verbose, level = 1, type = ">>", out_filename)
+    vmsg("Writting GenoBrew input file: %s", verbose = verbose, level = 1, type = ">>", out_filename)
     write_qploidy_standardization(result, out_filename)
   }
 
@@ -379,33 +432,61 @@ standardize <- function(data = NULL,
 #' @export
 print.qploidy_standardization <- function(x, ...){
 
-  info <- data.frame(c1 = c("Standardization type:", "Ploidy:",
-                            "Min # of heterozygous classes (clusters) present:",
-                            "Max proportion of missing genotype by marker:",
-                            "Min genotype probability:"),
-                     c2 = c(x$info["type"], x$info["ploidy.standardization"],
-                            x$info["threshold.n.clusters"],
-                            as.numeric(x$info["threshold.missing.geno"]),
-                            x$info["threshold.geno.prob"]))
+  # Depth filter params (may be absent in older objects)
+  has_depth <- !is.null(x$info["min.depth"]) && !is.na(x$info["min.depth"]) &&
+               "min.depth" %in% names(x$info)
+  depth_info_rows <- if (has_depth) {
+    list(
+      c1 = c("Min read depth (min.depth):", "Max read depth (max.depth):"),
+      c2 = c(
+        ifelse(!is.na(x$info["min.depth"]), x$info["min.depth"], "none"),
+        ifelse(!is.na(x$info["max.depth"]), x$info["max.depth"], "none")
+      )
+    )
+  } else NULL
 
-  format.df <- data.frame(c1 = c("# markers at raw data:",
-                                 "% datapoints filtered by low probability:",
-                                 "# markers filtered by missing data:",
-                                 "# markers filtered by min number of clusters:",
-                                 "# markers filtered by lack of genomic information:",
-                                 "# markers remaining with estimated BAF:"),
-                          c2 = c(x$filters["n.markers.start"],
-                                 "-",
-                                 x$filters["miss.rm"],
-                                 x$filters["clusters.rm"],
-                                 x$filters["no.geno.info.rm"],
-                                 x$filters["n.markers.end"]),
-                          c3 = c("(100%)",
-                                 paste0("(",x$filters["geno.prob.rm"], " %)"),
-                                 paste0("(",round(x$filters["miss.rm"]/x$filters["n.markers.start"]*100,2)," %)"),
-                                 paste0("(", round(x$filters["clusters.rm"]/x$filters["n.markers.start"]*100,2)," %)"),
-                                 paste0("(", round(x$filters["no.geno.info.rm"]/x$filters["n.markers.start"]*100,2)," %)"),
-                                 paste0("(", round(x$filters["n.markers.end"]/x$filters["n.markers.start"]*100,2)," %)")))
+  info <- data.frame(
+    c1 = c("Standardization type:", "Ploidy:",
+           "Min # of heterozygous classes (clusters) present:",
+           "Max proportion of missing genotype by marker:",
+           "Min genotype probability:",
+           if (!is.null(depth_info_rows)) depth_info_rows$c1),
+    c2 = c(x$info["type"], x$info["ploidy.standardization"],
+           x$info["threshold.n.clusters"],
+           as.numeric(x$info["threshold.missing.geno"]),
+           x$info["threshold.geno.prob"],
+           if (!is.null(depth_info_rows)) depth_info_rows$c2)
+  )
+
+  # depth.rm row (may be absent in older objects)
+  has_depth_rm <- "depth.rm" %in% names(x$filters)
+  n_total_dp   <- if (has_depth_rm) {
+    # total datapoints not stored; show count only (no %)
+    as.numeric(x$filters["depth.rm"])
+  } else NULL
+
+  format.df <- data.frame(
+    c1 = c("# markers at raw data:",
+           "% datapoints filtered by low probability:",
+           if (has_depth_rm) "# datapoints filtered by depth (min/max):",
+           "# markers filtered by missing data:",
+           "# markers filtered by min number of clusters:",
+           "# markers filtered by lack of genomic information:",
+           "# markers remaining with estimated BAF:"),
+    c2 = c(x$filters["n.markers.start"],
+           "-",
+           if (has_depth_rm) n_total_dp,
+           x$filters["miss.rm"],
+           x$filters["clusters.rm"],
+           x$filters["no.geno.info.rm"],
+           x$filters["n.markers.end"]),
+    c3 = c("(100%)",
+           paste0("(", x$filters["geno.prob.rm"], " %)"),
+           if (has_depth_rm) "-",
+           paste0("(", round(x$filters["miss.rm"]    / x$filters["n.markers.start"] * 100, 2), " %)"),
+           paste0("(", round(x$filters["clusters.rm"] / x$filters["n.markers.start"] * 100, 2), " %)"),
+           paste0("(", round(x$filters["no.geno.info.rm"] / x$filters["n.markers.start"] * 100, 2), " %)"),
+           paste0("(", round(x$filters["n.markers.end"]   / x$filters["n.markers.start"] * 100, 2), " %)")))
 
   colnames(info) <- rownames(info) <- colnames(format.df) <- rownames(format.df) <- NULL
 

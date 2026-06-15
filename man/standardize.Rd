@@ -20,7 +20,9 @@ standardize(
   verbose = TRUE,
   rm_outlier = TRUE,
   cluster_median = TRUE,
-  filter_R = FALSE
+  filter_R = FALSE,
+  min.depth = NULL,
+  max.depth = NULL
 )
 }
 \arguments{
@@ -68,6 +70,10 @@ standardize(
 \item{cluster_median}{Logical. If TRUE, uses the median of theta values to estimate cluster centers. If FALSE, uses the mean.}
 
 \item{filter_R}{Logical. If TRUE, calculates Z-scores only for markers that passed missing data filter (default: FALSE).}
+
+\item{min.depth}{Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).}
+
+\item{max.depth}{Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).}
 }
 \value{
 An object of class `qploidy_standardization` (list) with the following components:

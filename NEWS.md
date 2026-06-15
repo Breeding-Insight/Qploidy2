@@ -1,3 +1,13 @@
+# Qploidy2 1.10.0
+
+* Changing default value of `add_uniform_grid` in `hmm_estimate_CN` to FALSE for better performance
+* Add option to filter min and max total depth (R) on `standardize` function
+
+# Qploidy2 1.9.2
+
+* Specific error messages for standardization when required inputs are not provided
+* threshold.n.clusters made as optional. Default is ploidy.standardization + 1
+
 # Qploidy2 1.9.1
 
 * Add `GenoBrew` links 
