@@ -134,7 +134,7 @@ hmm_estimate_CN <- function(
     selected_model = NULL,
     dists = c("gaussian", "beta", "beta_binomial", "negative_binomial"),
     bw_grid = c(0.02, 0.03, 0.04),
-    add_uniform_grid = c(FALSE, TRUE),
+    add_uniform_grid = FALSE,
     uniform_weight_grid = c(0.01, 0.03, 0.05, 0.10, 0.15),
     param_count = NULL,
     count_grid_as_params = TRUE,
