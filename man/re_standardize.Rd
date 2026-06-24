@@ -20,7 +20,9 @@ re_standardize(
   parallel.type = "PSOCK",
   rm_outlier = TRUE,
   cluster_median = TRUE,
-  verbose = TRUE
+  verbose = TRUE,
+  min.depth = NULL,
+  max.depth = NULL
 )
 }
 \arguments{
@@ -64,6 +66,10 @@ re_standardize(
 \item{cluster_median}{Logical. Use median (TRUE) or mean (FALSE) for cluster centers. Default is TRUE.}
 
 \item{verbose}{Logical. Print progress messages. Default is TRUE.}
+
+\item{min.depth}{Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value are set to missing before standardization. Default is NULL (no filtering).}
+
+\item{max.depth}{Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value are set to missing before standardization. Default is NULL (no filtering).}
 }
 \value{
 An object of class `qploidy_standardization` (list) with elements:

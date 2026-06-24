@@ -1,3 +1,8 @@
+# Qploidy2 1.11.0
+
+* Add count breakpoints functions
+* Fix notes in CMD checks
+
 # Qploidy2 1.10.0
 
 * Changing default value of `add_uniform_grid` in `hmm_estimate_CN` to FALSE for better performance

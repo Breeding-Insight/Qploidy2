@@ -1,3 +1,8 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c(
+  "GT", "dosage", ".N", "AD", "Z", "PMC", "post_max_CN", "PMD",
+  "post_max_dosage", "FORMAT", "INFO", ".BY", "color_blend"
+))
+
 #' Export hmm_dosage_calls to VCF
 #'
 #' Converts a hmm_dosage_calls object (data.frame) to a VCF file with GT, CN, AD, BAF, Z, post_max_CN, and post_max_dosage in FORMAT.
@@ -5,7 +10,7 @@
 #' @param hmm_dosage_calls A data.frame with columns: MarkerName, SampleName, Chr, Position, X, Y, CN_call, post_max_CN, dosage, post_max_dosage, BAF, z
 #' @param file Path to output VCF file
 #'
-#' @importFrom data.table data.table setDT dcast fwrite setcolorder
+#' @importFrom data.table data.table setDT dcast fwrite setcolorder ':='
 #'
 #' @details The VCF INFO field will contain the mode of CN_call values for each marker. The FORMAT field will include GT (genotype), CN (copy number call), AD (allelic depths), BAF, Z, PMC (posterior max CN), and PMD (posterior max dosage). Genotypes are assigned based on the dosage and CN_call, with 1 representing the alternate allele and 0 representing the reference allele.
 #'
@@ -92,6 +97,7 @@ export_VCF <- function(hmm_dosage_calls, file) {
 #' @param plot Logical. If TRUE, generates a plot of BAF values colored by maximum probability.
 #'
 #' @importFrom ggplot2 ggplot aes geom_density geom_point geom_vline scale_color_gradient labs theme_bw
+#' @importFrom grDevices rainbow
 #'
 #'
 #' @return A data.frame with columns: BAF, dosage (integer), max_prob (probability), and a matrix of probabilities for each possible dosage. If plot=TRUE, returns a list with data and plot.

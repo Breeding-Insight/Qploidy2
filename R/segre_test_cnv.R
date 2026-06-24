@@ -1,3 +1,5 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c("colour_group", "xintercept"))
+
 #' Compute Expected Copy-Number Segregation in Polyploid Crosses
 #'
 #' Calculates the expected distribution of progeny copy-number (CN) states
@@ -52,6 +54,8 @@
 #' # Triploid x tetraploid (odd ploidy supported)
 #' segreg_poly_cn(-1, -1, ploidy_P = 3, ploidy_Q = 4)
 #'
+#' @importFrom utils combn
+#' @importFrom stats aggregate
 #' @export
 segreg_poly_cn <- function(cn_P, cn_Q, pop_ploidy = NULL, ploidy_P = NULL, ploidy_Q = NULL) {
   # cn_P and cn_Q can be:
@@ -206,6 +210,7 @@ segreg_poly_cn <- function(cn_P, cn_Q, pop_ploidy = NULL, ploidy_P = NULL, ploid
 #' )
 #' }
 #'
+#' @importFrom stats aggregate ave chisq.test
 #' @export
 test_cn_segregation <- function(dosages,
                                 parent_names_P,
@@ -611,6 +616,7 @@ plot_tested_cn_segregation <- function(x,
 #'                            sim$parent_names_Q, ploidy = 4)
 #' plot_tested_cn_segregation(res)
 #'
+#' @importFrom stats aggregate
 #' @export
 simulate_cn_segregation <- function(n_parents_P    = 3,
                                     n_parents_Q    = 3,

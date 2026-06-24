@@ -1,4 +1,7 @@
-globalVariables(c("Chr", "baf", "z", "ratio", "median", "window", "prop_het"))
+globalVariables(c("Chr", "baf", "z", "ratio", "median", "window", "prop_het",
+  "Xb", "Yb", ".__hl__",
+  "max_geno", "geno_cat", "metric", "geno_num", "max_val", "min_val",
+  "decreasing", "expected", "type"))
 
 #' Plot BAF
 #'
@@ -1306,6 +1309,7 @@ plot_baf_with_ploidy_guides <- function(df,
 #' @import ggplot2
 #' @importFrom dplyr summarise pull mutate if_else distinct
 #' @importFrom tidyr pivot_longer crossing
+#' @importFrom stats na.omit
 #' @export
 plot_geno_by_marker <- function(df, ploidy = NULL, alpha = 0.6) {
 

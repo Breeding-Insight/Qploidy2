@@ -367,8 +367,8 @@ select_best_baf_model <- function(
     baf_vec <- one_sample$baf
   } else {
     # baf_vec provided directly; qploidy_standardization and sample may be omitted
-    if (!is.numeric(baf_vec) || length(baf_vec) == 0)
-      stop("'baf_vec' must be a non-empty numeric vector.")
+    if (!is.numeric(baf_vec) || length(baf_vec) == 0 || all(is.na(baf_vec)))
+      stop(paste("'baf_vec' must be a non-empty numeric vector. Verify sample",sample ,"data, it may have only missing data."))
   }
 
   stopifnot(is.numeric(cn_grid) || is.integer(cn_grid))
@@ -610,7 +610,7 @@ select_best_baf_model <- function(
 #'
 #' @export
 #' @importFrom stats dnorm dbeta dbinom dnbinom
-#' 
+#'
 #' @author Cristiane Taniguti
 generate_baf_template <- function(cn, M = 101, bw = 0.03, floor_eps = 1e-8,
                          dist = c("gaussian","beta","beta_binomial","negative_binomial"),

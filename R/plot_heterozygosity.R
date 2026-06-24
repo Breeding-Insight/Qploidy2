@@ -1,3 +1,5 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c("col_idx", "row_idx", "het_ratio", "n_markers"))
+
 #' Heterozygosity Heatmap per Sample
 #'
 #' Computes the proportion of markers with BAF values within a heterozygosity

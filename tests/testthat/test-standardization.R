@@ -125,7 +125,7 @@ test_that("standardize runs and returns expected object", {
 
   # Check print.qploidy_standardization
   txt <- print(result)
-  expect_equal(dim(txt), c(6,3))
+  expect_equal(dim(txt), c(7,3))
   expect_equal(as.character(txt[4,3]), "(0 %)  ")
 
   # Check read.qploidy_standardization
@@ -137,7 +137,7 @@ test_that("standardize runs and returns expected object", {
 
   # Check print.qploidy_standardization
   txt <- print(result)
-  expect_equal(dim(txt), c(6,3))
+  expect_equal(dim(txt), c(7,3))
   expect_equal(as.character(txt[4,3]), "(0 %)  ")
 })
 

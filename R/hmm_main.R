@@ -1,3 +1,5 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
+
 #' Polyploid copy-number HMM (z + BAF) per sample and window
 #'
 #' Aggregates SNP-level data into windows, builds BAF histograms, and fits a

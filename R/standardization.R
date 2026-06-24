@@ -659,6 +659,8 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param rm_outlier Logical. Remove outliers before estimating cluster centers. Default is TRUE.
 ##' @param cluster_median Logical. Use median (TRUE) or mean (FALSE) for cluster centers. Default is TRUE.
 ##' @param verbose Logical. Print progress messages. Default is TRUE.
+##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value are set to missing before standardization. Default is NULL (no filtering).
+##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value are set to missing before standardization. Default is NULL (no filtering).
 ##'
 ##' @return An object of class `qploidy_standardization` (list) with elements:
 ##'   - info: Named vector of standardization parameters
@@ -703,7 +705,9 @@ re_standardize <- function(data = NULL,
                            parallel.type = "PSOCK",
                            rm_outlier = TRUE,
                            cluster_median = TRUE,
-                           verbose = TRUE) {
+                           verbose = TRUE,
+                           min.depth = NULL,
+                           max.depth = NULL) {
 
   # Check input object
   # check if hmm_CN_multi is hmm_CN class
@@ -749,7 +753,9 @@ re_standardize <- function(data = NULL,
     parallel.type = parallel.type,
     rm_outlier = rm_outlier,
     cluster_median = cluster_median,
-    verbose = verbose
+    verbose = verbose,
+    min.depth = min.depth,
+    max.depth = max.depth
   )
 
   return(re_qploidy_standardization)

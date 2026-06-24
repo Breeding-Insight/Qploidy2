@@ -1,6 +1,7 @@
 # Suppress R CMD check notes for non-standard evaluation in dplyr/ggplot2
 if (getRversion() >= "2.15.1") utils::globalVariables(
-  c("starts_all", "starts", "outlier", "WindowID", "z_mean", "Chr", "region_id", "w_baf", "SampleName", "Position", "baf", "Start", "End", "prob_call", "CN_call")
+  c("starts_all", "starts", "outlier", "WindowID", "z_mean", "Chr", "region_id", "w_baf", "SampleName", "Position", "baf", "Start", "End", "prob_call", "CN_call",
+    "shape_flag", "pos_min", "pos_max", "max_dens", "y")
 )
 
 ##' Plot copy-number segments per window with posterior shading and BAF

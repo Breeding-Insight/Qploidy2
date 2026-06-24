@@ -1,3 +1,5 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c("Chromosome", "het_rate"))
+
 #' Plot Raw Allele Frequency and Depth Data
 #'
 #' Merges a raw allele-count data frame with a genomic-position data frame and
@@ -150,6 +152,7 @@ plot_raw <- function(data,
   } else if (is.numeric(chr)) {
     chr <- sort(unique(df$Chr))[chr]
   }
+  if(length(chr) > 25) warning("Number of chromosomes is higher than 25, plot visualization may be difficult.")
   if (!all(chr %in% unique(df$Chr))) stop("One or more requested chromosomes not found in data.")
   df <- df %>% filter(Chr %in% chr)
 
