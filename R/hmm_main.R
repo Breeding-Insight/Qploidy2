@@ -1001,3 +1001,4 @@ read_hmm_CN <- function(by_window_file, by_marker_file, params_file) {
     stop("params_file does not contain a recognizable params or params_samples object with all required items.")
   }
 }
+

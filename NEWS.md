@@ -2,6 +2,7 @@
 
 * Report on print.standardization object the number of markers containing z-score metric
 * remove requirement for selected model on re-standardization - if NULL, grid is tested for each sample 
+* add function merge_qploidy_datas
 
 # Qploidy2 1.11.0
 
