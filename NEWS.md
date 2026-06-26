@@ -1,3 +1,8 @@
+# Qploidy2 1.12.0
+
+* Report on print.standardization object the number of markers containing z-score metric
+* remove requirement for selected model on re-standardization - if NULL, grid is tested for each sample 
+
 # Qploidy2 1.11.0
 
 * Add count breakpoints functions

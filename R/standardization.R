@@ -380,6 +380,7 @@ standardize <- function(data = NULL,
   else zscore <- get_zscore(data, geno.pos)
 
   vmsg("Z scores ready!", verbose = verbose, level = 1, type = ">>")
+  n.markers.zscore.end <- length(unique(zscore$MarkerName[!is.na(zscore$z)]))
 
   vmsg("Preparing outputs", verbose = verbose, level = 0, type = ">>")
 
@@ -407,7 +408,8 @@ standardize <- function(data = NULL,
                                        miss.rm = mis.rm,
                                        clusters.rm= clusters.rm,
                                        no.geno.info.rm = no.geno.info,
-                                       n.markers.end = length(unique(baf_melt$MarkerName))),
+                                       n.markers.end = length(unique(baf_melt$MarkerName)),
+                                       n.markers.zscore.end = n.markers.zscore.end),
                            data = qploidy_data), class = "qploidy_standardization")
 
   if(!is.null(out_filename)) {
@@ -465,6 +467,9 @@ print.qploidy_standardization <- function(x, ...){
     as.numeric(x$filters["depth.rm"])
   } else NULL
 
+  # n.markers.zscore.end (may be absent in older objects)
+  has_zscore_end <- "n.markers.zscore.end" %in% names(x$filters)
+
   format.df <- data.frame(
     c1 = c("# markers at raw data:",
            "% datapoints filtered by low probability:",
@@ -472,21 +477,25 @@ print.qploidy_standardization <- function(x, ...){
            "# markers filtered by missing data:",
            "# markers filtered by min number of clusters:",
            "# markers filtered by lack of genomic information:",
-           "# markers remaining with estimated BAF:"),
+           "# markers remaining with estimated BAF:",
+           if (has_zscore_end) "# markers remaining with estimated z-score:"),
     c2 = c(x$filters["n.markers.start"],
            "-",
            if (has_depth_rm) n_total_dp,
            x$filters["miss.rm"],
            x$filters["clusters.rm"],
            x$filters["no.geno.info.rm"],
-           x$filters["n.markers.end"]),
+           x$filters["n.markers.end"],
+           if (has_zscore_end) x$filters["n.markers.zscore.end"]),
     c3 = c("(100%)",
            paste0("(", x$filters["geno.prob.rm"], " %)"),
            if (has_depth_rm) "-",
            paste0("(", round(x$filters["miss.rm"]    / x$filters["n.markers.start"] * 100, 2), " %)"),
            paste0("(", round(x$filters["clusters.rm"] / x$filters["n.markers.start"] * 100, 2), " %)"),
            paste0("(", round(x$filters["no.geno.info.rm"] / x$filters["n.markers.start"] * 100, 2), " %)"),
-           paste0("(", round(x$filters["n.markers.end"]   / x$filters["n.markers.start"] * 100, 2), " %)")))
+           paste0("(", round(x$filters["n.markers.end"]   / x$filters["n.markers.start"] * 100, 2), " %)"),
+           if (has_zscore_end) paste0("(", round(x$filters["n.markers.zscore.end"] / x$filters["n.markers.start"] * 100, 2), " %)")))
+
 
   colnames(info) <- rownames(info) <- colnames(format.df) <- rownames(format.df) <- NULL
 
@@ -646,7 +655,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##'   - Position: Genomic position (base-pair coordinate)
 ##'
 ##' @param hmm_CN_multi An object of class `hmm_CN` as returned by `hmm_estimate_CN_multi`.
-##' @param selected_model Character. The name of the model to use from `hmm_CN_multi$params_samples` (required).
+##' @param selected_model Character or NULL. The name of the model to use from `hmm_CN_multi$params_samples`. If NULL (default), `call_hmm_dosages` is called without a model selection argument.
 ##' @param ploidy.standardization Integer. Ploidy level to use for standardization. If NULL, uses the mode of CN_call in dosages.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. Defaults to ploidy + 1.
 ##' @param n.cores Integer. Number of cores for parallel computation. Default is 1.
@@ -715,12 +724,11 @@ re_standardize <- function(data = NULL,
   # check if hmm_CN_multi has params_samples element
   if (!any(names(hmm_CN_multi) == "params_samples")) stop("Input object must come from hmm_estimate_CN_multi function")
 
-  # make selected_model required
-  if (is.null(selected_model)) stop("selected_model must be provided")
-
   # Call dosages for the selected model
-  dosages <- call_hmm_dosages(hmm_CN = hmm_CN_multi, selected_model)
-
+  if(!is.null(selected_model)){
+    dosages <- call_hmm_dosages(hmm_CN = hmm_CN_multi, selected_model)
+  } else dosages <- call_hmm_dosages(hmm_CN = hmm_CN_multi)
+  
   # Set ploidy.standardization if not provided
   if(is.null(ploidy.standardization)) {
     ploidy.standardization <- mode( hmm_CN_multi$by_marker$CN_call)

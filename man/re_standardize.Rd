@@ -41,7 +41,7 @@ re_standardize(
 
 \item{hmm_CN_multi}{An object of class `hmm_CN` as returned by `hmm_estimate_CN_multi`.}
 
-\item{selected_model}{Character. The name of the model to use from `hmm_CN_multi$params_samples` (required).}
+\item{selected_model}{Character or NULL. The name of the model to use from `hmm_CN_multi$params_samples`. If NULL (default), `call_hmm_dosages` is called without a model selection argument.}
 
 \item{ploidy.standardization}{Integer. Ploidy level to use for standardization. If NULL, uses the mode of CN_call in dosages.}
 
