@@ -1,7 +1,13 @@
+# Qploidy2 1.13.0
+
+* Improve dosage call. Now mixed model parameters are defined by sample and copy number. Parameters carried by the hmm object is passed to `call_hmm_dosage`
+* The change above remove the selected_model requirement from `re-standardize` function once the models parameters are being used from the hmm object o, if absent (rare), estimated by sample again via grid and select_baf_model
+* Add tests for `re_standardize`
+* Updates vignette
+
 # Qploidy2 1.12.0
 
 * Report on print.standardization object the number of markers containing z-score metric
-* remove requirement for selected model on re-standardization - if NULL, grid is tested for each sample 
 * add function merge_qploidy_datas
 
 # Qploidy2 1.11.0

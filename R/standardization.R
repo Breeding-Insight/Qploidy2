@@ -655,7 +655,6 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##'   - Position: Genomic position (base-pair coordinate)
 ##'
 ##' @param hmm_CN_multi An object of class `hmm_CN` as returned by `hmm_estimate_CN_multi`.
-##' @param selected_model Character or NULL. The name of the model to use from `hmm_CN_multi$params_samples`. If NULL (default), `call_hmm_dosages` is called without a model selection argument.
 ##' @param ploidy.standardization Integer. Ploidy level to use for standardization. If NULL, uses the mode of CN_call in dosages.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. Defaults to ploidy + 1.
 ##' @param n.cores Integer. Number of cores for parallel computation. Default is 1.
@@ -670,6 +669,17 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param verbose Logical. Print progress messages. Default is TRUE.
 ##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value are set to missing before standardization. Default is NULL (no filtering).
 ##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value are set to missing before standardization. Default is NULL (no filtering).
+##' @param cn_grid Integer vector or \code{NULL}. Copy number states for per-sample BAF model selection. When \code{NULL} (default), the value stored in \code{hmm_CN_multi$params_samples} is used; falls back to \code{2:8} if absent.
+##' @param dists Character vector or \code{NULL}. Distribution families to test. When \code{NULL} (default), the distribution stored in the params is used; falls back to all four families if absent.
+##' @param bw_grid Numeric vector or \code{NULL}. Bandwidth values to search. When \code{NULL} (default), the bandwidth from params is used; falls back to \code{c(0.02, 0.03, 0.04)} if absent.
+##' @param add_uniform_grid Logical vector or \code{NULL}. Whether to include a uniform noise component. When \code{NULL} (default), the value from params is used; falls back to \code{FALSE} if absent.
+##' @param uniform_weight_grid Numeric vector or \code{NULL}. Mixture weights for the uniform component. When \code{NULL} (default), the value from params is used; falls back to \code{c(0.01, 0.03, 0.05, 0.10, 0.15)} if absent.
+##' @param M Integer. Number of BAF histogram bins for model selection. Default: \code{100}.
+##' @param reflect Logical. Reflect BAF values for symmetric templates. Default: \code{TRUE}.
+##' @param param_count Optional named integer vector. Number of free parameters per distribution for BIC penalisation. Default: \code{NULL}.
+##' @param count_grid_as_params Logical. Add +1 BIC penalty per tuned hyperparameter. Default: \code{TRUE}.
+##' @param min_het_frac Numeric. Minimum heterozygous fraction required to exclude CN=1 from \code{cn_grid}. Default: \code{0.05}.
+##' @param het_range Numeric vector of length 2. BAF interval defining heterozygous loci. Default: \code{c(0.2, 0.8)}.
 ##'
 ##' @return An object of class `qploidy_standardization` (list) with elements:
 ##'   - info: Named vector of standardization parameters
@@ -694,7 +704,6 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' #   data = my_data,
 ##' #   geno.pos = my_geno_pos,
 ##' #   hmm_CN_multi = hmm_CN_multi,
-##' #   selected_model = "model1",
 ##' #   ploidy.standardization = 4
 ##' # )
 ##'
@@ -702,7 +711,6 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 re_standardize <- function(data = NULL,
                            geno.pos = NULL,
                            hmm_CN_multi,
-                           selected_model = NULL,
                            ploidy.standardization = NULL,
                            threshold.n.clusters = NULL,
                            n.cores = 1,
@@ -716,7 +724,18 @@ re_standardize <- function(data = NULL,
                            cluster_median = TRUE,
                            verbose = TRUE,
                            min.depth = NULL,
-                           max.depth = NULL) {
+                           max.depth = NULL,
+                           cn_grid = NULL,
+                           dists = NULL,
+                           bw_grid = NULL,
+                           add_uniform_grid = NULL,
+                           uniform_weight_grid = NULL,
+                           M = 100,
+                           reflect = TRUE,
+                           param_count = NULL,
+                           count_grid_as_params = TRUE,
+                           min_het_frac = 0.05,
+                           het_range = c(0.2, 0.8)) {
 
   # Check input object
   # check if hmm_CN_multi is hmm_CN class
@@ -724,10 +743,22 @@ re_standardize <- function(data = NULL,
   # check if hmm_CN_multi has params_samples element
   if (!any(names(hmm_CN_multi) == "params_samples")) stop("Input object must come from hmm_estimate_CN_multi function")
 
-  # Call dosages for the selected model
-  if(!is.null(selected_model)){
-    dosages <- call_hmm_dosages(hmm_CN = hmm_CN_multi, selected_model)
-  } else dosages <- call_hmm_dosages(hmm_CN = hmm_CN_multi)
+  # Call dosages with per-sample BAF model selection
+  dosages <- call_hmm_dosages(
+    hmm_CN              = hmm_CN_multi,
+    cn_grid             = cn_grid,
+    dists               = dists,
+    bw_grid             = bw_grid,
+    add_uniform_grid    = add_uniform_grid,
+    uniform_weight_grid = uniform_weight_grid,
+    M                   = M,
+    reflect             = reflect,
+    param_count         = param_count,
+    count_grid_as_params = count_grid_as_params,
+    min_het_frac        = min_het_frac,
+    het_range           = het_range,
+    verbose             = verbose
+  )
   
   # Set ploidy.standardization if not provided
   if(is.null(ploidy.standardization)) {

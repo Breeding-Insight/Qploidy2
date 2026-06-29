@@ -168,7 +168,8 @@ p$PC1xPC2
 ```
 
 In this example, we did not detect evidence of batch effects, as samples did not cluster according to genotyping year. 
-Therefore, we can proceed with standardization using the combined dataset.
+Therefore, we can proceed with standardization using the combined dataset. 
+If you dataset formed clear groups, perform the standardization separately for each and merge the result using `merge_qploidy_datas` function.
 
 ## Initial screening for chromosome abnormalities (optional)
 
@@ -321,7 +322,7 @@ or test multiple samples and compare results.
 ```{r}
 sample_ratios <- data$ratio[data$SampleName == "J432"]
 selected_model_raw <- select_best_baf_model(baf_vec = sample_ratios,
-                                        cn_grid= c(2,3,4),
+                                        cn_grid= c(2,3,4,5,6),
                                         bw = c(0.02, 0.04,0.1),
                                         plot = TRUE)
 
@@ -336,7 +337,7 @@ For this dataset, standardization is required for better results. This step and 
 ```{r}
 selected_model <- select_best_baf_model(qploidy_standardization = qploidy_standardization, 
                                         sample = "J432",
-                                        cn_grid= c(2,3,4),
+                                        cn_grid= c(2,3,4,5,6),
                                         bw = c(0.02, 0.04,0.1),
                                         plot = TRUE)
 
@@ -472,15 +473,22 @@ Visualize CNV tracks for multiple samples:
 
 ```{r, fig.width=11, fig.height=10, out.width="100%"}
 compare_cn_track(hmm_CN = multi_esti,
-                 samples_to_plot = samples[31:50],
+                 samples_to_plot = samples[1:30],
                  facet_ncol = 8)
 ```
+
+Not that sample `85-103` pointed in section 
+[`Chromosome-level screening based on z-score`](Qploidy_alfalfa_tutorial.html#71_Chromosome-level_screening_for_abnormalities_based_on_Z-score_(optional)) 
+having a higher depth compared to the rest of the 
+samples in chromosome 6 suggesting a possible aneuploidy now is presented as four copies. 
+The combination of mixed models and hidden markov model eliminated false variations of the expected copy number.
+
 
 ```{r}
 # For a specific sample
 p <- plot_cn_track(hmm_CN = multi_esti,
                    qploidy_standarize_result = qploidy_standardization,
-                   sample_id = "85-182",
+                   sample_id = "85-103",
                    show_window_lines = TRUE)
 p$arranged
 ```
@@ -498,7 +506,6 @@ re_qploidy_standardization <- re_standardize(
   data = data,
   geno.pos = geno.pos,
   hmm_CN_multi  = multi_esti,
-  selected_model = selected_model,
   threshold.geno.prob = 0.9,
   ploidy.standardization = 4,
   threshold.n.clusters = 4,
@@ -532,25 +539,27 @@ re_multi_esti <- hmm_estimate_CN_multi(
 
 # CNV profiles before
 compare_cn_track(hmm_CN = multi_esti,
-                 samples_to_plot = samples[91:110],
+                 samples_to_plot = samples[1:50],
                  facet_ncol = 8)
 
 # CNV profiles after
 compare_cn_track(hmm_CN = re_multi_esti,
-                 samples_to_plot = samples[91:110],
+                 samples_to_plot = samples[1:50],
                  facet_ncol = 8)
 ```
+
+Among the first 50 samples, sample `85-179` differ between previous standardization and re-standardization results.
 
 ```{r, fig.width=11, fig.height=10, out.width="100%"}
 # Same plots can be generated
 p_re <- plot_cn_track(hmm_CN = re_multi_esti,
                       qploidy_standarize_result = re_qploidy_standardization,
-                      sample_id = "85-295",
+                      sample_id = "85-179",
                       show_window_lines = TRUE)
 
 p <- plot_cn_track(hmm_CN = multi_esti,
                    qploidy_standarize_result = qploidy_standardization,
-                   sample_id = "85-295",
+                   sample_id = "85-179",
                    show_window_lines = TRUE)
 
 p$arranged #before
@@ -558,22 +567,22 @@ p_re$arranged #after
 ```
 
 For this dataset, there are a few changes for some samples like the one showed above. 
-Chromosome 7 is pointed with higher number (5) of copies in the first round standardization and with 
-the re-standardization it is presented as 4 copies. This instability still leaves doubts about 
-the CNV of this particular chromosome. You can further explore tweaking the other parameters, 
+The predominant yellow color mean that BAF distributions likelihoods were not included in the HMM
+due to high dispersion. If this instability still leaves doubts about 
+the CNV. You can further explore tweaking the other parameters, 
 for example, increasing the number of markers in the windows to better fit the mixed models on the BAF distributions:
 
 ```{r, fig.width=11, fig.height=10, out.width="100%"}
 
 res_tweak <- hmm_estimate_CN(qploidy_standarize_result = re_qploidy_standardization,
                        selected_model = selected_model,
-                       sample_id = "85-295",
+                       sample_id = "85-179",
                        min_snps_per_window = 60,
                        cn_grid =  c(2,3,4,5,6))
 
 p <- plot_cn_track(hmm_CN = res_tweak,
                    qploidy_standarize_result = re_qploidy_standardization,
-                   sample_id = "85-295",
+                   sample_id = "85-179",
                    show_window_lines = TRUE)
 
 p$arranged
@@ -663,7 +672,7 @@ dosages_one_sample$plot
 Call dosages for all samples considering the copy number estimated:
 
 ```{r}
-dosages <- call_hmm_dosages(hmm_CN = final_res, selected_model)
+dosages <- call_hmm_dosages(hmm_CN = final_res)
 head(dosages)
 ```
 
@@ -682,12 +691,17 @@ vcf@gt[1:5,1:5]
 
 CN <- extract.gt(vcf, "CN")
 CN[1:5,1:5]
+tri <- which(CN == "3", arr.ind = TRUE)
+CN[tri[1:5,1],25:30]
 
 GT <- extract.gt(vcf, "GT")
 GT[1:5,1:5]
+GT[tri[1:5,1],25:30]
 
 dosage_prob <- extract.gt(vcf, "PMD")
 dosage_prob[1:5,1:5]
+dosage_prob[tri[1:5,1],25:30]
+
 ```
 
 # Plotting all samples in batches (Optional)

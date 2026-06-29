@@ -6,33 +6,72 @@
 \usage{
 call_hmm_dosages(
   hmm_CN,
-  selected_model = NULL,
-  bw = NULL,
-  dist = NULL,
-  add_uniform = NULL,
-  uniform_weight = NULL,
-  ...
+  cn_grid = NULL,
+  dists = NULL,
+  bw_grid = NULL,
+  add_uniform_grid = NULL,
+  uniform_weight_grid = NULL,
+  M = 100,
+  reflect = TRUE,
+  param_count = NULL,
+  count_grid_as_params = TRUE,
+  min_het_frac = 0.05,
+  het_range = c(0.2, 0.8),
+  verbose = FALSE
 )
 }
 \arguments{
-\item{hmm_CN}{An object of class 'hmm_CN' (output of hmm_estimate_CN)}
+\item{hmm_CN}{An object of class \code{'hmm_CN'} (output of \code{hmm_estimate_CN}).}
 
-\item{selected_model}{Optional. An object of class 'selected_BAF_model'. If not provided, custom arguments must be supplied.}
+\item{cn_grid}{Integer vector or \code{NULL}. Copy number states to consider
+during per-sample model selection. When \code{NULL} (default), the value
+stored in \code{hmm_CN$params} / \code{hmm_CN$params_samples} is used; if
+that is also absent, falls back to \code{2:8}.}
 
-\item{bw}{Bandwidth for kernel smoothing (required if selected_model is not provided)}
+\item{dists}{Character vector or \code{NULL}. Distribution families to test.
+When \code{NULL} (default), the distribution stored in the params is used as
+a single-element grid; falls back to all four families if absent.}
 
-\item{dist}{Distribution family (required if selected_model is not provided)}
+\item{bw_grid}{Numeric vector or \code{NULL}. Bandwidth values to search.
+When \code{NULL} (default), the bandwidth stored in the params is used as a
+single-element grid; falls back to \code{c(0.02, 0.03, 0.04)} if absent.}
 
-\item{add_uniform}{Logical, add uniform noise (required if selected_model is not provided)}
+\item{add_uniform_grid}{Logical vector or \code{NULL}. Whether to include a
+uniform noise component. When \code{NULL} (default), the value stored in the
+params is used; falls back to \code{FALSE} if absent.}
 
-\item{uniform_weight}{Numeric, weight for uniform component (required if selected_model is not provided)}
+\item{uniform_weight_grid}{Numeric vector or \code{NULL}. Mixture weights for
+the uniform component. When \code{NULL} (default), the value stored in the
+params is used as a single-element grid; falls back to
+\code{c(0.01, 0.03, 0.05, 0.10, 0.15)} if absent.}
 
-\item{...}{Additional arguments passed to call_BAF_dosages}
+\item{M}{Integer. Number of BAF histogram bins for model selection. Default: \code{100}.}
+
+\item{reflect}{Logical. Reflect BAF values for symmetric templates. Default: \code{TRUE}.}
+
+\item{param_count}{Optional named integer vector. Number of free parameters per
+distribution for BIC penalisation. Default: \code{NULL}.}
+
+\item{count_grid_as_params}{Logical. Add \code{+1} BIC penalty per tuned
+hyperparameter. Default: \code{TRUE}.}
+
+\item{min_het_frac}{Numeric. Minimum heterozygous fraction required to
+exclude CN=1 from \code{cn_grid}. Default: \code{0.05}.}
+
+\item{het_range}{Numeric vector of length 2. BAF interval defining heterozygous
+loci. Default: \code{c(0.2, 0.8)}.}
+
+\item{verbose}{Logical. Print per-sample progress messages. Default: \code{FALSE}.}
 }
 \value{
-A data.frame with columns: MarkerName, SampleName, Chr, Position, X, Y, CN_call, post_max_CN, dosage, post_max_dosage
+A data.frame with columns: MarkerName, SampleName, Chr, Position, X, Y,
+  baf, z, CN_call, post_max_CN, dosage, post_max_dosage.
+  The attribute \code{"selected_models"} is a named list of
+  \code{selected_BAF_model} objects, one per sample.
 }
 \description{
-For each marker in hmm_CN$by_marker, assigns dosage and dosage probability using call_BAF_dosages
-with the CN_call for that marker and either the selected_model or custom parameters.
+For each sample in \code{hmm_CN$by_marker}, selects the best BAF model via
+\code{select_best_baf_model} (grid search over distributions and bandwidths),
+then assigns dosage and dosage probability to every marker using that
+per-sample model.
 }
