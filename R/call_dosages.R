@@ -253,11 +253,17 @@ call_BAF_dosages <- function(baf_vec, selected_model = NULL, bw = NULL, dist = N
 #' @param het_range Numeric vector of length 2. BAF interval defining heterozygous
 #'   loci. Default: \code{c(0.2, 0.8)}.
 #' @param verbose Logical. Print per-sample progress messages. Default: \code{FALSE}.
+#' @param n.cores Integer. Number of cores for parallel processing across samples.
+#'   Default: \code{1} (serial).
+#' @param parallel.type Character. Parallel backend: \code{"FORK"} (Unix/macOS,
+#'   lower overhead, default on non-Windows) or \code{"PSOCK"} (cross-platform,
+#'   default on Windows).
 #'
 #' @return A data.frame with columns: MarkerName, SampleName, Chr, Position, X, Y,
 #'   baf, z, CN_call, post_max_CN, dosage, post_max_dosage.
 #'   The attribute \code{"selected_models"} is a named list of
 #'   \code{selected_BAF_model} objects, one per sample.
+#' @importFrom parallel makeCluster stopCluster clusterExport clusterEvalQ parLapply
 #' @export
 call_hmm_dosages <- function(hmm_CN,
                              cn_grid = NULL,
@@ -271,7 +277,9 @@ call_hmm_dosages <- function(hmm_CN,
                              count_grid_as_params = TRUE,
                              min_het_frac = 0.05,
                              het_range = c(0.2, 0.8),
-                             verbose = FALSE) {
+                             verbose = FALSE,
+                             n.cores = 1,
+                             parallel.type = if (.Platform$OS.type == "windows") "PSOCK" else "FORK") {
   if (!inherits(hmm_CN, "hmm_CN")) stop("Input must be an object of class 'hmm_CN'.")
   d <- hmm_CN$by_marker
   if (is.null(d)) stop("hmm_CN object must have a by_marker data.frame.")
@@ -282,9 +290,9 @@ call_hmm_dosages <- function(hmm_CN,
   # Helper: retrieve per-sample params from hmm_CN (params_samples or params)
   .get_samp_params <- function(samp) {
     if (!is.null(hmm_CN$params_samples)) {
-      hmm_CN$params_samples[[samp]]          # named list, one entry per sample
+      hmm_CN$params_samples[[samp]]
     } else if (!is.null(hmm_CN$params)) {
-      hmm_CN$params                          # single-sample object
+      hmm_CN$params
     } else {
       NULL
     }
@@ -297,23 +305,19 @@ call_hmm_dosages <- function(hmm_CN,
   }
 
   samples <- unique(d$SampleName)
-  selected_models <- vector("list", length(samples))
-  names(selected_models) <- samples
 
-  res_list <- lapply(samples, function(samp) {
+  # Per-sample worker: returns list(data = <data.frame>, model = <selected_BAF_model>)
+  .process_sample <- function(samp) {
     if (verbose) message("Selecting BAF model for sample: ", samp)
     d_samp <- d[d$SampleName == samp, , drop = FALSE]
+    sp <- .get_samp_params(samp)
 
-    sp <- .get_samp_params(samp)  # may be NULL
+    cn_grid_use     <- .resolve(cn_grid,             sp$cn_grid,       2:8)
+    dists_use       <- .resolve(dists,               sp$distribution,  c("gaussian", "beta", "beta_binomial", "negative_binomial"))
+    bw_grid_use     <- .resolve(bw_grid,             sp$bw,            c(0.02, 0.03, 0.04))
+    add_uniform_use <- .resolve(add_uniform_grid,    sp$add_uniform,   FALSE)
+    uw_grid_use     <- .resolve(uniform_weight_grid, sp$uniform_weight, c(0.01, 0.03, 0.05, 0.10, 0.15))
 
-    # Build per-sample grids: stored single values become single-element grids
-    cn_grid_use         <- .resolve(cn_grid,         sp$cn_grid,       2:8)
-    dists_use           <- .resolve(dists,            sp$distribution,  c("gaussian", "beta", "beta_binomial", "negative_binomial"))
-    bw_grid_use         <- .resolve(bw_grid,          sp$bw,            c(0.02, 0.03, 0.04))
-    add_uniform_use     <- .resolve(add_uniform_grid, sp$add_uniform,   FALSE)
-    uw_grid_use         <- .resolve(uniform_weight_grid, sp$uniform_weight, c(0.01, 0.03, 0.05, 0.10, 0.15))
-
-    # Per-sample model selection
     sel_model <- select_best_baf_model(
       baf_vec             = d_samp$baf,
       sample              = samp,
@@ -330,13 +334,12 @@ call_hmm_dosages <- function(hmm_CN,
       min_het_frac        = min_het_frac,
       het_range           = het_range
     )
-    selected_models[[samp]] <<- sel_model
 
     if (is.null(sel_model$best)) {
       warning(sprintf("Model selection failed for sample '%s'. Dosage will be NA.", samp))
-      d_samp$dosage         <- NA_integer_
+      d_samp$dosage          <- NA_integer_
       d_samp$post_max_dosage <- NA_real_
-      return(d_samp)
+      return(list(data = d_samp, model = sel_model))
     }
 
     bw_val   <- sel_model$best$bw
@@ -344,7 +347,6 @@ call_hmm_dosages <- function(hmm_CN,
     add_u    <- sel_model$best$add_uniform
     uw_val   <- sel_model$best$uniform_weight
 
-    # Per CN-group dosage assignment within this sample
     d_cn <- split(d_samp, d_samp$CN_call)
     sample_res <- lapply(d_cn, function(sub) {
       cn_val <- suppressWarnings(as.numeric(unique(sub$CN_call)))
@@ -359,10 +361,30 @@ call_hmm_dosages <- function(hmm_CN,
       sub$post_max_dosage <- r$data$max_prob
       sub
     })
-    do.call(rbind, sample_res)
-  })
+    list(data = do.call(rbind, sample_res), model = sel_model)
+  }
 
-  out <- do.call(rbind, res_list)
+  # Run serial or parallel
+  if (n.cores > 1) {
+    cl <- makeCluster(n.cores, type = parallel.type)
+    on.exit(stopCluster(cl), add = TRUE)
+    clusterExport(cl, c("d", "hmm_CN", "cn_grid", "dists", "bw_grid",
+                        "add_uniform_grid", "uniform_weight_grid", "M", "reflect",
+                        "param_count", "count_grid_as_params", "min_het_frac",
+                        "het_range", "verbose",
+                        ".get_samp_params", ".resolve", ".process_sample"),
+                  envir = environment())
+    clusterEvalQ(cl, library(Qploidy))
+    res_list <- parLapply(cl, samples, .process_sample)
+  } else {
+    res_list <- lapply(samples, .process_sample)
+  }
+
+  # Collect results
+  names(res_list) <- samples
+  selected_models <- lapply(res_list, `[[`, "model")
+
+  out <- do.call(rbind, lapply(res_list, `[[`, "data"))
   out <- out[, c("MarkerName", "SampleName", "Chr", "Position", "X", "Y",
                  "baf", "z", "CN_call", "post_max", "dosage", "post_max_dosage")]
   colnames(out)[colnames(out) == "post_max"] <- "post_max_CN"

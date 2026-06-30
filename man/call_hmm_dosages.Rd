@@ -17,7 +17,9 @@ call_hmm_dosages(
   count_grid_as_params = TRUE,
   min_het_frac = 0.05,
   het_range = c(0.2, 0.8),
-  verbose = FALSE
+  verbose = FALSE,
+  n.cores = 1,
+  parallel.type = if (.Platform$OS.type == "windows") "PSOCK" else "FORK"
 )
 }
 \arguments{
@@ -62,6 +64,13 @@ exclude CN=1 from \code{cn_grid}. Default: \code{0.05}.}
 loci. Default: \code{c(0.2, 0.8)}.}
 
 \item{verbose}{Logical. Print per-sample progress messages. Default: \code{FALSE}.}
+
+\item{n.cores}{Integer. Number of cores for parallel processing across samples.
+Default: \code{1} (serial).}
+
+\item{parallel.type}{Character. Parallel backend: \code{"FORK"} (Unix/macOS,
+lower overhead, default on non-Windows) or \code{"PSOCK"} (cross-platform,
+default on Windows).}
 }
 \value{
 A data.frame with columns: MarkerName, SampleName, Chr, Position, X, Y,

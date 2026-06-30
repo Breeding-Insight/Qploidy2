@@ -105,11 +105,13 @@ merge_qploidy_datas <- function(qploidy_list, hmm_list = NULL) {
 
   # ── Merge qploidy_standardization ─────────────────────────────────────────
 
-  # info: use first; warn if fields differ
+  # info: use first; warn if meaningful fields differ (out_filename is excluded
+  # because it is expected to differ across independently saved batches)
   merged_info <- qploidy_list[[1]]$info
+  skip_info_fields <- "out_filename"
   for (i in seq_len(n)[-1]) {
     other <- qploidy_list[[i]]$info
-    common <- intersect(names(merged_info), names(other))
+    common <- setdiff(intersect(names(merged_info), names(other)), skip_info_fields)
     differ <- common[merged_info[common] != other[common]]
     if (length(differ) > 0)
       warning(
@@ -120,6 +122,9 @@ merge_qploidy_datas <- function(qploidy_list, hmm_list = NULL) {
         call. = FALSE
       )
   }
+  # out_filename is no longer meaningful for the merged object
+  if ("out_filename" %in% names(merged_info))
+    merged_info["out_filename"] <- NA_character_
 
   # filters: element-wise sum over common names
   all_filter_names <- Reduce(intersect, lapply(qploidy_list, function(obj) names(obj$filters)))
@@ -216,4 +221,88 @@ merge_qploidy_datas <- function(qploidy_list, hmm_list = NULL) {
   }
 
   list(qploidy = merged_qploidy, hmm = merged_hmm)
+}
+
+#' Rename samples in Qploidy standardization and/or HMM objects
+#'
+#' Applies a user-supplied name mapping to all sample identifiers within a
+#' \code{qploidy_standardization} and/or \code{hmm_CN} object. The mapping covers
+#' every location where sample names are stored:
+#' \itemize{
+#'   \item \code{qploidy_standardization$data$SampleName}
+#'   \item \code{hmm_CN$by_window$Sample}
+#'   \item \code{hmm_CN$by_marker$SampleName}
+#'   \item names of \code{hmm_CN$params_samples} (or the single-sample equivalent)
+#' }
+#'
+#' @param map A \code{data.frame} with exactly two columns:
+#'   \describe{
+#'     \item{\code{old_name}}{Current sample names (character).}
+#'     \item{\code{new_name}}{Replacement sample names (character).}
+#'   }
+#'   Rows with \code{NA} in either column are silently ignored. Names not present
+#'   in the objects are also silently ignored.
+#' @param qploidy Optional. An object of class \code{qploidy_standardization}.
+#' @param hmm Optional. An object of class \code{hmm_CN}.
+#'
+#' @return A named list with elements \code{qploidy} and \code{hmm} (either or
+#'   both may be \code{NULL} if the corresponding input was \code{NULL}).
+#'
+#' @examples
+#' \dontrun{
+#' map <- data.frame(
+#'   old_name = c("Sample_A", "Sample_B"),
+#'   new_name = c("Accession_001", "Accession_002")
+#' )
+#' renamed <- rename_samples(map, qploidy = my_std, hmm = my_hmm)
+#' renamed$qploidy
+#' renamed$hmm
+#' }
+#'
+#' @export
+rename_samples <- function(map, qploidy = NULL, hmm = NULL) {
+
+  # ── Input validation ──────────────────────────────────────────────────────
+  if (!is.data.frame(map))
+    stop("'map' must be a data.frame.")
+  if (!all(c("old_name", "new_name") %in% names(map)))
+    stop("'map' must have columns 'old_name' and 'new_name'.")
+  if (!is.null(qploidy) && !inherits(qploidy, "qploidy_standardization"))
+    stop("'qploidy' must be an object of class 'qploidy_standardization' or NULL.")
+  if (!is.null(hmm) && !inherits(hmm, "hmm_CN"))
+    stop("'hmm' must be an object of class 'hmm_CN' or NULL.")
+  if (is.null(qploidy) && is.null(hmm))
+    stop("At least one of 'qploidy' or 'hmm' must be provided.")
+
+  # Drop rows with NA in either column; build lookup vector old -> new
+  valid <- !is.na(map$old_name) & !is.na(map$new_name)
+  lut <- setNames(as.character(map$new_name[valid]),
+                  as.character(map$old_name[valid]))
+
+  # Helper: recode a character vector using lut, leaving unmatched values as-is
+  recode <- function(x) {
+    idx <- match(x, names(lut))
+    ifelse(!is.na(idx), lut[idx], x)
+  }
+
+  # ── Rename in qploidy_standardization ─────────────────────────────────────
+  if (!is.null(qploidy)) {
+    qploidy$data$SampleName <- recode(as.character(qploidy$data$SampleName))
+  }
+
+  # ── Rename in hmm_CN ──────────────────────────────────────────────────────
+  if (!is.null(hmm)) {
+    if (!is.null(hmm$by_window) && "Sample" %in% names(hmm$by_window))
+      hmm$by_window$Sample <- recode(as.character(hmm$by_window$Sample))
+
+    if (!is.null(hmm$by_marker) && "SampleName" %in% names(hmm$by_marker))
+      hmm$by_marker$SampleName <- recode(as.character(hmm$by_marker$SampleName))
+
+    # params_samples (multi-sample)
+    if (!is.null(hmm$params_samples)) {
+      names(hmm$params_samples) <- recode(names(hmm$params_samples))
+    }
+  }
+
+  list(qploidy = qploidy, hmm = hmm)
 }

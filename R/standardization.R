@@ -663,7 +663,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param out_filename Optional. Path to save the standardized dataset (CSV/TSV).
 ##' @param type Character. Data type for clustering: "intensities" (default), "counts", or "updog".
 ##' @param multidog_obj Optional. updog multidog object for cluster center estimation.
-##' @param parallel.type Character. Parallel backend: "FORK" or "PSOCK". Default is "PSOCK".
+##' @param parallel.type Character. Parallel backend: \code{"FORK"} (Unix/macOS, lower overhead, default on non-Windows) or \code{"PSOCK"} (cross-platform, default on Windows). Auto-detected from OS when not specified.
 ##' @param rm_outlier Logical. Remove outliers before estimating cluster centers. Default is TRUE.
 ##' @param cluster_median Logical. Use median (TRUE) or mean (FALSE) for cluster centers. Default is TRUE.
 ##' @param verbose Logical. Print progress messages. Default is TRUE.
@@ -719,7 +719,7 @@ re_standardize <- function(data = NULL,
                            out_filename = NULL,
                            type = "intensities",
                            multidog_obj = NULL,
-                           parallel.type = "PSOCK",
+                           parallel.type = if (.Platform$OS.type == "windows") "PSOCK" else "FORK",
                            rm_outlier = TRUE,
                            cluster_median = TRUE,
                            verbose = TRUE,
@@ -757,7 +757,9 @@ re_standardize <- function(data = NULL,
     count_grid_as_params = count_grid_as_params,
     min_het_frac        = min_het_frac,
     het_range           = het_range,
-    verbose             = verbose
+    verbose             = verbose,
+    n.cores             = n.cores,
+    parallel.type       = parallel.type
   )
   
   # Set ploidy.standardization if not provided

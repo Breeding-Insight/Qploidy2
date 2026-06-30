@@ -980,19 +980,16 @@ read_hmm_CN <- function(by_window_file, by_marker_file, params_file) {
 
   check_params_list <- function(param_list) {
     missing <- setdiff(required_params, names(param_list))
-    if (length(missing) > 0) {
-      stop(sprintf(
-        "params_file is missing required item(s) in a parameter list: %s",
-        paste(missing, collapse = ", ")
-      ))
-    }
-    TRUE
+    length(missing) > 0
   }
 
   if (is.list(params_obj) && (!is.null(params_obj$params_samples) || (is.null(names(params_obj)) && all(sapply(params_obj, function(x) is.list(x) && all(required_params %in% names(x))))))) {
     params_samples <- if (!is.null(params_obj$params_samples)) params_obj$params_samples else params_obj
     # Check all internal lists
-    lapply(params_samples, check_params_list)
+    check <- sapply(params_samples, check_params_list)
+    if(any(check)){
+      warning(paste("Sample/s", names(check)[which(check)]," don't have all parameters information"))
+    }
     structure(list(by_window = by_window, by_marker = by_marker, params_samples = params_samples), class = "hmm_CN")
   } else if (is.list(params_obj) && !is.null(names(params_obj)) && all(required_params %in% names(params_obj))) {
     check_params_list(params_obj)

@@ -1,3 +1,10 @@
+# Qploidy2 1.14.0
+
+* Parallelize dosage call in `call_hmm_dosages`
+* Change error my warning in read_hmm_CN when one or more samples in multi sample hmm object failed to be estimated and lack parameters information
+* Fix conflict of out_filename while merging qploidy_standardization objects in `merge_qploidy_data`
+* Function `rename_samples` to rename sample names in qploidy_standardization and hmm_CN objects
+
 # Qploidy2 1.13.0
 
 * Improve dosage call. Now mixed model parameters are defined by sample and copy number. Parameters carried by the hmm object is passed to `call_hmm_dosage`
