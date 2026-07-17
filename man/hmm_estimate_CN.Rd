@@ -39,7 +39,9 @@ hmm_estimate_CN(
   correct_scale = TRUE,
   min_het_frac = 0.05,
   het_range = c(0.2, 0.8),
-  dosage_threshold = 0.6
+  dosage_threshold = 0.6,
+  rerun_overall_ploidy = FALSE,
+  rm_mks_overall_ploidy = NULL
 )
 }
 \arguments{
@@ -114,6 +116,10 @@ mixture before renormalization. Default FALSE.}
 \item{het_range}{Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.2, 0.8)}). Used by the \code{min_het_frac} filter and by \code{plot_heterozygosity}.}
 
 \item{dosage_threshold}{Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.}
+
+\item{rerun_overall_ploidy}{Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.}
+
+\item{rm_mks_overall_ploidy}{Character vector of marker names to exclude from the BAF model selection step (but keep in the HMM itself). Intended for internal use during the recursive call triggered by \code{rerun_overall_ploidy = TRUE}; users rarely need to set this directly. Default \code{NULL}.}
 }
 \value{
 An object of class \code{hmm_CN}, a list with two elements:

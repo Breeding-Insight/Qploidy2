@@ -4,7 +4,12 @@
 \alias{convert2nQuack}
 \title{Convert Qploidy Standardization Data to nQuack Format}
 \usage{
-convert2nQuack(qploidy_standardization_object, min_depth = 10L, max_geno = 4L)
+convert2nQuack(
+  qploidy_standardization_object,
+  min_depth = 10L,
+  max_geno = NULL,
+  seed = 123L
+)
 }
 \arguments{
 \item{qploidy_standardization_object}{An object of class

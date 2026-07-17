@@ -432,23 +432,25 @@ samples_genos <- unique(genos$SampleName)
 all(samples %in% samples) 
 
 em_resultsNormal <- em_resultsBeta <- em_resultsBetaBinom <- list()
-for(i in 1:length(samples)){
-  em_resultsNormal[[i]] <- quackNormal(xm = nQuack_list[[i]],
-                                 samplename = samples[i],
-                                 cores = 3,
-                                 parallel = TRUE)
-  
-  em_resultsBeta[[i]] <- quackBeta(xm = nQuack_list[[i]],
-                               samplename = samples[i],
-                               cores = 3,
-                               parallel = TRUE)
-  
-  em_resultsBetaBinom[[i]] <- quackBetaBinom(xm = nQuack_list[[i]],
-                                    samplename = samples[i],
-                                    cores = 3,
-                                    parallel = TRUE)
-}
 
+time <- system.time({
+  for(i in 1:length(samples)){
+    em_resultsNormal[[i]] <- quackNormal(xm = nQuack_list[[i]],
+                                         samplename = samples[i],
+                                         cores = 50,
+                                         parallel = TRUE)
+    
+    em_resultsBeta[[i]] <- quackBeta(xm = nQuack_list[[i]],
+                                     samplename = samples[i],
+                                     cores = 50,
+                                     parallel = TRUE)
+    
+    em_resultsBetaBinom[[i]] <- quackBetaBinom(xm = nQuack_list[[i]],
+                                               samplename = samples[i],
+                                               cores = 50,
+                                               parallel = TRUE)
+  }
+})
 em_results_df <- do.call(rbind, c(em_resultsNormal, 
                                   em_resultsBeta, 
                                   em_resultsBetaBinom))
@@ -510,9 +512,9 @@ p$arranged
 
 ```{r}
 res <- hmm_estimate_CN(qploidy_standarize_result = qploidy_standardization,
-                       selected_model = selected_model,
-                       sample_id = "J432",
-                       cn_grid =  c(2,3,4,5,6))
+                       sample_id ="85-338",
+                       cn_grid =  c(2,3,4,5,6), 
+                       rerun_overall_ploidy = TRUE)
 
 # View results
 res
@@ -523,7 +525,7 @@ Visualize the CNV track:
 ```{r , fig.width=11, fig.height=10, out.width="100%"}
 p <- plot_cn_track(hmm_CN = res,
                    qploidy_standarize_result = qploidy_standardization,
-                   sample_id = "J432",
+                   sample_id = "85-338",
                    show_window_lines = FALSE,
                    z_by_mean = TRUE)
 
