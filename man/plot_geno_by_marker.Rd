@@ -4,12 +4,18 @@
 \alias{plot_geno_by_marker}
 \title{Plot observed and expected values by genotype dosage for each marker}
 \usage{
-plot_geno_by_marker(df, ploidy = NULL, alpha = 0.6)
+plot_geno_by_marker(df, ploidy = NULL, marker = NULL, alpha = 0.6)
 }
 \arguments{
-\item{df}{A data.frame containing columns 'geno' (genotype dosage), 'ratio', 'baf', and 'MarkerName'.}
+\item{df}{A data.frame containing columns 'geno' (genotype dosage), 'ratio', 'baf', and
+'MarkerName', or an object of class `qploidy_standardization` (its `$data` slot is used).}
 
 \item{ploidy}{Integer specifying the expected ploidy. If NULL (default), the maximum observed genotype dosage in the data is used.}
+
+\item{marker}{Character or integer. When `df` contains a `MarkerName` column with more
+than one unique value, use this to select a single marker or a subset of markers to plot.
+Provide a character vector of marker names or integer indices (1-based). If `NULL` (default),
+all markers are plotted.}
 
 \item{alpha}{Numeric (0-1) specifying the transparency of the jittered points. Default is 0.6.}
 }

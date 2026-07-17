@@ -167,9 +167,34 @@ p$PC1xPC2
 
 ```
 
+The function draws a PCA using the total depth/intensities values of each marker x sample to identify batch effect between samples.
+
 In this example, we did not detect evidence of batch effects, as samples did not cluster according to genotyping year. 
 Therefore, we can proceed with standardization using the combined dataset. 
-If you dataset formed clear groups, perform the standardization separately for each and merge the result using `merge_qploidy_datas` function.
+
+If your dataset formed clear groups like the figure below referring to another dataset not covered in this tutorial:
+
+![](batch_effect1.png)
+
+In this case, perform the standardization separately for each and merge the result using `merge_qploidy_datas` function.
+
+You can also verify the effect of batches considering a single marker and all samples:
+
+```{r}
+plot_xy_with_ploidy_guides(data, ploidy = 4, marker = 1, samples = passport_file, palette = "auto")
+```
+
+Again, for this dataset, no difference is observed but here are some markers examples from another dataset that has batch effect:
+
+![](batch_OneMarker.png)
+
+![](batch_OneMarker2.png)
+
+![](batch_OneMarker3.png)
+
+Dosage call methods such as `fitPoly`, `updog`, and `polyRAD` use these type of ratio distributions (one marker and all samples) 
+to estimate each dosage cluster. If you have batch effect between your runs (as the figures above), they will also affect the 
+quality of dosage call using these software. Therefore, you should conduct dosage/genotype call individually for each batch.
 
 ## Initial screening for chromosome abnormalities (optional)
 
@@ -196,8 +221,8 @@ p
 ```
 
 This is an interactive graphic; hover your mouse over the cells to get information on sample name, heterozygosity percentage, and the number of markers used for this estimation.
-Heterozygosity is an important metric for Qploidy2, as it uses the allele ratio heterozygous peaks as part of the input data for estimating ploidy. Samples with heterozygosity lower than 5% will be considered haploid (CN = 1) and cannot be distinguished from inbred lines with higher CN.
-
+Heterozygosity is an important metric for Qploidy2, as it uses the allele ratio heterozygous peaks as part of the input data for estimating ploidy. 
+**Samples with heterozygosity lower than 5% will be considered haploid (CN = 1) and cannot be distinguished from inbred lines with higher CN.**
 
 # Standardization
 
@@ -206,7 +231,7 @@ and improving the accuracy of ploidy estimation. Markers from diverse platforms 
 characteristics, and standardization helps to make them comparable. 
 
 The function has several parameters that can be adjusted based on the characteristics of your dataset.
-You can access a description of all parameters in `?standardize`, but here we will focus only on the most important ones:
+You can access a description of all parameters in `?standardize`. Here we will focus only on two of them:
 `ploidy.standardization` and `threshold.n.clusters`:
 
 **Parameters:**
@@ -227,9 +252,8 @@ If you are not sure about ploidy of at least 60 samples, just keep all them and 
 defined on `ploidy.standardization` (ploidy + 1). Lower values requires imputation of dosage clusters for missing genotypes. The imputation is performed based on distance to other clusters, 
 so it is recommended to have at least 3 clusters for a good imputation. If too many markers are filtered, relax this threshold (e.g., to 4 for tetraploids) to retain more markers with imputed clusters.
 
-
 ```{r}
-qploidy_standardization <- standardize(
+qploidy_standardization5 <- standardize(
   data = data,
   genos = genos,
   geno.pos = geno.pos,
@@ -241,10 +265,31 @@ qploidy_standardization <- standardize(
 )
 
 # Check filtering summary
-qploidy_standardization
+qploidy_standardization5
 ```
 
-If too many markers are filtered, relax the cluster threshold:
+The graphics below provides a visual explanation of how the standardization worked for 6 different markers:
+
+```{r}
+plot_geno_by_marker(qploidy_standardization5, alpha = 0.1, marker = c(1,19,24,51,56,57))
+```
+
+Observe three different situations:
+
+- The second, fourth, fifth and sixth markers: these markers had at least two samples included in the `genos` 
+data.frame above (reference samples) for each dosage expected considering the ploidy defined at `ploidy.standardization = 4`.
+Therefore, standardization could be performed for all the dosages. It re-position the centroids of ratios dosage clusters (red dots) 
+to the expected position (blue dots). After standardization every markers have dosage clusters centroids in same positions, making
+possible to combine them for sample, chromosome or chromosome region level BAF distribution evaluation.
+- The first marker don't have samples representing three of the dosages (2,3,4) and therefore the marker
+was filtered out and will not contain a BAF for downstream analysis (but kept for z-score). 
+- The third marker in the figure don't have samples
+with dosage 4, missing a single cluster but also discarded given that the defined argument `threshold.n.clusters = 5` requires
+at least two samples for all five clusters.
+
+**PS: We use B-allele frequency BAF terminology to refer to standardized ratios.**
+
+If too many markers are filtered due to number of clusters, you relax the cluster threshold:
 
 ```{r}
 qploidy_standardization <- standardize(
@@ -260,19 +305,21 @@ qploidy_standardization <- standardize(
 qploidy_standardization
 ```
 
-You can reload a saved standardization object:
+In this case, Qploidy inputs the position of the missing cluster based on the mean distance between the existing ones making
+possible to perform the standardization. In our visual example, the third marker is kept after the change:
+
+```{r}
+plot_geno_by_marker(qploidy_standardization, alpha = 0.1, marker = c(1,19,24,51,56,57))
+```
+
+The function also generates the Qploidy file `standardization.tsv.gz` that you can reload in another session to recover the
+`qploidy_standardization` object:
 
 ```{r, eval=FALSE}
 qploidy_standardization <- read_qploidy_standardization("standardization.tsv.gz")
 ```
 
-See examples on how the standardization process works for a few markers in the dataset:
-
-```{r}
-markers <- unique(qploidy_standardization$data$MarkerName)
-six_markers <- qploidy_standardization$data[which(qploidy_standardization$data$MarkerName %in% markers[c(4,19,24,51,56,57)]),]
-plot_geno_by_marker(six_markers, alpha = 0.1)
-```
+This file can also be uploaded to `GenoBrew` app for results curation. See section `Interactive curation of results`.
 
 # Quality Assessment and Visualization
 
@@ -303,21 +350,26 @@ chromosome_level_test_plot_qploidy(input = qploidy_standardization,
 
 # BAF Model Selection
 
-Select the best BAF model for a sample. The approach implemented here for this step is based on [`nQuack`](https://github.com/mgaynor1/nQuack)
-methods. It tests different statistical distribution mixture models fitting for each tested ploidy on the BAF distributions and selects the best based on BIC.
-The idea is the same, but the implementation here differs. 
-`nQuack` has a robust EM algorithm able to return tailored parameters for the selected distribution to users. 
-`Qploidy2` does not use an EM algorithm but a grid of parameters to be tested, 
-which is less time- and computationally demanding but may not provide the best parameters for this step. 
-This does not compromise the quality of `Qploidy2` final results since an EM is implemented together with the HMM in the next step of our workflow.
-However, if you want to also have the best results in this step, we suggest running also `nQuack` to check the differences and provide this function with the best parameters.
+Select the best BAF model for a sample. 
+The approach implemented here for this step is based on [`nQuack`](https://github.com/mgaynor1/nQuack)
+methods. It tests different statistical distribution mixture models fitting for each tested ploidy on the 
+BAF distributions and selects the best based on BIC.
+We implemented two ways of performing it, one "quick and dirt" based on parameters grid
+and another using `nQuack` EM functions:
+
+- EM approach BAF model selection: has a robust EM algorithm able to return tailored parameters for the selected distribution to users
+- Grid approach BAF model selection: does not use an EM algorithm but a grid of parameters to be tested, which is less time- and computationally demanding but may not provide the best parameters for this step
+
+Following this tutorial, you will be able to apply and evaluate the differences between both approaches. 
 
 This step helps determine the most likely ploidy and mixture 
-model parameters for BAF. The selected model will be used in the HMM for copy number estimation. 
+model parameters for BAF. The selected approach and model will be used in the `Qploidy2` HMM for copy number estimation. 
+
 You can select a sample with known ploidy (e.g., from the previous step) to guide the model selection, 
 or test multiple samples and compare results.
 
 ## Applying to raw data
+
 
 ```{r}
 sample_ratios <- data$ratio[data$SampleName == "J432"]
@@ -334,6 +386,8 @@ For this dataset, standardization is required for better results. This step and 
 
 ## Applying to standardized data
 
+### Grid approach
+
 ```{r}
 selected_model <- select_best_baf_model(qploidy_standardization = qploidy_standardization, 
                                         sample = "J432",
@@ -344,6 +398,80 @@ selected_model <- select_best_baf_model(qploidy_standardization = qploidy_standa
 selected_model$plot
 head(selected_model$grid_results)
 ```
+
+### EM approach
+
+Thanks to our collaboration with `nQuack` (thank you, Dr. Gaynor!), 
+we have functions to easily convert data formats between software:
+
+```{r}
+nQuack_list <- convert2nQuack(qploidy_standardization, seed = 123L)
+```
+
+Note that nQuack randomize which allele is considered the B allele in the BAF. Set seed
+using the argument to reproduce same randomization for exact reproducibility.
+
+Here, we will follow the steps in nQuack:
+
+- Run Normal, Beta and Beta Binomial models for samples with known ploidy (samples you defined in the `genos` object)
+- Check which model return the correct ploidy with higher difference between best and second best estimation (BICdif)
+- Use selected model for all samples and windows in downstream analysis
+
+This first step may take some time to run depending on the number of cores and samples
+you run. We suggest to adapt the number of cores and run it in a high-performance computing system. 
+If you just want to follow along with this tutorial in your local computer for now, load the results using the code below.
+
+```{r}
+samples <- names(nQuack_list)
+
+# Filter by only known ploidy samples contained in genos object
+samples_genos <- unique(genos$SampleName)
+
+# Because we are evaluating a mapping population all samples is expected to be 4x
+# We will run nQuack models for all them
+all(samples %in% samples) 
+
+em_resultsNormal <- em_resultsBeta <- em_resultsBetaBinom <- list()
+for(i in 1:length(samples)){
+  em_resultsNormal[[i]] <- quackNormal(xm = nQuack_list[[i]],
+                                 samplename = samples[i],
+                                 cores = 3,
+                                 parallel = TRUE)
+  
+  em_resultsBeta[[i]] <- quackBeta(xm = nQuack_list[[i]],
+                               samplename = samples[i],
+                               cores = 3,
+                               parallel = TRUE)
+  
+  em_resultsBetaBinom[[i]] <- quackBetaBinom(xm = nQuack_list[[i]],
+                                    samplename = samples[i],
+                                    cores = 3,
+                                    parallel = TRUE)
+}
+
+em_results_df <- do.call(rbind, c(em_resultsNormal, 
+                                  em_resultsBeta, 
+                                  em_resultsBetaBinom))
+head(em_results_df)
+```
+
+If you don't want to wait for the result to move forward in the tutorial, get the results with:
+
+```{r}
+
+```
+
+
+It is important to notice that `nQuack` models will always test ploidies 2 to 6.
+
+Now, we use function `quackit` to interpret model output:
+
+```{r}
+summary <- quackit(model_out =  em_results_df)
+summary
+```
+
+
 
 # HMM Copy Number Estimation (Single Sample)
 
