@@ -263,7 +263,7 @@ call_BAF_dosages <- function(baf_vec, selected_model = NULL, bw = NULL, dist = N
 #'   baf, z, CN_call, post_max_CN, dosage, post_max_dosage.
 #'   The attribute \code{"selected_models"} is a named list of
 #'   \code{selected_BAF_model} objects, one per sample.
-#' @importFrom parallel makeCluster stopCluster clusterExport clusterEvalQ parLapply
+#' @importFrom parallel makeCluster stopCluster clusterExport clusterEvalQ parLapply mclapply
 #' @export
 call_hmm_dosages <- function(hmm_CN,
                              cn_grid = NULL,
@@ -306,11 +306,15 @@ call_hmm_dosages <- function(hmm_CN,
 
   samples <- unique(d$SampleName)
 
+  # Pre-split data and params to avoid exporting large objects to parallel workers
+  d_by_sample <- split(d, d$SampleName)
+  params_by_sample <- setNames(lapply(samples, .get_samp_params), samples)
+
   # Per-sample worker: returns list(data = <data.frame>, model = <selected_BAF_model>)
   .process_sample <- function(samp) {
     if (verbose) message("Selecting BAF model for sample: ", samp)
-    d_samp <- d[d$SampleName == samp, , drop = FALSE]
-    sp <- .get_samp_params(samp)
+    d_samp <- d_by_sample[[samp]]
+    sp <- params_by_sample[[samp]]
 
     cn_grid_use     <- .resolve(cn_grid,             sp$cn_grid,       2:8)
     dists_use       <- .resolve(dists,               sp$distribution,  c("gaussian", "beta", "beta_binomial", "negative_binomial"))
@@ -366,16 +370,23 @@ call_hmm_dosages <- function(hmm_CN,
 
   # Run serial or parallel
   if (n.cores > 1) {
-    cl <- makeCluster(n.cores, type = parallel.type)
-    on.exit(stopCluster(cl), add = TRUE)
-    clusterExport(cl, c("d", "hmm_CN", "cn_grid", "dists", "bw_grid",
-                        "add_uniform_grid", "uniform_weight_grid", "M", "reflect",
-                        "param_count", "count_grid_as_params", "min_het_frac",
-                        "het_range", "verbose",
-                        ".get_samp_params", ".resolve", ".process_sample"),
-                  envir = environment())
-    clusterEvalQ(cl, library(Qploidy))
-    res_list <- parLapply(cl, samples, .process_sample)
+    if (parallel.type == "FORK") {
+      # mclapply uses fork: workers share parent memory (copy-on-write), no clusterExport needed
+      res_list <- mclapply(samples, .process_sample, mc.cores = n.cores)
+    } else {
+      cl <- makeCluster(n.cores, type = "PSOCK")
+      on.exit(stopCluster(cl), add = TRUE)
+      # Export only lightweight pre-split objects, not the full d or hmm_CN
+      clusterExport(cl, c("d_by_sample", "params_by_sample",
+                          "cn_grid", "dists", "bw_grid",
+                          "add_uniform_grid", "uniform_weight_grid", "M", "reflect",
+                          "param_count", "count_grid_as_params", "min_het_frac",
+                          "het_range", "verbose",
+                          ".resolve", ".process_sample"),
+                    envir = environment())
+      clusterEvalQ(cl, library(Qploidy2))
+      res_list <- parLapply(cl, samples, .process_sample)
+    }
   } else {
     res_list <- lapply(samples, .process_sample)
   }

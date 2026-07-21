@@ -1,13 +1,10 @@
 Package: Qploidy2
 Title: Estimation of Large-Scale Copy Number Variation Using Genotyping Data
-Version: 1.14.0
+Version: 1.15.0
 Authors@R: c(person(given='Cristiane', 
                     family='Taniguti', 
                     email = 'ctaniguti@ufl.edu', 
                     role = c('cre', 'aut')),
-             person(given='Michelle', 
-                    family='Gaynor', 
-                    role = 'aut'),
              person(given='Josue', 
                     family='Chinchilla-Vargas', 
                     email = 'josue.chinchilla@ufl.edu', 
@@ -15,6 +12,9 @@ Authors@R: c(person(given='Cristiane',
              person(given='Meng',
                     family='Lin',
                     role='ctb'),
+             person(given='Michelle', 
+                    family='Gaynor', 
+                    role = 'aut'),
              person(given='Jeekin', 
                     family='Lau',  
                     email = 'Jeekin.Lau@usda.gov', 

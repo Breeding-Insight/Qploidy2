@@ -126,20 +126,17 @@ test_that("hmm_estimate_CN, plot_cn_track, and other HMM functions work as expec
   # Test hmm_estimate_CN_multi
   multi_res <- hmm_estimate_CN_multi(
     qploidy_standarize_result = simu_data_standardized,
-    sample_ids = unique(simu_data_standardized$data$SampleName),
     n_cores = 1,
     chr = 1,
-    snps_per_window = 10,
-    min_snps_per_window = 5,
     cn_grid = c(2, 3, 4),
-    M = 21
+    M = 21,
   )
 
   expect_type(multi_res, "list")
   expect_true(length(multi_res) >= 1)
   expect_true(inherits(multi_res, "hmm_CN"))
-  expect_equal(mean(multi_res$by_window$CN_call), 3.1667, tolerance = 1e-3)
-  expect_equal(mean(multi_res$by_marker$CN_call), 3.3333, tolerance = 1e-3)
+  expect_equal(mean(multi_res$by_window$CN_call), 3.28, tolerance = 1e-3)
+  expect_equal(mean(multi_res$by_marker$CN_call), 3.35, tolerance = 1e-3)
 
   # Test summarize_cn_mode
   summ <- summarize_cn_mode(df = multi_res, level = "sample")
@@ -194,4 +191,105 @@ test_that("hmm_estimate_CN, plot_cn_track, and other HMM functions work as expec
 
   expect_true("gg" %in% class(p))
 
+})
+
+test_that("hmm_estimate_CN additional argument coverage", {
+  set.seed(123)
+  vcf_file <- tempfile(fileext = ".vcf")
+  simulate_vcf(
+    seed = 123, file_path = vcf_file,
+    n_tetraploid = 5, n_diploid = 2, n_triploid = 2,
+    n_markers = 50
+  )
+  data    <- qploidy_read_vcf(vcf_file)
+  genos   <- qploidy_read_vcf(vcf_file, geno = TRUE)
+  genos   <- genos[grep("Tetraploid", genos$SampleName), ]
+  genos.pos <- qploidy_read_vcf(vcf_file, geno.pos = TRUE)
+
+  simu_std <- standardize(
+    data = data, genos = genos, geno.pos = genos.pos,
+    ploidy.standardization = 4, threshold.n.clusters = 3,
+    n.cores = 1, verbose = FALSE
+  )
+  sample <- unique(simu_std$data$SampleName)[1]
+
+  # --- z_only = TRUE: BAF emission is disabled; w_baf must be 0 everywhere ---
+  res_zo <- hmm_estimate_CN(
+    qploidy_standarize_result = simu_std,
+    sample_id = sample, chr = 1,
+    cn_grid = c(2, 3, 4), M = 21, exp_ploidy = 4,
+    z_only = TRUE, verbose = FALSE
+  )
+  expect_s3_class(res_zo, "hmm_CN")
+  expect_true(is.data.frame(res_zo$by_window))
+  expect_true(nrow(res_zo$by_window) > 0)
+  expect_true(all(res_zo$by_window$w_baf == 0))
+  expect_true(res_zo$params$z_only)
+
+  # --- rerun_overall_ploidy = TRUE: second pass with cleaner BAF model ---
+  res_rr <- hmm_estimate_CN(
+    qploidy_standarize_result = simu_std,
+    sample_id = sample, chr = 1,
+    cn_grid = c(2, 3, 4), M = 21, exp_ploidy = 4,
+    rerun_overall_ploidy = TRUE, verbose = FALSE
+  )
+  expect_s3_class(res_rr, "hmm_CN")
+  expect_true(is.data.frame(res_rr$by_window))
+  expect_true(nrow(res_rr$by_window) > 0)
+  expect_true(all(c("Sample", "Chr", "WindowID", "CN_call") %in% names(res_rr$by_window)))
+
+  # --- selected_model: pre-computed BAF model is passed in directly ---
+  baf_vec <- simu_std$data$baf[simu_std$data$SampleName == sample]
+  sel_mod <- select_best_baf_model(baf_vec = baf_vec, cn_grid = c(2, 3, 4), M = 21)
+  res_sm <- hmm_estimate_CN(
+    qploidy_standarize_result = simu_std,
+    sample_id = sample, chr = 1,
+    cn_grid = c(2, 3, 4), M = 21, exp_ploidy = 4,
+    selected_model = sel_mod, verbose = FALSE
+  )
+  expect_s3_class(res_sm, "hmm_CN")
+  expect_equal(res_sm$params$bw,           sel_mod$best$bw)
+  expect_equal(res_sm$params$distribution, sel_mod$best$dist)
+
+  # --- use_values = c("BAF", "R"): R used as depth metric instead of zscore ---
+  res_br <- hmm_estimate_CN(
+    qploidy_standarize_result = simu_std,
+    sample_id = sample, chr = 1,
+    use_values = c("BAF", "R"),
+    cn_grid = c(2, 3, 4), M = 21, exp_ploidy = 4,
+    verbose = FALSE
+  )
+  expect_s3_class(res_br, "hmm_CN")
+  expect_true(is.data.frame(res_br$by_window))
+  expect_true(nrow(res_br$by_window) > 0)
+
+  # --- transition_jump and initial_prob are stored in params ---
+  res_tp <- hmm_estimate_CN(
+    qploidy_standarize_result = simu_std,
+    sample_id = sample, chr = 1,
+    cn_grid = c(2, 3, 4), M = 21, exp_ploidy = 4,
+    transition_jump = 0.99, initial_prob = 0.5,
+    verbose = FALSE
+  )
+  expect_s3_class(res_tp, "hmm_CN")
+  expect_equal(res_tp$params$transition_jump, 0.99)
+
+  # --- input validation: non-existent sample_id must error ---
+  expect_error(
+    hmm_estimate_CN(
+      qploidy_standarize_result = simu_std,
+      sample_id = "DoesNotExist",
+      chr = 1, cn_grid = c(2, 3, 4)
+    )
+  )
+
+  # --- input validation: selected_model wrong class must error ---
+  expect_error(
+    hmm_estimate_CN(
+      qploidy_standarize_result = simu_std,
+      sample_id = sample, chr = 1,
+      cn_grid = c(2, 3, 4),
+      selected_model = list(not_a_model = TRUE)
+    )
+  )
 })

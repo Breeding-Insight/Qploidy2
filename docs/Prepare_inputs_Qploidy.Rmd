@@ -1,5 +1,5 @@
 ---
-title: "Prepare Inputs for Qploidy"
+title: "Prepare Inputs for Qploidy2"
 date: "Last update: 2025-04-21"
 output:
   html_document:
@@ -22,18 +22,18 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-This vignette describes how to prepare the input files for use with `Qploidy`, an R package designed for ploidy, aneuploidy and large-scale copy number variation
+This vignette describes how to prepare the input files for use with `Qploidy2`, an R package designed for ploidy, aneuploidy and large-scale copy number variation
  estimation using genotyping platform data. 
 
-Before describing the inputs, it is important to understand the conditions under which the `Qploidy` methodology is effective, as well as 
+Before describing the inputs, it is important to understand the conditions under which the `Qploidy2` methodology is effective, as well as 
 its limitations. 
-This understanding will help you determine whether `Qploidy` is the right tool for your dataset and research objectives.
+This understanding will help you determine whether `Qploidy2` is the right tool for your dataset and research objectives.
 
 # Prerequisites
 
-### When does the `Qploidy` methodology work?
+### When does the `Qploidy2` methodology work?
 
-The `Qploidy` approach is effective under the following conditions:  
+The `Qploidy2` approach is effective under the following conditions:  
 - Your marker data originates from **Axiom** or **Illumina genotyping arrays**.  
 - Your marker data is derived from **targeted sequencing platforms** (e.g.,
   DArTag, GTseq, AgriSeq).  
@@ -45,7 +45,7 @@ The `Qploidy` approach is effective under the following conditions:
   **most common ploidy** in the dataset.  
 - Your dataset includes **heterozygous samples**.  
 
-### When does the `Qploidy` methodology NOT work?
+### When does the `Qploidy2` methodology NOT work?
 
 The methodology will not be effective under the following circumstances:  
 - Your marker data comes from **RADseq** or **GBS** (Genotyping-by-Sequencing)
@@ -54,12 +54,12 @@ The methodology will not be effective under the following circumstances:
    - For example: If you extracted DNA and sequenced two plates (192 samples)
      as one batch, and later sequenced an additional three plates (288 samples)
      as a second batch, you would need to analyze the two batches **separately**
-     in `Qploidy`. Combining all 480 samples into a single analysis will lead
+     in `Qploidy2`. Combining all 480 samples into a single analysis will lead
      to incorrect results. See section "Check for batch effect" in the tutorial 
      "Aneuploid Detection in Alfalfa F1 Population" for more details.
 - You **do not have a subset of samples with known ploidy** or **lack a
   predominant ploidy** in your dataset.  
-    - Qploidy may still work depending on the quality of the data. Give it a try, but it is not guaranteed.
+    - Qploidy2 may still work depending on the quality of the data. Give it a try, but it is not guaranteed.
 - Your samples consist exclusively of **inbred lines** (homozygous individuals), as dosage calling relies 
   on the segregation of allele intensities, which does not occur in fully homozygous lines.
 - Your samples consist of first-generation, colchicine-treated individuals in which genome duplication was 
@@ -68,26 +68,23 @@ The methodology will not be effective under the following circumstances:
 
 # Installation
 
-To install the `Qploidy` package, you can use the following commands:
+To install the `Qploidy2` package, you can use the following commands:
 
 ```{r, eval=FALSE}
-# Install the latest stable version from CRAN
-install.packages("Qploidy")
-
 # Install the development version from GitHub
 #install.packages("devtools")
-devtools::install_github("cristianetaniguti/Qploidy")
+devtools::install_github("Breeding-Insight/Qploidy2")
 ```
 
 # Input files
 
-`Qploidy` requires three main `data.frames` that we call:
+`Qploidy2` requires three main `data.frames` that we call:
 
 - Data (`data`): contains the allele intensities or read counts for each marker and sample.
 - Dosages (`genos`): contains the genotype dosages for each marker and sample of known ploidy or for all samples if overall ploidy is being used.
 - Genomic positions (`genos.pos`): contains the genomic positions for each marker.
 
-If you have standard format files, `Qploidy` provides functions to read them and convert them into these three required `data.frames`.
+If you have standard format files, `Qploidy2` provides functions to read them and convert them into these three required `data.frames`.
 
 In this vignette, we demonstrate file format conversion using simulated data which mimics standard formats from:
 - VCF (Variant Call Format) file
@@ -98,7 +95,7 @@ In this vignette, we demonstrate file format conversion using simulated data whi
 
 ### From VCF file
 
-The required FORMAT in a VCF for Qploidy is the AD (Allele Depth) field, which 
+The required FORMAT in a VCF for Qploidy2 is the AD (Allele Depth) field, which 
 contains the read counts for the reference and alternative alleles.
 Let's generate our simulated VCF file. This file contains 500 markers and 60
 samples, with a mix of tetraploid, diploid, and triploid samples. The tetraploid
@@ -106,7 +103,7 @@ samples are used as the reference for standardization because they are the most
 common ploidy in the dataset. 
 
 ```{r}
-library(Qploidy)
+library(Qploidy2)
 
 # Simulate a VCF file with 500 markers and 60 samples
 simulate_vcf(
@@ -142,7 +139,7 @@ temp1 <- read.table(temp1, header = TRUE)
 head(temp1)
 ```
 
-In `Qploidy`, use the `read_axiom` function to read the `summary` file. It skips
+In `Qploidy2`, use the `read_axiom` function to read the `summary` file. It skips
 the header and reads the body of the file. The function will return a data frame.
 
 ```{r, eval=FALSE}
@@ -162,7 +159,7 @@ head(data)
 
 ### From Illumina array 
 
-In case you have a Illumina array summary file, `Qploidy` expects the
+In case you have a Illumina array summary file, `Qploidy2` expects the
 following format:
 
 ```
@@ -217,15 +214,15 @@ The samples contained in the `genos` data frame will depend on the chosen path b
 
 ### Define Reference Samples - Choose Path (1) or (2)
 
-`Qploidy` applies a standardization method to allele intensities or read counts to enable 
+`Qploidy2` applies a standardization method to allele intensities or read counts to enable 
 the comparison of copy numbers across the genome of a sample. To achieve this, it requires 
 a set of reference samples. There are two ways to select these reference samples:
 
 1. **If you have a subset of samples with known ploidy**, your `genos` data.frame should only
-contain the genotype dosages for this subset of samples. You will use this subset as the reference in the `Qploidy` standardization step.
+contain the genotype dosages for this subset of samples. You will use this subset as the reference in the `Qploidy2` standardization step.
 2. **If you know the most common ploidy among your samples**, the `genos` data.frame should contain the genotype dosages for all samples. 
-You can initially run `Qploidy` using all samples as the reference. From this first run, you can identify samples with the 
-common ploidy, then select this subset to use as the reference in a second run of `Qploidy`. Check section `re-standardization` in the 
+You can initially run `Qploidy2` using all samples as the reference. From this first run, you can identify samples with the 
+common ploidy, then select this subset to use as the reference in a second run of `Qploidy2`. Check section `re-standardization` in the 
 tutorial "Ploidy Estimated in a Mixed Population" for more details.
 
 Below are the steps to proceed for each case, tagged as (1) and (2):
@@ -248,7 +245,7 @@ tetraploid_samples
 ### (2) Using the Most Common Ploidy
 
 For this method, you will use the entire dataset as the reference during the first 
-round of the `Qploidy` run:
+round of the `Qploidy2` run:
 
 ```{r, eval=FALSE}
 data_reference <- data
@@ -422,7 +419,7 @@ head(genos.pos_file)
 ```
 
 ```{r, eval=FALSE}
-# Edit for Qploidy input format
+# Edit for Qploidy2 input format
 genos.pos <- data.frame(
   MarkerName = genos.pos_file$probes,
   Chromosome = genos.pos_file$chr,
@@ -442,11 +439,9 @@ head(genos.pos)
 ```
 
 By the end of this tutorial you should have the three required data frames (`data`, `genos`, and `genos.pos`) ready to be used 
-as input for `Qploidy`. You are now ready to run the analysis. Choose the tutorial that best fit your purpose to go next:
+as input for `Qploidy2`. You are now ready to run the analysis. Choose the tutorial that best fit your purpose to go next:
 
-- [Aneuploid Detection with DArTag Markers in Alfalfa F1 Population](link_to_tutorial)
-- [Copy Number Estimation in a Mixed Ploidy Population of Saccharomices sp. using WGS data](link_to_tutorial)
-- [Large-scale Copy Number Variation Identification in a F1 Garden Roses Population using Axiom Array Data](link_to_tutorial)
+- [Aneuploid Detection with DArTag Markers in Alfalfa F1 Population](https://Breeding-Insight.github.io/Qploidy2/Qploidy_alfalfa_tutorial.html)
 
 # How to cite
 

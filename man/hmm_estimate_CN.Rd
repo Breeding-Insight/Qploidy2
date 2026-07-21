@@ -30,8 +30,8 @@ hmm_estimate_CN(
   rm_outliers = TRUE,
   outlier_alpha = 0.05,
   selected_model = NULL,
-  dists = c("gaussian", "beta", "beta_binomial", "negative_binomial"),
-  bw_grid = c(0.02, 0.03, 0.04),
+  dists = c("gaussian", "beta_binomial", "negative_binomial"),
+  bw_grid = c(0.02, 0.04, 0.06, 0.08, 0.1),
   add_uniform_grid = FALSE,
   uniform_weight_grid = c(0.01, 0.03, 0.05, 0.1, 0.15),
   param_count = NULL,
@@ -40,8 +40,8 @@ hmm_estimate_CN(
   min_het_frac = 0.05,
   het_range = c(0.2, 0.8),
   dosage_threshold = 0.6,
-  rerun_overall_ploidy = FALSE,
-  rm_mks_overall_ploidy = NULL
+  rerun_overall_ploidy = TRUE,
+  recycled_obj_rerun_overall_ploidy = NULL
 )
 }
 \arguments{
@@ -65,25 +65,25 @@ mixture before renormalization. Default FALSE.}
 
 \item{segment_zscore}{Logical. If \code{TRUE}, segment z-scores using changepoint detection to define windows instead of fixed SNP counts. Default \code{TRUE}.}
 
-\item{snps_per_window}{Integer. Number of SNPs per window when windows are created. Default \code{500}.}
+\item{snps_per_window}{Integer. Number of SNPs per window when windows are created. Default \code{50}.}
 
 \item{min_snps_per_window}{Integer. Minimum SNPs required to keep a window. If NULL, a dynamic value is chosen based on chromosome size (see code for details). Windows with fewer SNPs are dropped. Default: NULL (dynamic), or user-specified value.}
 
 \item{cn_grid}{Integer vector of copy-number states to consider (e.g., \code{1:4}). Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.}
 
-\item{M}{Integer. Number of BAF histogram bins on [0,1]. Default \code{121}.}
+\item{M}{Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.}
 
 \item{max_iter}{Integer. Maximum EM iterations. Default \code{60}.}
 
 \item{het_quantile}{Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.}
 
-\item{baf_weight}{Numeric. Overall weight applied to BAF emission (0–1). Default \code{1}.}
+\item{baf_weight}{Numeric. Overall weight applied to BAF emission (0–1). Default \code{0.5}.}
 
 \item{z_range}{Numeric. Padding added to min/max z for initial mean estimation. Default \code{0.2}.}
 
 \item{transition_jump}{Numeric. Diagonal value for transition matrix (probability to stay in same CN state). Default \code{0.995}.}
 
-\item{initial_prob}{Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.15}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.}
+\item{initial_prob}{Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.95}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.}
 
 \item{z_only}{Logical. If \code{TRUE}, fit the HMM using the z-emission only (ignores BAF). Default \code{FALSE}.}
 
@@ -119,7 +119,15 @@ mixture before renormalization. Default FALSE.}
 
 \item{rerun_overall_ploidy}{Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.}
 
-\item{rm_mks_overall_ploidy}{Character vector of marker names to exclude from the BAF model selection step (but keep in the HMM itself). Intended for internal use during the recursive call triggered by \code{rerun_overall_ploidy = TRUE}; users rarely need to set this directly. Default \code{NULL}.}
+\item{recycled_obj_rerun_overall_ploidy}{Named list for internal use during the recursive call triggered by
+\code{rerun_overall_ploidy = TRUE}. Contains two elements:
+\describe{
+  \item{\code{rm_mks}}{Character vector of marker names to exclude from the BAF model selection step
+    (markers whose CN call disagreed with the mode in the first pass).}
+  \item{\code{recycled_d}}{The pre-processed marker-level data frame (\code{d}) from the first pass,
+    recycled to skip redundant input validation and outlier removal in the second pass.}
+}
+Users should never need to set this directly. Default \code{NULL}.}
 }
 \value{
 An object of class \code{hmm_CN}, a list with two elements:

@@ -24,6 +24,8 @@ a site to be retained. Default is \code{10}.}
 \item{max_geno}{Integer. Maximum genotype dosage considered homozygous
 (inclusive). Sites where \code{geno == 0} or \code{geno == max_geno} are
 filtered as homozygous. Default is \code{4} (tetraploid).}
+
+\item{seed}{Integer. Random seed for reproducibility of the random allele selection. Default is \code{123L}.}
 }
 \value{
 A named \code{list} with one element per sample. Each element is a
@@ -58,7 +60,7 @@ sample rather than a per-site loop), making the function efficient for large
 datasets.
 }
 \seealso{
-\code{\link[https://mlgaynor.com/nQuack/articles/Qploidy2nQuack.html]{nQuack tutorial}} for ploidy estimation using the nQuack package.
+\href{https://mlgaynor.com/nQuack/articles/Qploidy2nQuack.html}{nQuack tutorial} for EM model selection using the nQuack package.
 }
 \author{
 adapted from Michelle Gaynor

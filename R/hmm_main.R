@@ -16,20 +16,20 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param sample_id Character scalar. Sample identifier to analyze; rows are filtered as \code{SampleName == sample_id}.
 #' @param chr Optional. Character or integer vector specifying chromosomes to include. If \code{NULL}, all chromosomes are used.
 #' @param segment_zscore Logical. If \code{TRUE}, segment z-scores using changepoint detection to define windows instead of fixed SNP counts. Default \code{TRUE}.
-#' @param snps_per_window Integer. Number of SNPs per window when windows are created. Default \code{500}.
+#' @param snps_per_window Integer. Number of SNPs per window when windows are created. Default \code{50}.
 #' @param reflect Logical. If TRUE (default), apply reflection for continuous
 #'   kernels to keep mass within [0,1] (useful for gaussian).
 #' @param add_uniform Logical. If TRUE, add a uniform noise component to the
 #'   mixture before renormalization. Default FALSE.
 #' @param min_snps_per_window Integer. Minimum SNPs required to keep a window. If NULL, a dynamic value is chosen based on chromosome size (see code for details). Windows with fewer SNPs are dropped. Default: NULL (dynamic), or user-specified value.
 #' @param cn_grid Integer vector of copy-number states to consider (e.g., \code{1:4}). Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.
-#' @param M Integer. Number of BAF histogram bins on [0,1]. Default \code{121}.
+#' @param M Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.
 #' @param max_iter Integer. Maximum EM iterations. Default \code{60}.
 #' @param het_quantile Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.
-#' @param baf_weight Numeric. Overall weight applied to BAF emission (0–1). Default \code{1}.
+#' @param baf_weight Numeric. Overall weight applied to BAF emission (0–1). Default \code{0.5}.
 #' @param z_range Numeric. Padding added to min/max z for initial mean estimation. Default \code{0.2}.
 #' @param transition_jump Numeric. Diagonal value for transition matrix (probability to stay in same CN state). Default \code{0.995}.
-#' @param initial_prob Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.15}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
+#' @param initial_prob Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.95}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
 #' @param z_only Logical. If \code{TRUE}, fit the HMM using the z-emission only (ignores BAF). Default \code{FALSE}.
 #' @param verbose Logical. If \code{TRUE}, print progress messages. Default \code{TRUE}.
 #' @param exp_ploidy Numeric. Expected ploidy value. If \code{NA} or \code{NULL}, it is set to the best CN from the BAF model. Default \code{NA}.
@@ -47,7 +47,15 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.2, 0.8)}). Used by the \code{min_het_frac} filter and by \code{plot_heterozygosity}.
 #' @param dosage_threshold Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.
 #' @param rerun_overall_ploidy Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.
-#' @param rm_mks_overall_ploidy Character vector of marker names to exclude from the BAF model selection step (but keep in the HMM itself). Intended for internal use during the recursive call triggered by \code{rerun_overall_ploidy = TRUE}; users rarely need to set this directly. Default \code{NULL}.
+#' @param recycled_obj_rerun_overall_ploidy Named list for internal use during the recursive call triggered by
+#'   \code{rerun_overall_ploidy = TRUE}. Contains two elements:
+#'   \describe{
+#'     \item{\code{rm_mks}}{Character vector of marker names to exclude from the BAF model selection step
+#'       (markers whose CN call disagreed with the mode in the first pass).}
+#'     \item{\code{recycled_d}}{The pre-processed marker-level data frame (\code{d}) from the first pass,
+#'       recycled to skip redundant input validation and outlier removal in the second pass.}
+#'   }
+#'   Users should never need to set this directly. Default \code{NULL}.
 #'
 #' @return An object of class \code{hmm_CN}, a list with two elements:
 #'   \describe{
@@ -129,15 +137,15 @@ hmm_estimate_CN <- function(
   baf_weight = 0.5,
   z_range = NULL,
   transition_jump = 0.995, # decrease this value if you think there changes in CN is likely
-  initial_prob = 0.95, # Initial probability for the best CN state in the initial state distribution (pi0). Default 0.15. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
+  initial_prob = 0.95, # Initial probability for the best CN state in the initial state distribution (pi0). Default 0.95. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
   z_only = FALSE,
   verbose = TRUE,
   exp_ploidy = NA,
   rm_outliers = TRUE,
   outlier_alpha = 0.05,
   selected_model = NULL,
-  dists = c("gaussian", "beta", "beta_binomial", "negative_binomial"),
-  bw_grid = c(0.02, 0.03, 0.04),
+  dists = c("gaussian", "beta_binomial", "negative_binomial"),
+  bw_grid = c(0.02, 0.04, 0.06, 0.08, 0.1),
   add_uniform_grid = FALSE,
   uniform_weight_grid = c(0.01, 0.03, 0.05, 0.10, 0.15),
   param_count = NULL,
@@ -146,80 +154,104 @@ hmm_estimate_CN <- function(
   min_het_frac = 0.05,
   het_range = c(0.2, 0.8),
   dosage_threshold = 0.6,
-  rerun_overall_ploidy = FALSE,
-  rm_mks_overall_ploidy = NULL
+  rerun_overall_ploidy = TRUE,
+  recycled_obj_rerun_overall_ploidy = NULL
 ) {
   # --- input checks ---
-  vmsg("Preparing inputs and applying initial filters", verbose = verbose, level = 0, type = ">>")
-
-  if (!is.character(sample_id) || length(sample_id) != 1 || nchar(sample_id) == 0) {
-    stop("sample_id must be a non-empty character scalar.")
-  }
-
-  # Validate and resolve use_values
-  valid_uv_std <- list(c("BAF", "zscore"), c("BAF", "R"), c("ratio", "zscore"), c("ratio", "R"))
-  valid_uv_raw <- c("ratio", "R")
-  if (!is.null(qploidy_standarize_result)) {
-    if (!is(qploidy_standarize_result, "qploidy_standardization")) {
-      stop("Input must be a qploidy_standardization object as returned by standardize().")
-    }
-    if (!any(sapply(valid_uv_std, identical, use_values))) {
-      stop("When qploidy_standarize_result is provided, use_values must be one of: c(\"BAF\", \"zscore\"), c(\"BAF\", \"R\"), c(\"ratio\", \"zscore\"), c(\"ratio\", \"R\").")
-    }
-    baf_col <- if (use_values[1] == "BAF") "baf" else "ratio"
-    z_col <- if (use_values[2] == "zscore") "z" else "R"
-    df <- as.data.frame(qploidy_standarize_result$data)
-    if (nrow(df) == 0) stop("Input data is empty. No SNPs found for any sample.")
-    d <- filter(df, SampleName == sample_id)
-    if (nrow(d) == 0) stop(sprintf("No data found for sample '%s'.", sample_id))
+  # If second cycle of rerun_overall_ploidy, check that recycled_obj_rerun_overall_ploidy is provided
+  if (!rerun_overall_ploidy && !is.null(recycled_obj_rerun_overall_ploidy)) {
+    d <- recycled_obj_rerun_overall_ploidy$recycled_d
+    baf_col <- recycled_obj_rerun_overall_ploidy$recycled_baf_col
+    z_col <- recycled_obj_rerun_overall_ploidy$recycled_z_col
+    cn_grid <- recycled_obj_rerun_overall_ploidy$recycled_cn_grid
   } else {
-    if (!identical(use_values, valid_uv_raw)) {
-      stop("When qploidy_standarize_result is NULL, use_values must be c(\"ratio\", \"R\").")
+    vmsg("Preparing inputs and applying initial filters", verbose = verbose, level = 0, type = ">>")
+
+    if (!is.character(sample_id) || length(sample_id) != 1 || nchar(sample_id) == 0) {
+      stop("sample_id must be a non-empty character scalar.")
     }
-    if (is.null(data) || is.null(geno.pos)) {
-      stop("When qploidy_standarize_result is NULL, both 'data' and 'geno.pos' must be provided.")
+
+    # Validate and resolve use_values
+    valid_uv_std <- list(c("BAF", "zscore"), c("BAF", "R"), c("ratio", "zscore"), c("ratio", "R"))
+    valid_uv_raw <- c("ratio", "R")
+    if (!is.null(qploidy_standarize_result)) {
+      if (!is(qploidy_standarize_result, "qploidy_standardization")) {
+        stop("Input must be a qploidy_standardization object as returned by standardize().")
+      }
+      if (!any(sapply(valid_uv_std, identical, use_values))) {
+        stop("When qploidy_standarize_result is provided, use_values must be one of: c(\"BAF\", \"zscore\"), c(\"BAF\", \"R\"), c(\"ratio\", \"zscore\"), c(\"ratio\", \"R\").")
+      }
+      baf_col <- if (use_values[1] == "BAF") "baf" else "ratio"
+      z_col <- if (use_values[2] == "zscore") "z" else "R"
+      df <- as.data.frame(qploidy_standarize_result$data)
+      if (nrow(df) == 0) stop("Input data is empty. No SNPs found for any sample.")
+      d <- filter(df, SampleName == sample_id)
+      if (nrow(d) == 0) stop(sprintf("No data found for sample '%s'.", sample_id))
+    } else {
+      if (!identical(use_values, valid_uv_raw)) {
+        stop("When qploidy_standarize_result is NULL, use_values must be c(\"ratio\", \"R\").")
+      }
+      if (is.null(data) || is.null(geno.pos)) {
+        stop("When qploidy_standarize_result is NULL, both 'data' and 'geno.pos' must be provided.")
+      }
+      req_data <- c("MarkerName", "SampleName", "ratio", "R")
+      req_gp <- c("MarkerName", "Chromosome", "Position")
+      miss_d <- setdiff(req_data, names(data))
+      miss_gp <- setdiff(req_gp, names(geno.pos))
+      if (length(miss_d)) stop(paste("'data' is missing columns:", paste(miss_d, collapse = ", ")))
+      if (length(miss_gp)) stop(paste("'geno.pos' is missing columns:", paste(miss_gp, collapse = ", ")))
+      baf_col <- "ratio"
+      z_col <- "R"
+      d <- data[data$SampleName == sample_id, , drop = FALSE]
+      if (nrow(d) == 0) stop(sprintf("No data found for sample '%s'.", sample_id))
+      gp <- geno.pos[, req_gp]
+      colnames(gp)[colnames(gp) == "Chromosome"] <- "Chr"
+      d <- merge(d, gp, by = "MarkerName", all.x = FALSE)
+      if (nrow(d) == 0) stop("No markers remain after merging data with geno.pos.")
     }
-    req_data <- c("MarkerName", "SampleName", "ratio", "R")
-    req_gp <- c("MarkerName", "Chromosome", "Position")
-    miss_d <- setdiff(req_data, names(data))
-    miss_gp <- setdiff(req_gp, names(geno.pos))
-    if (length(miss_d)) stop(paste("'data' is missing columns:", paste(miss_d, collapse = ", ")))
-    if (length(miss_gp)) stop(paste("'geno.pos' is missing columns:", paste(miss_gp, collapse = ", ")))
-    baf_col <- "ratio"
-    z_col <- "R"
-    d <- data[data$SampleName == sample_id, , drop = FALSE]
-    if (nrow(d) == 0) stop(sprintf("No data found for sample '%s'.", sample_id))
-    gp <- geno.pos[, req_gp]
-    colnames(gp)[colnames(gp) == "Chromosome"] <- "Chr"
-    d <- merge(d, gp, by = "MarkerName", all.x = FALSE)
-    if (nrow(d) == 0) stop("No markers remain after merging data with geno.pos.")
+
+    # subset to chromosomes
+    if (!is.null(chr)) {
+      chrs <- if (is.numeric(chr)) unique(d$Chr)[chr] else chr
+      d <- filter(d, Chr %in% chrs)
+      if (nrow(d) == 0) stop("No data found for specified chromosomes after filtering.")
+    }
+
+    # Replace R == 0 with NA (zero depth is uninformative and distorts z/R distributions)
+    if ("R" %in% names(d)) d$R[d$R == 0] <- NA
+
+    # Remove outliers from depth/z scores
+    if (rm_outliers) {
+      n_na <- sum(is.na(d[[z_col]]))
+      if (z_col != "z") {
+        # Stash any existing "z" column to avoid creating a duplicate when renaming z_col -> "z"
+        if ("z" %in% names(d)) names(d)[names(d) == "z"] <- ".__z_stash__."
+        names(d)[names(d) == z_col] <- "z"
+      }
+      d <- rm_outlier(d, z = TRUE, alpha = outlier_alpha)
+      if (z_col != "z") {
+        names(d)[names(d) == "z"] <- z_col
+        if (".__z_stash__." %in% names(d)) names(d)[names(d) == ".__z_stash__."] <- "z"
+      }
+      vmsg("Outliers removed from %s scores: %s", verbose = verbose, level = 1, type = ">>", z_col, sum(is.na(d[[z_col]])) - n_na)
+    }
+
+    # Remove markers with missing BAF/ratio and z/R
+    rm <- which(is.na(d[[z_col]]))
+    if (length(rm) > 0) d <- d[-rm, , drop = FALSE]
+
+    vmsg("Inputs good to go!", verbose = verbose, level = 1, type = ">>")
+
+    if (rerun_overall_ploidy) {
+      keep_d <- d
+      keep_baf_col <- baf_col
+      keep_z_col <- z_col
+      keep_cn_grid <- cn_grid
+
+    } else {
+      keep_d <- NULL
+    }
   }
-
-  # subset to chromosomes
-  if (!is.null(chr)) {
-    chrs <- if (is.numeric(chr)) unique(d$Chr)[chr] else chr
-    d <- filter(d, Chr %in% chrs)
-    if (nrow(d) == 0) stop("No data found for specified chromosomes after filtering.")
-  }
-
-  # Replace R == 0 with NA (zero depth is uninformative and distorts z/R distributions)
-  if ("R" %in% names(d)) d$R[d$R == 0] <- NA
-
-  # Remove outliers from depth/z scores
-  if (rm_outliers) {
-    n_na <- sum(is.na(d[[z_col]]))
-    if (z_col != "z") names(d)[names(d) == z_col] <- "z"
-    d <- rm_outlier(d, z = TRUE, alpha = outlier_alpha)
-    if (z_col != "z") names(d)[names(d) == "z"] <- z_col
-    vmsg("Outliers removed from %s scores: %s", verbose = verbose, level = 1, type = ">>", z_col, sum(is.na(d[[z_col]])) - n_na)
-  }
-
-  # Remove markers with missing BAF/ratio and z/R
-  rm <- which(is.na(d[[z_col]]))
-  if (length(rm) > 0) d <- d[-rm, , drop = FALSE]
-
-  vmsg("Inputs good to go!", verbose = verbose, level = 1, type = ">>")
-
   # --- set expected ploidy ---
   # Calculate expected ploidy using sample-level BAF distribution
   vmsg("Setting internal parameters", verbose = verbose, level = 0, type = ">>")
@@ -232,8 +264,8 @@ hmm_estimate_CN <- function(
     vmsg("Using user-provided selected_model object", verbose = verbose, level = 1, type = ">>")
   } else {
     # This step was added to be activated if rerun_overall_ploidy is TRUE
-    if (!is.null(rm_mks_overall_ploidy)) {
-      bafs_overall <- d[[baf_col]][-which(d$MarkerName %in% rm_mks_overall_ploidy)]
+    if (!is.null(recycled_obj_rerun_overall_ploidy$rm_mks)) {
+      bafs_overall <- d[[baf_col]][-which(d$MarkerName %in% recycled_obj_rerun_overall_ploidy$rm_mks)]
     } else {
       bafs_overall <- d[[baf_col]]
     }
@@ -369,7 +401,7 @@ hmm_estimate_CN <- function(
   if (sum(keep) == 1) {
     vmsg("Only one window remains after filtering. Assigning CN by BAF likelihood only", verbose = verbose, level = 1, type = ">>")
     # Use BAF likelihoods to assign CN
-    ll_baf_matrix <- compute_baf_likelihoods(baf_list[[1]],
+    ll_baf_matrix <- compute_baf_likelihoods(baf_list[keep][[1]],
       cn_grid,
       M = M,
       bw = selected_model$best$bw,
@@ -550,8 +582,8 @@ hmm_estimate_CN <- function(
     w_baf <- w_baf * baf_weight
   } else {
     n_het_window <- NA
+    n_baf <- rep(0L, W)
     ll_baf_matrix <- matrix(0, nrow = W, ncol = length(cn_grid))
-    prob_baf_matrix <- matrix(0, nrow = W, ncol = length(cn_grid))
     w_baf <- rep(0, W)
     if (round(exp_ploidy, 0) == 1) {
       w_baf <- rep(1, W) # if expected ploidy is 1, we don't expect heterozygotes, so BAF likelihood should be taken fully into account regardless of heterozygote count
@@ -585,7 +617,7 @@ hmm_estimate_CN <- function(
   }
   best_idx <- which(as.numeric(cn_grid) == best_cn)
   if (length(best_idx) == 1) {
-    pi0[best_idx] <- 0.85
+    pi0[best_idx] <- initial_prob
   } else {
     pi0 <- rep(1 / K, K) # fallback to uniform if best CN not found
   }
@@ -636,10 +668,10 @@ hmm_estimate_CN <- function(
     if (length(keep_lower) > 0) {
       last_mu <- mu_exp
       valid_lower <- c()
-      for (idx in keep_lower) {
-        if (mu[idx] < last_mu) {
-          valid_lower <- c(valid_lower, idx)
-          last_mu <- mu[idx]
+      for (ii in keep_lower) {
+        if (mu[ii] < last_mu) {
+          valid_lower <- c(valid_lower, ii)
+          last_mu <- mu[ii]
         }
       }
       lower_idx <- valid_lower
@@ -652,10 +684,10 @@ hmm_estimate_CN <- function(
     if (length(keep_higher) > 0) {
       last_mu <- mu_exp
       valid_higher <- c()
-      for (idx in keep_higher) {
-        if (mu[idx] > last_mu) {
-          valid_higher <- c(valid_higher, idx)
-          last_mu <- mu[idx]
+      for (ii in keep_higher) {
+        if (mu[ii] > last_mu) {
+          valid_higher <- c(valid_higher, ii)
+          last_mu <- mu[ii]
         }
       }
       higher_idx <- valid_higher
@@ -751,11 +783,12 @@ hmm_estimate_CN <- function(
     rownames(d) <- NULL
   }
 
+  rm_markers <- d$MarkerName[which(d$CN_call != mode(d$CN_call))]
+
   if (rerun_overall_ploidy) {
-    
+    if(length(rm_markers) > 0){
     vmsg("Rerunning overall ploidy estimation with markers that disagree with the initial CN call removed", verbose = verbose, level = 0, type = ">>")
-    
-    rm_markers <- d$MarkerName[which(d$CN_call != mode(d$CN_call))]
+
     result <- hmm_estimate_CN(
       qploidy_standarize_result = qploidy_standarize_result,
       sample_id = sample_id,
@@ -778,10 +811,10 @@ hmm_estimate_CN <- function(
       initial_prob = initial_prob, # Initial probability for the best CN state in the initial state distribution (pi0). Default 0.15. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
       z_only = z_only,
       verbose = verbose,
-      exp_ploidy = exp_ploidy,
+      exp_ploidy = NULL,
       rm_outliers = rm_outliers,
       outlier_alpha = outlier_alpha,
-      selected_model = selected_model,
+      selected_model = NULL,
       dists = dists,
       bw_grid = bw_grid,
       add_uniform_grid = add_uniform_grid,
@@ -793,10 +826,17 @@ hmm_estimate_CN <- function(
       het_range = het_range,
       dosage_threshold = dosage_threshold,
       rerun_overall_ploidy = FALSE,
-      rm_mks_overall_ploidy = rm_markers
+      recycled_obj_rerun_overall_ploidy = list(rm_mks = rm_markers,
+                                               recycled_d = keep_d,
+                                               recycled_baf_col = keep_baf_col,
+                                               recycled_z_col = keep_z_col,
+                                               recycled_cn_grid = keep_cn_grid)
     )
 
     return(result)
+    } else {
+      vmsg(paste("Rerun option chosen but no CN different than mode", mode(d$CN_call),"was found. Rerun not needed."), verbose = verbose, level = 0, type = ">>")
+    }
   }
 
   vmsg("Done!", verbose = verbose, level = 1, type = ">>")
@@ -993,14 +1033,14 @@ write_hmm_CN <- function(hmm_CN, prefix) {
 #'
 #' Reads the three main components of an hmm_CN object (by_window, by_marker, params or params_samples) from files.
 #' The user must provide the three file paths explicitly.
-#' @param by_window_file Path to the by_window CSV file.
 #' @param by_marker_file Path to the by_marker CSV file.
+#' @param by_window_file Path to the by_window CSV file.
 #' @param params_file Path to the params RDS file.
 #' @importFrom data.table fread
 #'
 #' @return An object of class 'hmm_CN'.
 #' @export
-read_hmm_CN <- function(by_window_file, by_marker_file, params_file) {
+read_hmm_CN <- function(by_marker_file, by_window_file , params_file) {
   by_window <- fread(by_window_file, data.table = FALSE)
   by_marker <- fread(by_marker_file, data.table = FALSE)
 

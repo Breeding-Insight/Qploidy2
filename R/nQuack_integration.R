@@ -16,6 +16,7 @@
 #' @param max_geno Integer. Maximum genotype dosage considered homozygous
 #'   (inclusive). Sites where \code{geno == 0} or \code{geno == max_geno} are
 #'   filtered as homozygous. Default is \code{4} (tetraploid).
+#' @param seed Integer. Random seed for reproducibility of the random allele selection. Default is \code{123L}.
 #'
 #' @return A named \code{list} with one element per sample. Each element is a
 #'   two-column integer \code{matrix}:
@@ -43,7 +44,7 @@
 #' 
 #' @author adapted from Michelle Gaynor
 #' 
-#' @seealso \code{\link[https://mlgaynor.com/nQuack/articles/Qploidy2nQuack.html]{nQuack tutorial}} for ploidy estimation using the nQuack package.
+#' @seealso \href{https://mlgaynor.com/nQuack/articles/Qploidy2nQuack.html}{nQuack tutorial} for EM model selection using the nQuack package.
 #'
 #'
 #' @export

@@ -125,7 +125,7 @@ x-axis = genomic positions
 - Ratio histogram considering all markers of the samples: y-axis = observation counts; x-axis = ratio value
 - Read depth (sequencing platforms) or total intensities (array) in y-axis and genomic position in x-axis
 
-```{r, fig.width=11, fig.height=10, out.width="100%"}
+```{r, fig.width=11, fig.height=8, out.width="100%"}
 samples <- unique(data$SampleName)
 plot_raw(data = data, 
          geno.pos = geno.pos,
@@ -174,7 +174,7 @@ Therefore, we can proceed with standardization using the combined dataset.
 
 If your dataset formed clear groups like the figure below referring to another dataset not covered in this tutorial:
 
-![](batch_effect1.png)
+![](batch_effect1.png){width=50%}
 
 In this case, perform the standardization separately for each and merge the result using `merge_qploidy_datas` function.
 
@@ -186,11 +186,11 @@ plot_xy_with_ploidy_guides(data, ploidy = 4, marker = 1, samples = passport_file
 
 Again, for this dataset, no difference is observed but here are some markers examples from another dataset that has batch effect:
 
-![](batch_OneMarker.png)
+![](batch_OneMarker.png){width=50%}
 
-![](batch_OneMarker2.png)
+![](batch_OneMarker2.png){width=50%}
 
-![](batch_OneMarker3.png)
+![](batch_OneMarker3.png){width=50%}
 
 Dosage call methods such as `fitPoly`, `updog`, and `polyRAD` use these type of ratio distributions (one marker and all samples) 
 to estimate each dosage cluster. If you have batch effect between your runs (as the figures above), they will also affect the 
@@ -203,7 +203,7 @@ When this assumption holds for your dataset, deviations in a sample’s total de
 
 You can rapidly screen for candidate samples using the function below:
 
-```{r, fig.width=6, fig.height=5, out.width="100%"}
+```{r}
 chromosome_level_test_plot_qploidy(input = data, 
                                    geno.pos = geno.pos, 
                                    selected_samples = samples[1:12], # plot the first 12 
@@ -216,8 +216,8 @@ Before proceeding to the standardization step, consider removing abnormal chromo
 
 ```{r}
 # interactive graphic if plotly package is installed
-p <- plot_heterozygosity(data, col2use = "ratio")
-p
+# p <- plot_heterozygosity(data, col2use = "ratio")
+# p
 ```
 
 This is an interactive graphic; hover your mouse over the cells to get information on sample name, heterozygosity percentage, and the number of markers used for this estimation.
@@ -342,7 +342,7 @@ See `?plot_qploidy_standardization` for more plot types.
 You can use the same quick check we used before on the raw total depth (R) with the standardized z-scores. This is useful to identify samples with potential aneuploidies or large CNVs before 
 running the HMM, and also to select samples with known ploidy to guide the BAF model selection.
 
-```{r, fig.width=6, fig.height=5, out.width="100%"}
+```{r}
 chromosome_level_test_plot_qploidy(input = qploidy_standardization, 
                                    selected_samples = samples[1:12], 
                                    col2test = "z")
@@ -354,13 +354,13 @@ Select the best BAF model for a sample.
 The approach implemented here for this step is based on [`nQuack`](https://github.com/mgaynor1/nQuack)
 methods. It tests different statistical distribution mixture models fitting for each tested ploidy on the 
 BAF distributions and selects the best based on BIC.
-We implemented two ways of performing it, one "quick and dirt" based on parameters grid
+There are two ways of performing it, one "quick and dirt" based on comparing parameters in a grid
 and another using `nQuack` EM functions:
 
 - EM approach BAF model selection: has a robust EM algorithm able to return tailored parameters for the selected distribution to users
 - Grid approach BAF model selection: does not use an EM algorithm but a grid of parameters to be tested, which is less time- and computationally demanding but may not provide the best parameters for this step
 
-Following this tutorial, you will be able to apply and evaluate the differences between both approaches. 
+This current tutorial apply the "grid approach". Check tutorial [Qploidy2 and nQuack integration]() for running the EM approach using nQuack and a comparison between the methods results.
 
 This step helps determine the most likely ploidy and mixture 
 model parameters for BAF. The selected approach and model will be used in the `Qploidy2` HMM for copy number estimation. 
@@ -374,19 +374,18 @@ or test multiple samples and compare results.
 ```{r}
 sample_ratios <- data$ratio[data$SampleName == "J432"]
 selected_model_raw <- select_best_baf_model(baf_vec = sample_ratios,
-                                        cn_grid= c(2,3,4,5,6),
-                                        bw = c(0.02, 0.04,0.1),
-                                        plot = TRUE)
+                                            cn_grid= c(2,3,4,5,6),
+                                            bw = c(0.02, 0.04,0.1),
+                                            plot = TRUE)
 
 selected_model_raw$plot
 head(selected_model_raw$grid_results)
 ```
 
+See that despite selecting as the best a model that inferred the ploidy as 4, the second place inferred as 3 and the likelihood between models don't differ much.
 For this dataset, standardization is required for better results. This step and other downstream steps only make this move evident.
 
 ## Applying to standardized data
-
-### Grid approach
 
 ```{r}
 selected_model <- select_best_baf_model(qploidy_standardization = qploidy_standardization, 
@@ -399,105 +398,37 @@ selected_model$plot
 head(selected_model$grid_results)
 ```
 
-### EM approach
-
-Thanks to our collaboration with `nQuack` (thank you, Dr. Gaynor!), 
-we have functions to easily convert data formats between software:
-
-```{r}
-nQuack_list <- convert2nQuack(qploidy_standardization, seed = 123L)
-```
-
-Note that nQuack randomize which allele is considered the B allele in the BAF. Set seed
-using the argument to reproduce same randomization for exact reproducibility.
-
-Here, we will follow the steps in nQuack:
-
-- Run Normal, Beta and Beta Binomial models for samples with known ploidy (samples you defined in the `genos` object)
-- Check which model return the correct ploidy with higher difference between best and second best estimation (BICdif)
-- Use selected model for all samples and windows in downstream analysis
-
-This first step may take some time to run depending on the number of cores and samples
-you run. We suggest to adapt the number of cores and run it in a high-performance computing system. 
-If you just want to follow along with this tutorial in your local computer for now, load the results using the code below.
-
-```{r}
-samples <- names(nQuack_list)
-
-# Filter by only known ploidy samples contained in genos object
-samples_genos <- unique(genos$SampleName)
-
-# Because we are evaluating a mapping population all samples is expected to be 4x
-# We will run nQuack models for all them
-all(samples %in% samples) 
-
-em_resultsNormal <- em_resultsBeta <- em_resultsBetaBinom <- list()
-
-time <- system.time({
-  for(i in 1:length(samples)){
-    em_resultsNormal[[i]] <- quackNormal(xm = nQuack_list[[i]],
-                                         samplename = samples[i],
-                                         cores = 50,
-                                         parallel = TRUE)
-    
-    em_resultsBeta[[i]] <- quackBeta(xm = nQuack_list[[i]],
-                                     samplename = samples[i],
-                                     cores = 50,
-                                     parallel = TRUE)
-    
-    em_resultsBetaBinom[[i]] <- quackBetaBinom(xm = nQuack_list[[i]],
-                                               samplename = samples[i],
-                                               cores = 50,
-                                               parallel = TRUE)
-  }
-})
-em_results_df <- do.call(rbind, c(em_resultsNormal, 
-                                  em_resultsBeta, 
-                                  em_resultsBetaBinom))
-head(em_results_df)
-```
-
-If you don't want to wait for the result to move forward in the tutorial, get the results with:
-
-```{r}
-
-```
-
-
-It is important to notice that `nQuack` models will always test ploidies 2 to 6.
-
-Now, we use function `quackit` to interpret model output:
-
-```{r}
-summary <- quackit(model_out =  em_results_df)
-summary
-```
-
-
+Using standardized model, the four best models returned ploidy 4 proving to be more stable than without standardization.
 
 # HMM Copy Number Estimation (Single Sample)
 
 Estimate copy number for a sample using a Hidden Markov Model. 
-This step provides a robust approach that integrates BAF and Z-score (standardized total depth) 
-information across genomic regions to infer CNV segments. Find all parameters description in `?hmm_estimate_CN`.
+This step provides a robust approach that integrates raw or standardized ratios (BAF) and total depth (Z-score)
+information across genomic regions to infer CNV segments. 
+Find all parameters description in `?hmm_estimate_CN`.
 
 ## Applying to raw data
 
 ```{r}
 res_raw <- hmm_estimate_CN(data = data, 
-                       geno.pos = geno.pos,
-                       selected_model = selected_model_raw, 
-                       use_values = c("ratio","R"),
-                       sample_id = "J432",
-                       cn_grid =  c(2,3,4,5,6))
+                           geno.pos = geno.pos,
+                           selected_model = selected_model_raw, 
+                           use_values = c("ratio","R"),
+                           sample_id = "J432",
+                           cn_grid =  c(2,3,4,5,6))
 
 # View results
 res_raw
 ```
 
+Not that the HMM multipoint approach consider the marker position order based on the reference genome used. 
+Therefore, changing the reference genome may change the results.
+
+**Warning**: Avoid to use unlikely copy numbers for your specie to decrease the number of tested scenarios.
+
 Visualize the CNV track:
 
-```{r , fig.width=11, fig.height=10, out.width="100%"}
+```{r , fig.width=11, fig.height=8, out.width="100%"}
 p <- plot_cn_track(hmm_CN = res_raw, data = data, 
                    geno.pos = geno.pos, 
                    sample_id = "J432",
@@ -508,13 +439,15 @@ p <- plot_cn_track(hmm_CN = res_raw, data = data,
 p$arranged
 ```
 
+Despite not having the same peak resolution as the standardized data, the HMM was robust enough to retun correct result (CN 4) for all chromosomes. 
+The standardization will be more critical for more complex scenarios, such as messy ratios, and/or presence of loss or gain of chromosomes. We have some example further in this tutorial.
+
 ## Applying to standardized data
 
 ```{r}
 res <- hmm_estimate_CN(qploidy_standarize_result = qploidy_standardization,
-                       sample_id ="85-338",
-                       cn_grid =  c(2,3,4,5,6), 
-                       rerun_overall_ploidy = TRUE)
+                       sample_id ="J432",
+                       cn_grid =  c(2,3,4,5,6))
 
 # View results
 res
@@ -522,10 +455,10 @@ res
 
 Visualize the CNV track:
 
-```{r , fig.width=11, fig.height=10, out.width="100%"}
+```{r , fig.width=11, fig.height=8, out.width="100%"}
 p <- plot_cn_track(hmm_CN = res,
                    qploidy_standarize_result = qploidy_standardization,
-                   sample_id = "85-338",
+                   sample_id = "J432",
                    show_window_lines = FALSE,
                    z_by_mean = TRUE)
 
@@ -581,7 +514,7 @@ multi_esti_raw <- hmm_estimate_CN_multi(data = data,
 
 Visualize CNV tracks for multiple samples:
 
-```{r, fig.width=11, fig.height=10, out.width="100%"}
+```{r, fig.width=11, fig.height=8, out.width="100%"}
 compare_cn_track(hmm_CN = multi_esti_raw,
                  samples_to_plot = samples[1:30],
                  facet_ncol = 8)
@@ -601,7 +534,7 @@ multi_esti <- hmm_estimate_CN_multi(qploidy_standarize_result = qploidy_standard
 
 Visualize CNV tracks for multiple samples:
 
-```{r, fig.width=11, fig.height=10, out.width="100%"}
+```{r, fig.width=11, fig.height=8, out.width="100%"}
 compare_cn_track(hmm_CN = multi_esti,
                  samples_to_plot = samples[1:30],
                  facet_ncol = 8)
@@ -611,21 +544,43 @@ Not that sample `85-103` pointed in section
 [`Chromosome-level screening based on z-score`](Qploidy_alfalfa_tutorial.html#71_Chromosome-level_screening_for_abnormalities_based_on_Z-score_(optional)) 
 having a higher depth compared to the rest of the 
 samples in chromosome 6 suggesting a possible aneuploidy now is presented as four copies. 
-The combination of mixed models and hidden markov model eliminated false variations of the expected copy number.
+The combination of mixed models and hidden markov model eliminated false variations of the expected copy number. 
+Applying the approach to the standardized data also eliminated several false CNV identified when running using the raw data. 
+See comparison below between raw and standardized data for sample `85-113`.
 
 
-```{r}
+```{r, fig.width=11, fig.height=8, out.width="100%"}
 # For a specific sample
-p <- plot_cn_track(hmm_CN = multi_esti,
-                   qploidy_standarize_result = qploidy_standardization,
-                   sample_id = "85-103",
-                   show_window_lines = TRUE)
-p$arranged
+p_stand <- plot_cn_track(hmm_CN = multi_esti_raw,
+                         qploidy_standarize_result = qploidy_standardization,
+                         sample_id = "85-113",
+                         show_window_lines = TRUE)
+p_stand$arranged
+
+p_stand <- plot_cn_track(hmm_CN = multi_esti,
+                         data = data,
+                         sample_id = "85-113",
+                         show_window_lines = TRUE)
+p_stand$arranged
 ```
 
-```{r}
-p$baf
+On the other hand, sample `85-126` highlight a false negative from raw data analysis:
+
+```{r, fig.width=11, fig.height=8, out.width="100%"}
+# For a specific sample
+p_stand <- plot_cn_track(hmm_CN = multi_esti_raw,
+                         qploidy_standarize_result = qploidy_standardization,
+                         sample_id = "85-126",
+                         show_window_lines = TRUE)
+p_stand$arranged
+
+p_stand <- plot_cn_track(hmm_CN = multi_esti,
+                         data = data,
+                         sample_id = "85-126",
+                         show_window_lines = TRUE)
+p_stand$arranged
 ```
+
 
 # Re-standardization (Optional)
 
@@ -635,8 +590,8 @@ If you want to improve BAF resolution (e.g., after identifying a subset of sampl
 re_qploidy_standardization <- re_standardize(
   data = data,
   geno.pos = geno.pos,
-  hmm_CN_multi  = multi_esti,
-  threshold.geno.prob = 0.9,
+  hmm_CN_multi  = multi_esti, 
+  use_estimated_dosages = TRUE, 
   ploidy.standardization = 4,
   threshold.n.clusters = 4,
   n.cores = 2,
@@ -645,7 +600,12 @@ re_qploidy_standardization <- re_standardize(
 )
 
 re_qploidy_standardization
+```
 
+If argument `use_estimated_dosages` is set to TRUE, Qploidy2 estimates the dosage based on its own algorithm. 
+If FALSE, it uses the dosages contained in the initial genos object.
+
+```{r}
 # Compare before and after
 plot_qploidy_standardization(x = qploidy_standardization,
                              sample = "85-295",
@@ -663,9 +623,7 @@ re_multi_esti <- hmm_estimate_CN_multi(
   sample_ids = "all",
   n_cores = 2,
   cn_grid =  c(2,3,4,5,6),
-  bw = c(0.02, 0.04,0.1), 
-  add_uniform_grid = TRUE, 
-  uniform_weight_grid = c(0.2, 0.5,0.95))
+  bw = c(0.02, 0.04,0.1))
 
 # CNV profiles before
 compare_cn_track(hmm_CN = multi_esti,
@@ -680,16 +638,16 @@ compare_cn_track(hmm_CN = re_multi_esti,
 
 Among the first 50 samples, sample `85-179` differ between previous standardization and re-standardization results.
 
-```{r, fig.width=11, fig.height=10, out.width="100%"}
+```{r, fig.width=11, fig.height=8, out.width="100%"}
 # Same plots can be generated
 p_re <- plot_cn_track(hmm_CN = re_multi_esti,
                       qploidy_standarize_result = re_qploidy_standardization,
-                      sample_id = "85-179",
+                      sample_id = "85-182",
                       show_window_lines = TRUE)
 
 p <- plot_cn_track(hmm_CN = multi_esti,
                    qploidy_standarize_result = qploidy_standardization,
-                   sample_id = "85-179",
+                   sample_id = "85-182",
                    show_window_lines = TRUE)
 
 p$arranged #before
@@ -702,17 +660,16 @@ due to high dispersion. If this instability still leaves doubts about
 the CNV. You can further explore tweaking the other parameters, 
 for example, increasing the number of markers in the windows to better fit the mixed models on the BAF distributions:
 
-```{r, fig.width=11, fig.height=10, out.width="100%"}
+```{r, fig.width=11, fig.height=8, out.width="100%"}
 
 res_tweak <- hmm_estimate_CN(qploidy_standarize_result = re_qploidy_standardization,
-                       selected_model = selected_model,
-                       sample_id = "85-179",
-                       min_snps_per_window = 60,
-                       cn_grid =  c(2,3,4,5,6))
+                             sample_id = "85-182",
+                             min_snps_per_window = 60,
+                             cn_grid =  c(2,3,4,5,6))
 
 p <- plot_cn_track(hmm_CN = res_tweak,
                    qploidy_standarize_result = re_qploidy_standardization,
-                   sample_id = "85-179",
+                   sample_id = "85-182",
                    show_window_lines = TRUE)
 
 p$arranged
@@ -761,8 +718,8 @@ You will see three generated files:
 You can read them back to R using the `read_hmm_CN` function:
 
 ```{r, eval=FALSE}
-final_res <- read_hmm_CN(by_window_file = "alfalfa_example_by_window.csv.gz",
-                         by_marker_file = "alfalfa_example_by_marker.csv.gz",
+final_res <- read_hmm_CN(by_marker_file = "alfalfa_example_by_marker.csv.gz",
+                         by_window_file = "alfalfa_example_by_window.csv.gz",
                          params_file = "alfalfa_example_params.rds")
 ```
 
@@ -821,13 +778,21 @@ vcf@gt[1:5,1:5]
 
 CN <- extract.gt(vcf, "CN")
 CN[1:5,1:5]
+```
+
+The VCF format dosages are adapted to the CN estimated by Qploidy2. For example, if the CN is 3, the dosages can be 0,1,2,3 and are represented as 0/0/0, 0/0/1, 0/1/1, 1/1/1. 
+If the CN is 4, the dosages can be 0,1,2,3,4 and are represented as 0/0/0/0, 0/0/0/1, 0/0/1/1, 0/1/1/1, 1/1/1/1.
+
+```{r}
 tri <- which(CN == "3", arr.ind = TRUE)
 CN[tri[1:5,1],25:30]
 
 GT <- extract.gt(vcf, "GT")
-GT[1:5,1:5]
 GT[tri[1:5,1],25:30]
+```
 
+The VCF contains the likelihood of each dosage call in the `PMD` field. The PMD is the probability of the most likely dosage call.
+```{r}
 dosage_prob <- extract.gt(vcf, "PMD")
 dosage_prob[1:5,1:5]
 dosage_prob[tri[1:5,1],25:30]

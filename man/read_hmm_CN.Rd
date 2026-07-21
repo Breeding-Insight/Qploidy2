@@ -4,12 +4,12 @@
 \alias{read_hmm_CN}
 \title{Read hmm_CN object from three files}
 \usage{
-read_hmm_CN(by_window_file, by_marker_file, params_file)
+read_hmm_CN(by_marker_file, by_window_file, params_file)
 }
 \arguments{
-\item{by_window_file}{Path to the by_window CSV file.}
-
 \item{by_marker_file}{Path to the by_marker CSV file.}
+
+\item{by_window_file}{Path to the by_window CSV file.}
 
 \item{params_file}{Path to the params RDS file.}
 }
