@@ -7,29 +7,47 @@
 plot_xy_with_ploidy_guides(
   df,
   ploidy = 2,
-  sample = NULL,
-  highlight_color = "tomato",
-  other_color = "grey75",
-  color_by_geno = FALSE
+  marker = NULL,
+  samples = NULL,
+  palette = "auto"
 )
 }
 \arguments{
-\item{df}{A `data.frame` containing at least columns `X` and `Y`. If
-`sample = "all"` or a specific sample is to be highlighted, `df` should also
-contain a `SampleName` column.}
+\item{df}{A `data.frame` with at least columns `X` and `Y`, a data frame that
+also contains a `MarkerName` column (per-marker long format), or an object of
+class `qploidy_standardization`.}
 
 \item{ploidy}{Integer (≥ 2). Ploidy used to compute and draw dosage guide lines.}
 
-\item{sample}{Character. Either `"all"` to color all samples by `SampleName`,
-or the name of a single sample to highlight. Default: `"all"`.}
+\item{marker}{Character or integer. Required when `df` (or `df$data`) contains a
+`MarkerName` column with more than one unique value. Provide the marker name as
+a string or its integer index (1-based) in the vector of unique marker names.}
 
-\item{highlight_color}{Color used for the highlighted sample when
-`sample != "all"`. Default: `"tomato"`.}
+\item{samples}{Controls which samples are highlighted and how they are colored.
+Three modes (requires a `SampleName` column in `df` for modes 2 and 3):
+* `NULL` (default): all points drawn in black, no grouping.
+* A **character or integer vector**: only those samples are plotted, in
+  black. Integer values are interpreted as 1-based indices into
+  `unique(df$SampleName)`.
+* A **data.frame** with at least two columns: the first column contains
+  sample names and the second column contains a group identifier (any type).
+  Each unique group receives a distinct colour (controlled by `palette`);
+  samples not listed are drawn in grey. The group labels appear in the
+  plot legend.}
 
-\item{other_color}{Color used for non-highlighted samples when
-`sample != "all"`. Default: `"grey75"`.}
-
-\item{color_by_geno}{Logical. If TRUE and a 'geno' column is present in df, color points by genotype. Default is FALSE.}
+\item{palette}{Character string naming a built-in colour palette, or a
+character vector of colours to use directly. Only used when `samples` is a
+data.frame. Built-in options:
+\describe{
+  \item{`"auto"` (default)}{ggplot2 default discrete colour scale.}
+  \item{`"alphabet"`}{26 highly-distinguishable colours (hand-tuned for
+    large group counts).}
+  \item{`"polychrome"`}{24 perceptually-distinct colours from the
+    Polychrome palette, suitable for 20+ groups.}
+  \item{`"okabe_ito"`}{8-colour Okabe-Ito palette — the recommended
+    colorblind-friendly choice. Colours are recycled if there are more
+    than 8 groups.}
+}}
 }
 \value{
 A **ggplot** object.
@@ -40,9 +58,19 @@ expected dosage guide lines for a given ploidy. You can either color all samples
 (`sample = "all"`) or highlight a single sample while rendering the others in gray.
 Samples that have no plotted points (e.g., due to non-finite `X`/`Y`) are
 automatically omitted from the legend.
+
+Accepts three types of input for `df`:
+* A `qploidy_standardization` object — its `$data` slot is used automatically.
+* A data frame with a `MarkerName` column (e.g. the per-marker long format
+  exported by Axiom/Illumina readers). When multiple markers are present, you
+  must specify `marker`.
+* A plain data frame with columns `X` and `Y` (original behavior).
 }
 \details{
 The function:
+* Accepts a `qploidy_standardization` object or a data frame that may contain a
+  `MarkerName` column. When `MarkerName` is present and more than one unique
+  marker exists, `marker` must be supplied.
 * Drops rows where `X` or `Y` are non-finite before plotting and builds the legend
   from the remaining points.
 * When `sample = "all"`, colors points by `SampleName` (requires a `SampleName` column).

@@ -8,6 +8,7 @@ re_standardize(
   data = NULL,
   geno.pos = NULL,
   hmm_CN_multi,
+  use_estimated_dosages = FALSE,
   ploidy.standardization = NULL,
   threshold.n.clusters = NULL,
   n.cores = 1,
@@ -50,6 +51,8 @@ re_standardize(
 - Position: Genomic position (base-pair coordinate)}
 
 \item{hmm_CN_multi}{An object of class `hmm_CN` as returned by `hmm_estimate_CN_multi`.}
+
+\item{use_estimated_dosages}{Logical. If \code{FALSE} (default), uses the original dosage calls stored in \code{hmm_CN_multi$by_marker$geno} (from fitpoly/updog, based on raw theta values), setting dosages to \code{NA} for markers whose \code{CN_call} differs from \code{ploidy.standardization}. This is the recommended approach for re-standardization because it avoids circularity: the original dosages are independent of the BAF signal. If \code{TRUE}, calls \code{call_hmm_dosages} to re-estimate per-marker dosages from the BAF model; note that these dosages are derived from the BAF values themselves, which may propagate imperfections from the original standardization.}
 
 \item{ploidy.standardization}{Integer. Ploidy level to use for standardization. If NULL, uses the mode of CN_call in dosages.}
 

@@ -655,6 +655,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##'   - Position: Genomic position (base-pair coordinate)
 ##'
 ##' @param hmm_CN_multi An object of class `hmm_CN` as returned by `hmm_estimate_CN_multi`.
+##' @param use_estimated_dosages Logical. If \code{FALSE} (default), uses the original dosage calls stored in \code{hmm_CN_multi$by_marker$geno} (from fitpoly/updog, based on raw theta values), setting dosages to \code{NA} for markers whose \code{CN_call} differs from \code{ploidy.standardization}. This is the recommended approach for re-standardization because it avoids circularity: the original dosages are independent of the BAF signal. If \code{TRUE}, calls \code{call_hmm_dosages} to re-estimate per-marker dosages from the BAF model; note that these dosages are derived from the BAF values themselves, which may propagate imperfections from the original standardization.
 ##' @param ploidy.standardization Integer. Ploidy level to use for standardization. If NULL, uses the mode of CN_call in dosages.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. Defaults to ploidy + 1.
 ##' @param n.cores Integer. Number of cores for parallel computation. Default is 1.
@@ -711,6 +712,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 re_standardize <- function(data = NULL,
                            geno.pos = NULL,
                            hmm_CN_multi,
+                           use_estimated_dosages = FALSE,
                            ploidy.standardization = NULL,
                            threshold.n.clusters = NULL,
                            n.cores = 1,
@@ -742,37 +744,66 @@ re_standardize <- function(data = NULL,
   if (!inherits(hmm_CN_multi, "hmm_CN")) stop("Input object must be of class 'hmm_CN'")
   # check if hmm_CN_multi has params_samples element
   if (!any(names(hmm_CN_multi) == "params_samples")) stop("Input object must come from hmm_estimate_CN_multi function")
+  if (is.null(data))     stop("'data' must be provided (currently NULL).")
+  if (is.null(geno.pos)) stop("'geno.pos' must be provided (currently NULL).")
 
-  # Call dosages with per-sample BAF model selection
-  dosages <- call_hmm_dosages(
-    hmm_CN              = hmm_CN_multi,
-    cn_grid             = cn_grid,
-    dists               = dists,
-    bw_grid             = bw_grid,
-    add_uniform_grid    = add_uniform_grid,
-    uniform_weight_grid = uniform_weight_grid,
-    M                   = M,
-    reflect             = reflect,
-    param_count         = param_count,
-    count_grid_as_params = count_grid_as_params,
-    min_het_frac        = min_het_frac,
-    het_range           = het_range,
-    verbose             = verbose,
-    n.cores             = n.cores,
-    parallel.type       = parallel.type
-  )
-  
-  # Set ploidy.standardization if not provided
-  if(is.null(ploidy.standardization)) {
-    ploidy.standardization <- mode( hmm_CN_multi$by_marker$CN_call)
-    if (verbose) cat("ploidy.standardization not provided, using:", ploidy.standardization, "\n")
+  if (use_estimated_dosages) {
+    # Call dosages with per-sample BAF model selection
+    dosages <- call_hmm_dosages(
+      hmm_CN              = hmm_CN_multi,
+      cn_grid             = cn_grid,
+      dists               = dists,
+      bw_grid             = bw_grid,
+      add_uniform_grid    = add_uniform_grid,
+      uniform_weight_grid = uniform_weight_grid,
+      M                   = M,
+      reflect             = reflect,
+      param_count         = param_count,
+      count_grid_as_params = count_grid_as_params,
+      min_het_frac        = min_het_frac,
+      het_range           = het_range,
+      verbose             = verbose,
+      n.cores             = n.cores,
+      parallel.type       = parallel.type
+    )
+
+    # Set ploidy.standardization if not provided
+    if (is.null(ploidy.standardization)) {
+      ploidy.standardization <- mode(hmm_CN_multi$by_marker$CN_call)
+      if (verbose) cat("ploidy.standardization not provided, using:", ploidy.standardization, "\n")
+    }
+
+    dosages[which(dosages$CN_call != ploidy.standardization), "dosage"] <- NA
+
+    if (all(is.na(dosages$dosage))) {
+      stop(sprintf(
+        "No dosage calls remain after filtering for ploidy.standardization = %d. All markers were assigned a different CN. Check ploidy.standardization or the HMM results.",
+        ploidy.standardization
+      ))
+    }
+
+    genos <- dosages[, c("MarkerName", "SampleName", "dosage", "post_max_dosage")]
+    colnames(genos)[3:4] <- c("geno", "prob")
+    genos <- genos[order(genos$MarkerName, genos$SampleName),]
+  } else {
+    # Use original dosage calls from by_marker$geno, masking non-euploid markers
+    if (is.null(ploidy.standardization)) {
+      ploidy.standardization <- mode(hmm_CN_multi$by_marker$CN_call)
+      if (verbose) cat("ploidy.standardization not provided, using:", ploidy.standardization, "\n")
+    }
+
+    genos <- hmm_CN_multi$by_marker[, c("MarkerName", "SampleName", "geno")]
+    genos$geno[hmm_CN_multi$by_marker$CN_call != ploidy.standardization] <- NA
+
+    if (all(is.na(genos$geno))) {
+      stop(sprintf(
+        "No dosage calls remain after filtering for ploidy.standardization = %d. All markers were assigned a different CN. Check ploidy.standardization or the HMM results.",
+        ploidy.standardization
+      ))
+    }
+
+    genos <- genos[order(genos$MarkerName, genos$SampleName),]
   }
-
-  dosages[which(dosages$CN_call != ploidy.standardization), "dosage"] <- NA
-
-  genos <- dosages[, c("MarkerName", "SampleName", "dosage", "post_max_dosage")]
-  colnames(genos)[3:4] <- c("geno", "prob")
-  genos <- genos[order(genos$MarkerName, genos$SampleName),]
 
   if (is.null(threshold.n.clusters)) {
     threshold.n.clusters <- ploidy.standardization + 1
