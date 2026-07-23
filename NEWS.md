@@ -1,3 +1,10 @@
+# Qploidy2 1.16.0
+
+* Modify `call_hmm_dosages` and `call_BAF_dosages` to output the BAF weights and likelihood of each CN and dosage called
+* Adapt `export_VCF` to export likelihoods information
+* Add functions `plot_karyotype` and `karyotype_notation`
+* Update alfalfa tutorial
+
 # Qploidy2 1.15.0
 
 * Create arguments `rerun_overall_ploidy` and `recycled_obj_rerun_overall_ploidy` in `hmm_estimate_CN`. When `rerun_overall_ploidy` is set to TRUE it re-run the model selection and HMM removing markers estimated having CN difference than the mode. This improves overall ploidy estimation and corrects the variation of total depth. `recycled_obj_rerun_overall_ploidy` is of exclusve use of internal process
@@ -10,7 +17,7 @@
   - add higher variances to be tested in the grid
   - `rerun_overall_ploidy` is set to TRUE
 * `re_standardize` new `use_estimated_dosages` parameter — added with default FALSE (uses original dosages for non-circular re-standardization); replaces the previous genos argument approach
-* hmm_estimate_CN critical bug fixes:
+* hmm_estimate_CN bug fixes:
     - z_only = TRUE caused a crash (n_baf was never defined)
     - pi0 didn't sum to 1 — best CN state was hardcoded to 0.85 instead of using initial_prob
     - Loop counter idx was overwritten by inner for (idx in keep_lower/higher) loops, breaking the non-monotonic correction guard
@@ -19,11 +26,10 @@
 * Update Alfalfa tutorial
 * **warning**: this version change functions default values. Therefore, results may differ from previous versions  
 
-
 # Qploidy2 1.14.0
 
 * Parallelize dosage call in `call_hmm_dosages`
-* Change error my warning in read_hmm_CN when one or more samples in multi sample hmm object failed to be estimated and lack parameters information
+* Change error by warning in read_hmm_CN when one or more samples in multi sample hmm object failed to be estimated and lack parameters information
 * Fix conflict of out_filename while merging qploidy_standardization objects in `merge_qploidy_data`
 * Function `rename_samples` to rename sample names in qploidy_standardization and hmm_CN objects
 

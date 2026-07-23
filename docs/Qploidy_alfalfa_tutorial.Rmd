@@ -26,8 +26,9 @@ knitr::opts_chunk$set(
   message = FALSE,
   warning = FALSE,
   fig.align = "center",
-  fig.width = 7,
-  fig.height = 4.5
+  fig.width = 10,
+  fig.height = 10,
+  out.width = "40%"
 )
 ```
 
@@ -125,7 +126,7 @@ x-axis = genomic positions
 - Ratio histogram considering all markers of the samples: y-axis = observation counts; x-axis = ratio value
 - Read depth (sequencing platforms) or total intensities (array) in y-axis and genomic position in x-axis
 
-```{r, fig.width=11, fig.height=8, out.width="100%"}
+```{r}
 samples <- unique(data$SampleName)
 plot_raw(data = data, 
          geno.pos = geno.pos,
@@ -174,7 +175,7 @@ Therefore, we can proceed with standardization using the combined dataset.
 
 If your dataset formed clear groups like the figure below referring to another dataset not covered in this tutorial:
 
-![](batch_effect1.png){width=50%}
+![](batch_effect1.png){width=30% fig-align="center"}
 
 In this case, perform the standardization separately for each and merge the result using `merge_qploidy_datas` function.
 
@@ -186,11 +187,11 @@ plot_xy_with_ploidy_guides(data, ploidy = 4, marker = 1, samples = passport_file
 
 Again, for this dataset, no difference is observed but here are some markers examples from another dataset that has batch effect:
 
-![](batch_OneMarker.png){width=50%}
+![](batch_OneMarker.png){width=30% fig-align="center"}
 
-![](batch_OneMarker2.png){width=50%}
+![](batch_OneMarker2.png){width=30% fig-align="center"}
 
-![](batch_OneMarker3.png){width=50%}
+![](batch_OneMarker3.png){width=30% fig-align="center"}
 
 Dosage call methods such as `fitPoly`, `updog`, and `polyRAD` use these type of ratio distributions (one marker and all samples) 
 to estimate each dosage cluster. If you have batch effect between your runs (as the figures above), they will also affect the 
@@ -216,8 +217,8 @@ Before proceeding to the standardization step, consider removing abnormal chromo
 
 ```{r}
 # interactive graphic if plotly package is installed
-# p <- plot_heterozygosity(data, col2use = "ratio")
-# p
+p <- plot_heterozygosity(data, col2use = "ratio")
+p
 ```
 
 This is an interactive graphic; hover your mouse over the cells to get information on sample name, heterozygosity percentage, and the number of markers used for this estimation.
@@ -426,9 +427,35 @@ Therefore, changing the reference genome may change the results.
 
 **Warning**: Avoid to use unlikely copy numbers for your specie to decrease the number of tested scenarios.
 
-Visualize the CNV track:
+`Qploidy2` has different ways to visualize the estimated karyotype:
 
-```{r , fig.width=11, fig.height=8, out.width="100%"}
+```{r}
+plot_karyotype(res_raw, sample_name = "J432", nrow = 2)
+```
+
+You can add color by the CN call final likelihood:
+
+```{r}
+plot_karyotype(res_raw, sample_name = "J432", nrow = 2, color_by = "post_max_CN")
+```
+
+The color show how confident the model was on calling the CN for each of the markers based
+on the combination of R/z-score and ratio/BAF.
+
+You can also add color by the BAF weight:
+
+```{r}
+plot_karyotype(res_raw, sample_name = "J432", nrow = 2, color_by = "w_baf")
+```
+
+This metric shows if the CN for the window was inferred based on the BAF/ratio given the 
+presence of heterozygous genotypes within it, or if it was just based on the total depth/z-score
+given the lack of heterozygosity. The most confident estimations are the ones that are based on 
+both BAF/ratio and R/z-score - they have BAF weight of 0.5 (and 0.5 for z-score weight). 
+
+The function `plot_cn_track` provides a detailed diagnostic of the process:
+
+```{r }
 p <- plot_cn_track(hmm_CN = res_raw, data = data, 
                    geno.pos = geno.pos, 
                    sample_id = "J432",
@@ -453,9 +480,11 @@ res <- hmm_estimate_CN(qploidy_standarize_result = qploidy_standardization,
 res
 ```
 
-Visualize the CNV track:
+Visualize with the different plots:
 
-```{r , fig.width=11, fig.height=8, out.width="100%"}
+```{r }
+plot_karyotype(res, sample_name = "J432", nrow = 2, color_by = "w_baf")
+
 p <- plot_cn_track(hmm_CN = res,
                    qploidy_standarize_result = qploidy_standardization,
                    sample_id = "J432",
@@ -482,18 +511,6 @@ head(res$by_marker)
 head(res$params)
 ```
 
-Summarize results:
-
-```{r}
-# By chromosome
-summ_hmm_chr <- summarize_cn_mode(res, level = "chromosome")
-summ_hmm_chr
-
-# By sample
-summ_hmm_sample <- summarize_cn_mode(res, level = "sample")
-summ_hmm_sample
-```
-
 # HMM Copy Number Estimation (Multiple Samples)
 
 Run HMM for all samples in parallel. The model will be selected internally using `select_best_baf_model`; you just need to define the grids (`bw`, `add_uniform_grid`, and `uniform_weight_grid`) according to what you observed when running it on a single sample.
@@ -512,9 +529,9 @@ multi_esti_raw <- hmm_estimate_CN_multi(data = data,
                                         bw = c(0.02, 0.04,0.1))
 ```
 
-Visualize CNV tracks for multiple samples:
+Visualize summary of CNV for multiple samples:
 
-```{r, fig.width=11, fig.height=8, out.width="100%"}
+```{r}
 compare_cn_track(hmm_CN = multi_esti_raw,
                  samples_to_plot = samples[1:30],
                  facet_ncol = 8)
@@ -532,9 +549,9 @@ multi_esti <- hmm_estimate_CN_multi(qploidy_standarize_result = qploidy_standard
                                     bw = c(0.02, 0.04,0.1))
 ```
 
-Visualize CNV tracks for multiple samples:
+Visualize summary of CNV for multiple samples:
 
-```{r, fig.width=11, fig.height=8, out.width="100%"}
+```{r}
 compare_cn_track(hmm_CN = multi_esti,
                  samples_to_plot = samples[1:30],
                  facet_ncol = 8)
@@ -549,13 +566,19 @@ Applying the approach to the standardized data also eliminated several false CNV
 See comparison below between raw and standardized data for sample `85-113`.
 
 
-```{r, fig.width=11, fig.height=8, out.width="100%"}
-# For a specific sample
+```{r}
+# Plots for a specific sample within the multi-sample object
+plot_karyotype(multi_esti_raw, sample_name = "85-113", 
+               nrow = 2, color_by = "w_baf")
+
 p_stand <- plot_cn_track(hmm_CN = multi_esti_raw,
                          qploidy_standarize_result = qploidy_standardization,
                          sample_id = "85-113",
                          show_window_lines = TRUE)
 p_stand$arranged
+
+plot_karyotype(multi_esti, sample_name = "85-113", 
+               nrow = 2, color_by = "w_baf")
 
 p_stand <- plot_cn_track(hmm_CN = multi_esti,
                          data = data,
@@ -566,13 +589,17 @@ p_stand$arranged
 
 On the other hand, sample `85-126` highlight a false negative from raw data analysis:
 
-```{r, fig.width=11, fig.height=8, out.width="100%"}
+```{r}
 # For a specific sample
+plot_karyotype(multi_esti_raw, sample_name = "85-126", nrow = 2, color_by = "w_baf")
+
 p_stand <- plot_cn_track(hmm_CN = multi_esti_raw,
                          qploidy_standarize_result = qploidy_standardization,
                          sample_id = "85-126",
                          show_window_lines = TRUE)
 p_stand$arranged
+
+plot_karyotype(multi_esti, sample_name = "85-126", nrow = 2, color_by = "w_baf")
 
 p_stand <- plot_cn_track(hmm_CN = multi_esti,
                          data = data,
@@ -615,7 +642,7 @@ plot_qploidy_standardization(x = re_qploidy_standardization,
                              type = c("Ratio_hist_overall", "BAF_hist_overall"))
 ```
 
-## Re-run the HMM with the new standardization
+# Re-run the HMM with the new standardization
 
 ```{r}
 re_multi_esti <- hmm_estimate_CN_multi(
@@ -638,12 +665,16 @@ compare_cn_track(hmm_CN = re_multi_esti,
 
 Among the first 50 samples, sample `85-179` differ between previous standardization and re-standardization results.
 
-```{r, fig.width=11, fig.height=8, out.width="100%"}
+```{r}
 # Same plots can be generated
+plot_karyotype(re_multi_esti, sample_name = "85-182", nrow = 2, color_by = "post_max_CN")
+
 p_re <- plot_cn_track(hmm_CN = re_multi_esti,
                       qploidy_standarize_result = re_qploidy_standardization,
                       sample_id = "85-182",
                       show_window_lines = TRUE)
+
+plot_karyotype(multi_esti, sample_name = "85-182", nrow = 2, color_by = "post_max_CN")
 
 p <- plot_cn_track(hmm_CN = multi_esti,
                    qploidy_standarize_result = qploidy_standardization,
@@ -660,12 +691,14 @@ due to high dispersion. If this instability still leaves doubts about
 the CNV. You can further explore tweaking the other parameters, 
 for example, increasing the number of markers in the windows to better fit the mixed models on the BAF distributions:
 
-```{r, fig.width=11, fig.height=8, out.width="100%"}
+```{r}
 
 res_tweak <- hmm_estimate_CN(qploidy_standarize_result = re_qploidy_standardization,
                              sample_id = "85-182",
                              min_snps_per_window = 60,
                              cn_grid =  c(2,3,4,5,6))
+
+plot_karyotype(multi_esti, sample_name = "85-182", nrow = 2, color_by = "post_max_CN")
 
 p <- plot_cn_track(hmm_CN = res_tweak,
                    qploidy_standarize_result = re_qploidy_standardization,
@@ -691,7 +724,23 @@ final_res <- update_hmm_CN_multi(multi_esti,
 If you decide that the results for this sample is inconclusive, 
 you can set the `rm_sample` parameter to `TRUE` to remove it from your final results.
 
-# Export HMM results
+# Plotting all samples in batches (Optional)
+
+Generate CNV plots for all samples in batches:
+
+```{r, eval=FALSE}
+n_plots_by_page <- c(seq(1, length(samples), by = 40), length(samples))
+for(i in 1:(length(n_plots_by_page) -1)){
+  comp_p <- compare_cn_track(hmm_CN = final_res,
+                             samples_to_plot = samples[n_plots_by_page[[i]]:n_plots_by_page[i+1]],
+                             facet_ncol = 12)
+  ggsave(comp_p, filename = paste0("Samples_", n_plots_by_page[i], "_", n_plots_by_page[i +1], ".png"), height = 10, width = 11)
+}
+```
+
+# Interactive curation of results
+
+## Export HMM results
 
 The resulted objects from function `update_hmm_CN_multi`, 
 `hmm_estimate_CN`, and `hmm_estimate_CN_multi` are all classified as 
@@ -723,7 +772,7 @@ final_res <- read_hmm_CN(by_marker_file = "alfalfa_example_by_marker.csv.gz",
                          params_file = "alfalfa_example_params.rds")
 ```
 
-# Interactive curation of results
+## Deploy `GenoBrew`
 
 The resulted files from `write_hmm_CN` can be uploaded on `GenoBrew` Shiny interface.
 The tab `CNV profiles` allow you to interactively inspect the BAF, z-score and CN calls plots,
@@ -759,11 +808,64 @@ dosages_one_sample$plot
 Call dosages for all samples considering the copy number estimated:
 
 ```{r}
-dosages <- call_hmm_dosages(hmm_CN = final_res)
+dosages <- call_hmm_dosages(hmm_CN = final_res, n.cores = 2)
 head(dosages)
 ```
 
-# Export VCF
+Once you run the dosage call, you can color the karyotype by the dosage or dosage likelihoods:
+
+```{r}
+plot_karyotype(dosages, sample_name = "85-182", nrow = 2, color_by = "dosage")
+plot_karyotype(dosages, sample_name = "85-182", nrow = 2, color_by = "post_max_dosage")
+```
+
+# Export results
+
+## Summarized by sample, chromossome, window or marker
+
+```{r}
+# By chromosome
+summ_hmm_chr <- summarize_cn_mode(final_res, level = "chromosome")
+head(summ_hmm_chr)
+
+# By sample
+summ_hmm_sample <- summarize_cn_mode(final_res, level = "sample")
+head(summ_hmm_sample)
+
+# By window
+head(final_res$by_window)
+
+# By marker
+head(final_res$by_marker)
+```
+
+You can use any of your favorite R table export functions to generate a file from those data.frames:
+
+```{r, eval=FALSE}
+write.csv(summ_hmm_chr, file = "CN_by_sample.csv")
+write.csv(summ_hmm_sample, file = "CN_chromosome.csv")
+write.csv(final_res$by_window, file = "CN_by_window.csv")
+write.csv(final_res$by_marker, file = "CN_by_marker.csv")
+```
+
+## karyotype notation
+
+Function `karyotype_notation` summarises per-marker copy-number calls into a compact karyotype table:
+- Ploidy: reports overall ploidy
+- ChrID: chromosome ID
+- ChrCN: reports most common CN for the chromosome
+- Segment: reports position of segment with CN different than estimated overall ploidy 
+(ISCN-ispired notation: g.start_end×CN). If not CNV segments were estimated, column reports `NA`
+
+```{r}
+k_not <- karyotype_notation(dosages)
+head(k_not)
+
+# Example of sample with segmental CN
+k_not[which(k_not$SampleName == "85-72"),]
+```
+
+## VCF format
 
 ```{r}
 export_VCF(dosages, file = "alfalfa_Qploidy_CN_dosages.vcf")
@@ -798,21 +900,6 @@ dosage_prob[1:5,1:5]
 dosage_prob[tri[1:5,1],25:30]
 
 ```
-
-# Plotting all samples in batches (Optional)
-
-Generate CNV plots for all samples in batches:
-
-```{r, eval=FALSE}
-n_plots_by_page <- c(seq(1, length(samples), by = 40), length(samples))
-for(i in 1:(length(n_plots_by_page) -1)){
-  comp_p <- compare_cn_track(hmm_CN = final_res,
-                             samples_to_plot = samples[n_plots_by_page[[i]]:n_plots_by_page[i+1]],
-                             facet_ncol = 12)
-  ggsave(comp_p, filename = paste0("Samples_", n_plots_by_page[i], "_", n_plots_by_page[i +1], ".png"), height = 10, width = 11)
-}
-```
-
 
 # How to cite
 
