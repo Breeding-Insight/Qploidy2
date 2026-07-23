@@ -808,7 +808,7 @@ dosages_one_sample$plot
 Call dosages for all samples considering the copy number estimated:
 
 ```{r}
-dosages <- call_hmm_dosages(hmm_CN = final_res)
+dosages <- call_hmm_dosages(hmm_CN = final_res, n.cores = 2)
 head(dosages)
 ```
 
