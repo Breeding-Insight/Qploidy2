@@ -172,8 +172,7 @@ plot_karyotype <- function(df, sample_name,
             chr_segments %>%
                 select(Chr, segment_id, copy_num) %>%
                 distinct(),
-            by = c("Chr", "segment_id"),
-            relationship = "many-to-many"
+            by = c("Chr", "segment_id")
         ) %>%
         mutate(
             x_start = copy_num - 0.4,
