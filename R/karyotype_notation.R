@@ -78,7 +78,9 @@ karyotype_notation <- function(df, sample_name = NULL) {
     arrange(SampleName, Chr, Position) %>%
     group_by(SampleName, Chr) %>%
     mutate(
-      seg_id = cumsum(c(1, diff(CN_call) != 0))  # new segment when CN changes
+      CN_call_filled = dplyr::coalesce(CN_call, dplyr::lag(CN_call, default = dplyr::first(CN_call))),
+      seg_id = cumsum(CN_call_filled != dplyr::lag(CN_call_filled, default = dplyr::first(CN_call_filled))) + 1L,
+      CN_call_filled = NULL
     ) %>%
     group_by(SampleName, Chr, seg_id) %>%
     summarise(
