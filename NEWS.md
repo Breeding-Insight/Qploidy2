@@ -1,6 +1,6 @@
 # Qploidy2 1.16.0
 
-* Modify `call_hmm_dosage` and `call_BAF_dosage` to output the BAF weights and likelihood of each CN and dosage called
+* Modify `call_hmm_dosages` and `call_BAF_dosages` to output the BAF weights and likelihood of each CN and dosage called
 * Adapt `export_VCF` to export likelihoods information
 * Add functions `plot_karyotype` and `karyotype_notation`
 * Update alfalfa tutorial
