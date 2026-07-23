@@ -1,7 +1,8 @@
 utils::globalVariables(c(
     "segment_id", "Position_Mb", "color_value", "copy_num",
     "x_pos", "width", "y_start", "y_end", "grey_type",
-    "x", "x_start", "x_end", "CN_call"
+    "x", "x_start", "x_end", "CN_call",
+    "chr_max", "ghost_max"
 ))
 
 ##' Plot a karyotype for a single sample
@@ -46,6 +47,14 @@ utils::globalVariables(c(
 ##'     \item Add \code{Ploidy: X} to the plot subtitle.
 ##'   }
 ##'   Set to \code{FALSE} to omit the annotation.
+##' @param add_ghost Logical. If \code{TRUE} (default), draws dashed outline
+##'   rectangles for chromosome copies that are \emph{expected} (based on the
+##'   sample-wide ploidy mode or the chromosome maximum copy number) but absent
+##'   in a given segment. For example, if the ploidy is 5 but a chromosome has
+##'   \code{CN = 4}, a dashed 5th column is drawn for that chromosome. If a
+##'   segmental gain gives \code{CN = 6} in one region but \code{CN = 5}
+##'   elsewhere on the same chromosome, the 6th column is drawn as a dashed
+##'   ghost in the lower-CN region.
 ##'
 ##' @importFrom ggplot2 ggplot aes geom_rect geom_segment geom_point scale_color_viridis_c scale_color_viridis_d scale_color_identity scale_fill_manual scale_y_reverse scale_x_continuous facet_wrap labeller label_value labs theme_minimal theme element_blank element_text unit margin guide_legend
 ##' @importFrom scales squish
@@ -73,7 +82,8 @@ utils::globalVariables(c(
 plot_karyotype <- function(df, sample_name,
                            color_by = NULL,
                            nrow = 1,
-                           notation = TRUE) {
+                           notation = TRUE,
+                           add_ghost = TRUE) {
     if (is.null(color_by) || (length(color_by) == 1 && is.na(color_by))) {
         color_by <- NULL
     } else {
@@ -165,7 +175,31 @@ plot_karyotype <- function(df, sample_name,
             grey_type  = "Gap (no markers)"
         )
 
-    # --- 5. Create marker positions for each copy ---------------------------
+    # --- 5. Ghost segments (expected-but-absent copies) --------------------
+    # For each segment, extend to max(ploidy_mode, chr_max_CN) with dashed rects.
+    if (isTRUE(add_ghost)) {
+        ploidy_mode <- as.integer(mode(na.omit(df_sample$CN_call)))
+
+        chr_max_CN <- chr_segments %>%
+            group_by(Chr) %>%
+            summarise(chr_max = max(CN_call, na.rm = TRUE), .groups = "drop")
+
+        ghost_segments <- chr_segments %>%
+            select(Chr, segment_id, y_start, y_end, CN_call) %>%
+            distinct() %>%
+            left_join(chr_max_CN, by = "Chr") %>%
+            mutate(ghost_max = pmax(ploidy_mode, chr_max)) %>%
+            filter(CN_call < ghost_max) %>%
+            rowwise() %>%
+            mutate(copy_num = list(seq(CN_call + 1L, ghost_max))) %>%
+            ungroup() %>%
+            unnest(copy_num) %>%
+            mutate(x_pos = copy_num, width = 0.8, grey_type = "Expected (ghost)")
+    } else {
+        ghost_segments <- NULL
+    }
+
+    # --- 6. Create marker positions for each copy ---------------------------
     # Each marker appears on all copies of its CN segment
     marker_segments <- df_sample %>%
         left_join(
@@ -185,6 +219,38 @@ plot_karyotype <- function(df, sample_name,
         data.frame(x = NA_real_, y = NA_real_, grey_type = "Color NA value")
     else
         NULL
+
+    # --- Fill scale (built after ghost and NA-color flags are both known) ---
+    .fill_vals  <- c("Gap (no markers)" = "grey80")
+    .key_fills  <- c("grey80")
+    .key_colors <- c(NA_character_)
+    .key_lty    <- c("solid")
+    if (has_na_color) {
+        .fill_vals  <- c(.fill_vals, "Color NA value" = "grey50")
+        .key_fills  <- c(.key_fills, "grey50")
+        .key_colors <- c(.key_colors, NA_character_)
+        .key_lty    <- c(.key_lty, "solid")
+    }
+    if (!is.null(ghost_segments)) {
+        .fill_vals  <- c(.fill_vals, "Expected (ghost)" = "transparent")
+        .key_fills  <- c(.key_fills, NA)
+        .key_colors <- c(.key_colors, "grey55")
+        .key_lty    <- c(.key_lty, "dashed")
+    }
+    fill_scale <- scale_fill_manual(
+        values = .fill_vals,
+        breaks = names(.fill_vals),   # force order to match override.aes vectors
+        name   = NULL,
+        guide  = guide_legend(
+            order        = 2,
+            override.aes = list(
+                fill     = .key_fills,
+                color    = .key_colors,
+                linetype = .key_lty,
+                size     = 4
+            )
+        )
+    )
 
     # --- 6. Color scale setup -----------------------------------------------
     if (!is.null(color_by)) {
@@ -256,8 +322,18 @@ plot_karyotype <- function(df, sample_name,
         ploidy_text    <- NULL
     }
 
-    # --- 6. Plot -------------------------------------------------------------
+    # --- 8. Plot -------------------------------------------------------------
     p <- ggplot() +
+        # Ghost copies: dashed outlines for expected-but-absent chromosome copies
+        (if (!is.null(ghost_segments)) geom_rect(
+            data = ghost_segments,
+            aes(
+                xmin = x_pos - width / 2, xmax = x_pos + width / 2,
+                ymin = y_start, ymax = y_end,
+                fill = grey_type
+            ),
+            color = "grey55", linetype = "dashed", linewidth = 0.3
+        ) else NULL) +
         # Chromosome background rectangles (grey80 = gap / no markers)
         geom_rect(
             data = chr_segments,
@@ -275,14 +351,7 @@ plot_karyotype <- function(df, sample_name,
             shape = 22, size = 4, color = NA,
             show.legend = TRUE
         ) }} +
-        scale_fill_manual(
-            values = c("Gap (no markers)" = "grey80", "Color NA value" = "grey50"),
-            name   = NULL,
-            guide  = guide_legend(
-                order        = 2,
-                override.aes = list(size = 4, color = NA)
-            )
-        ) +
+        fill_scale +
         # Marker tick marks colored by color_value (black when color_by is NULL)
         geom_segment(
             data = marker_segments,

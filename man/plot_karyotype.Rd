@@ -4,7 +4,14 @@
 \alias{plot_karyotype}
 \title{Plot a karyotype for a single sample}
 \usage{
-plot_karyotype(df, sample_name, color_by = NULL, nrow = 1, notation = TRUE)
+plot_karyotype(
+  df,
+  sample_name,
+  color_by = NULL,
+  nrow = 1,
+  notation = TRUE,
+  add_ghost = TRUE
+)
 }
 \arguments{
 \item{df}{A \code{data.frame} with at least the columns: \code{SampleName},
@@ -40,6 +47,15 @@ is run internally on \code{df} for \code{sample_name} and used to:
   \item Add \code{Ploidy: X} to the plot subtitle.
 }
 Set to \code{FALSE} to omit the annotation.}
+
+\item{add_ghost}{Logical. If \code{TRUE} (default), draws dashed outline
+rectangles for chromosome copies that are \emph{expected} (based on the
+sample-wide ploidy mode or the chromosome maximum copy number) but absent
+in a given segment. For example, if the ploidy is 5 but a chromosome has
+\code{CN = 4}, a dashed 5th column is drawn for that chromosome. If a
+segmental gain gives \code{CN = 6} in one region but \code{CN = 5}
+elsewhere on the same chromosome, the 6th column is drawn as a dashed
+ghost in the lower-CN region.}
 }
 \value{
 A \code{\link[ggplot2]{ggplot}} object. The y-axis is reversed so
