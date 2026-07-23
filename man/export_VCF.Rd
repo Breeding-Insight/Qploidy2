@@ -18,5 +18,5 @@ The path to the written VCF file (invisible)
 Converts a hmm_dosage_calls object (data.frame) to a VCF file with GT, CN, AD, BAF, Z, post_max_CN, and post_max_dosage in FORMAT.
 }
 \details{
-The VCF INFO field will contain the mode of CN_call values for each marker. The FORMAT field will include GT (genotype), CN (copy number call), AD (allelic depths), BAF, Z, PMC (posterior max CN), and PMD (posterior max dosage). Genotypes are assigned based on the dosage and CN_call, with 1 representing the alternate allele and 0 representing the reference allele.
+The VCF INFO field will contain the mode of CN_call values for each marker. The FORMAT field will include GT (genotype), CN (copy number call), AD (allelic depths), BAF, Z, PMC (posterior max CN), PMD (posterior max dosage), PLC (Phred-scaled likelihoods for each tested CN state, comma-separated), and PLD (Phred-scaled likelihoods for each dosage from 0 to max CN, comma-separated; "." for impossible dosages). Genotypes are assigned based on the dosage and CN_call, with 1 representing the alternate allele and 0 representing the reference allele.
 }

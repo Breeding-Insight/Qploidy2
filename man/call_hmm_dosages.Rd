@@ -74,7 +74,10 @@ default on Windows).}
 }
 \value{
 A data.frame with columns: MarkerName, SampleName, Chr, Position, X, Y,
-  baf, z, CN_call, post_max_CN, dosage, post_max_dosage.
+  baf, z, CN_call, post_max_CN, post_CN[k] (posterior probability per CN state
+  mapped from the HMM windows, one column per CN in the tested grid),
+  dosage, post_max_dosage, dosage_0 through dosage_[max_cn] (per-dosage posterior
+  probabilities; \code{NA} for dosages that exceed the CN call of that marker).
   The attribute \code{"selected_models"} is a named list of
   \code{selected_BAF_model} objects, one per sample.
 }
