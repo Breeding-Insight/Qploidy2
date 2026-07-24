@@ -58,9 +58,7 @@ convert2nQuack <- function(qploidy_standardization_object,
   if(is.null(max_geno)) {
     max_geno <- as.numeric(qploidy_standardization_object$info["ploidy.standardization"])
   }
-
-  print(max_geno)
-  
+ 
   if (inherits(qploidy_standardization_object, "qploidy_standardization")) {
     qploidy_standardization_object <- qploidy_standardization_object$data
   }
