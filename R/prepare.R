@@ -34,7 +34,7 @@ qploidy_read_vcf <- function(vcf_file, geno = FALSE, geno.pos = FALSE) {
   }
 
   # Check if the required checks are FALSE
-  required_not <- c("multiallelics", "phased_GT", "duplicated_markers")
+  required_not <- c("multiallelics", "duplicated_markers")
   if(any(checks$checks[required_not])) {
     stop(paste(checks$message[2,required_not][which(checks$checks[required_not])],
                collapse = "\n"))

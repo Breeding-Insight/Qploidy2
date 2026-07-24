@@ -309,29 +309,31 @@ test_that("plot_xy_with_ploidy_guides returns a ggplot", {
   expect_s3_class(p, "gg")
 })
 
-test_that("plot_xy_with_ploidy_guides works with sample='all'", {
-  df <- make_xy_df()
-  p  <- plot_xy_with_ploidy_guides(df, ploidy = 2, sample = "all")
+test_that("plot_xy_with_ploidy_guides works with samples as character vector", {
+  df      <- make_xy_df()
+  samples <- unique(df$SampleName)
+  p  <- plot_xy_with_ploidy_guides(df, ploidy = 2, palette = "alphabet", samples = samples)
   expect_s3_class(p, "gg")
 })
 
 test_that("plot_xy_with_ploidy_guides works highlighting a single sample", {
   df <- make_xy_df()
-  p  <- plot_xy_with_ploidy_guides(df, ploidy = 2, sample = "A")
+  p  <- plot_xy_with_ploidy_guides(df, ploidy = 2, samples = "A")
   expect_s3_class(p, "gg")
 })
 
-test_that("plot_xy_with_ploidy_guides works with color_by_geno = TRUE", {
-  df <- make_xy_df()
-  p  <- plot_xy_with_ploidy_guides(df, ploidy = 2, color_by_geno = TRUE)
+test_that("plot_xy_with_ploidy_guides works with samples as data.frame (group coloring)", {
+  df     <- make_xy_df()
+  grp_df <- data.frame(SampleName = c("A", "B"), Group = c("group1", "group2"))
+  p  <- plot_xy_with_ploidy_guides(df, ploidy = 2, samples = grp_df)
   expect_s3_class(p, "gg")
 })
 
-test_that("plot_xy_with_ploidy_guides warns when highlighted sample has no points", {
+test_that("plot_xy_with_ploidy_guides stops when no matching samples have points", {
   df <- make_xy_df()
-  expect_warning(
-    plot_xy_with_ploidy_guides(df, ploidy = 2, sample = "MISSING"),
-    "no plotted points"
+  expect_error(
+    plot_xy_with_ploidy_guides(df, ploidy = 2, samples = "MISSING"),
+    "None of the specified"
   )
 })
 

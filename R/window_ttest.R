@@ -1,3 +1,7 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c(
+  "SampleProp", "PopAvgProp", "Megabase", "DepthProp", "LegendGroup"
+))
+
 #' Window-level  Depth Comparison Plot
 #'
 #' Generates a scatter plot comparing normalized SNP depth of selected samples against the population mean in genomic windows.

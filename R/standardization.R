@@ -56,6 +56,8 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##' @param rm_outlier Logical. If TRUE, uses Bonferroni-Holm corrected residuals to remove outliers before estimating cluster centers.
 ##' @param cluster_median Logical. If TRUE, uses the median of theta values to estimate cluster centers. If FALSE, uses the mean.
 ##' @param filter_R Logical. If TRUE, calculates Z-scores only for markers that passed missing data filter (default: FALSE).
+##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
+##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
 ##'
 ##' @return An object of class `qploidy_standardization` (list) with the following components:
 ##'   - info: Named vector of standardization parameters
@@ -98,11 +100,19 @@ standardize <- function(data = NULL,
                         verbose = TRUE,
                         rm_outlier = TRUE,
                         cluster_median = TRUE,
-                        filter_R = FALSE){
+                        filter_R = FALSE,
+                        min.depth = NULL,
+                        max.depth = NULL){
 
-  if(is.null(data) || is.null(genos) || is.null(geno.pos) ||
-     is.null(ploidy.standardization) || is.null(threshold.n.clusters)) {
-    stop("Not all required inputs were defined.")
+  missing_inputs <- c(
+    if (is.null(data))                    "data",
+    if (is.null(genos))                   "genos",
+    if (is.null(geno.pos))                "geno.pos",
+    if (is.null(ploidy.standardization))  "ploidy.standardization"
+  )
+  if (length(missing_inputs) > 0) {
+    stop("The following required inputs are missing (NULL): ",
+         paste(missing_inputs, collapse = ", "), ".")
   }
 
   # Scalar type checks
@@ -153,6 +163,13 @@ standardize <- function(data = NULL,
   if (!is.logical(cluster_median)|| length(cluster_median) != 1) stop("'cluster_median' must be a single logical value.")
   if (!is.logical(filter_R)      || length(filter_R) != 1)      stop("'filter_R' must be a single logical value.")
 
+  if (!is.null(min.depth) && (!is.numeric(min.depth) || length(min.depth) != 1 || min.depth < 0))
+    stop("'min.depth' must be a single non-negative numeric value or NULL.")
+  if (!is.null(max.depth) && (!is.numeric(max.depth) || length(max.depth) != 1 || max.depth < 0))
+    stop("'max.depth' must be a single non-negative numeric value or NULL.")
+  if (!is.null(min.depth) && !is.null(max.depth) && min.depth >= max.depth)
+    stop("'min.depth' must be strictly less than 'max.depth'.")
+
   if (!is.null(multidog_obj) && !inherits(multidog_obj, "multidog"))
     stop("'multidog_obj' must be an object of class 'multidog' (from the updog package) or NULL.")
 
@@ -193,6 +210,39 @@ standardize <- function(data = NULL,
 
   vmsg("Generating standardized BAFs", verbose = verbose, level = 0, type = ">>")
   if(is.null(threshold.n.clusters)) threshold.n.clusters <- ploidy.standardization + 1
+
+  ## Filter by depth (min.depth / max.depth)
+  depth.rm <- 0L
+  if (!is.null(min.depth) || !is.null(max.depth)) {
+    depth_mask <- rep(FALSE, nrow(data))
+    if (!is.null(min.depth)) depth_mask <- depth_mask | (data$R < min.depth)
+    if (!is.null(max.depth)) depth_mask <- depth_mask | (data$R > max.depth)
+    depth.rm <- sum(depth_mask, na.rm = TRUE)
+    if (depth.rm > 0) {
+      data$ratio[depth_mask] <- NA
+      data$R[depth_mask]     <- NA
+      # Null out corresponding genotype calls in genos using integer hashing
+      # (avoids slow string paste + %in% on character vectors)
+      mk_levels   <- unique(c(data$MarkerName, genos$MarkerName))
+      sa_levels   <- unique(c(data$SampleName, genos$SampleName))
+      n_sa        <- length(sa_levels)
+      depth_hash  <- match(data$MarkerName[depth_mask], mk_levels) * n_sa +
+                     match(data$SampleName[depth_mask], sa_levels)
+      genos_hash  <- match(genos$MarkerName, mk_levels) * n_sa +
+                     match(genos$SampleName, sa_levels)
+      genos$geno[genos_hash %in% depth_hash] <- NA
+    }
+    depth_range_str <- paste0(
+      if (!is.null(min.depth)) paste0("min = ", min.depth) else "",
+      if (!is.null(min.depth) && !is.null(max.depth)) ", " else "",
+      if (!is.null(max.depth)) paste0("max = ", max.depth) else ""
+    )
+    vmsg(
+      "Datapoints removed by depth filter (%s): %s (%.2f %%)",
+      verbose = verbose, level = 2, type = ">>",
+      depth_range_str, depth.rm, depth.rm / nrow(data) * 100
+    )
+  }
 
   ## Filter by prob (only if prob column is present)
   if (has_prob_col) {
@@ -330,6 +380,7 @@ standardize <- function(data = NULL,
   else zscore <- get_zscore(data, geno.pos)
 
   vmsg("Z scores ready!", verbose = verbose, level = 1, type = ">>")
+  n.markers.zscore.end <- length(unique(zscore$MarkerName[!is.na(zscore$z)]))
 
   vmsg("Preparing outputs", verbose = verbose, level = 0, type = ">>")
 
@@ -347,18 +398,22 @@ standardize <- function(data = NULL,
                                     threshold.geno.prob = threshold.geno.prob,
                                     ploidy.standardization = ploidy.standardization,
                                     threshold.n.clusters = threshold.n.clusters,
+                                    min.depth = if (!is.null(min.depth)) min.depth else NA,
+                                    max.depth = if (!is.null(max.depth)) max.depth else NA,
                                     out_filename = out_filename,
                                     type = if(!is.null(multidog_obj)) "updog" else type),
                            filters = c(n.markers.start = length(unique(data$MarkerName)),
                                        geno.prob.rm = prob.rm,
+                                       depth.rm = depth.rm,
                                        miss.rm = mis.rm,
                                        clusters.rm= clusters.rm,
                                        no.geno.info.rm = no.geno.info,
-                                       n.markers.end = length(unique(baf_melt$MarkerName))),
+                                       n.markers.end = length(unique(baf_melt$MarkerName)),
+                                       n.markers.zscore.end = n.markers.zscore.end),
                            data = qploidy_data), class = "qploidy_standardization")
 
   if(!is.null(out_filename)) {
-    vmsg("Writting QploidyApp input file: %s", verbose = verbose, level = 1, type = ">>", out_filename)
+    vmsg("Writting GenoBrew input file: %s", verbose = verbose, level = 1, type = ">>", out_filename)
     write_qploidy_standardization(result, out_filename)
   }
 
@@ -379,33 +434,68 @@ standardize <- function(data = NULL,
 #' @export
 print.qploidy_standardization <- function(x, ...){
 
-  info <- data.frame(c1 = c("Standardization type:", "Ploidy:",
-                            "Min # of heterozygous classes (clusters) present:",
-                            "Max proportion of missing genotype by marker:",
-                            "Min genotype probability:"),
-                     c2 = c(x$info["type"], x$info["ploidy.standardization"],
-                            x$info["threshold.n.clusters"],
-                            as.numeric(x$info["threshold.missing.geno"]),
-                            x$info["threshold.geno.prob"]))
+  # Depth filter params (may be absent in older objects)
+  has_depth <- !is.null(x$info["min.depth"]) && !is.na(x$info["min.depth"]) &&
+               "min.depth" %in% names(x$info)
+  depth_info_rows <- if (has_depth) {
+    list(
+      c1 = c("Min read depth (min.depth):", "Max read depth (max.depth):"),
+      c2 = c(
+        ifelse(!is.na(x$info["min.depth"]), x$info["min.depth"], "none"),
+        ifelse(!is.na(x$info["max.depth"]), x$info["max.depth"], "none")
+      )
+    )
+  } else NULL
 
-  format.df <- data.frame(c1 = c("# markers at raw data:",
-                                 "% datapoints filtered by low probability:",
-                                 "# markers filtered by missing data:",
-                                 "# markers filtered by min number of clusters:",
-                                 "# markers filtered by lack of genomic information:",
-                                 "# markers remaining with estimated BAF:"),
-                          c2 = c(x$filters["n.markers.start"],
-                                 "-",
-                                 x$filters["miss.rm"],
-                                 x$filters["clusters.rm"],
-                                 x$filters["no.geno.info.rm"],
-                                 x$filters["n.markers.end"]),
-                          c3 = c("(100%)",
-                                 paste0("(",x$filters["geno.prob.rm"], " %)"),
-                                 paste0("(",round(x$filters["miss.rm"]/x$filters["n.markers.start"]*100,2)," %)"),
-                                 paste0("(", round(x$filters["clusters.rm"]/x$filters["n.markers.start"]*100,2)," %)"),
-                                 paste0("(", round(x$filters["no.geno.info.rm"]/x$filters["n.markers.start"]*100,2)," %)"),
-                                 paste0("(", round(x$filters["n.markers.end"]/x$filters["n.markers.start"]*100,2)," %)")))
+  info <- data.frame(
+    c1 = c("Standardization type:", "Ploidy:",
+           "Min # of heterozygous classes (clusters) present:",
+           "Max proportion of missing genotype by marker:",
+           "Min genotype probability:",
+           if (!is.null(depth_info_rows)) depth_info_rows$c1),
+    c2 = c(x$info["type"], x$info["ploidy.standardization"],
+           x$info["threshold.n.clusters"],
+           as.numeric(x$info["threshold.missing.geno"]),
+           x$info["threshold.geno.prob"],
+           if (!is.null(depth_info_rows)) depth_info_rows$c2)
+  )
+
+  # depth.rm row (may be absent in older objects)
+  has_depth_rm <- "depth.rm" %in% names(x$filters)
+  n_total_dp   <- if (has_depth_rm) {
+    # total datapoints not stored; show count only (no %)
+    as.numeric(x$filters["depth.rm"])
+  } else NULL
+
+  # n.markers.zscore.end (may be absent in older objects)
+  has_zscore_end <- "n.markers.zscore.end" %in% names(x$filters)
+
+  format.df <- data.frame(
+    c1 = c("# markers at raw data:",
+           "% datapoints filtered by low probability:",
+           if (has_depth_rm) "# datapoints filtered by depth (min/max):",
+           "# markers filtered by missing data:",
+           "# markers filtered by min number of clusters:",
+           "# markers filtered by lack of genomic information:",
+           "# markers remaining with estimated BAF:",
+           if (has_zscore_end) "# markers remaining with estimated z-score:"),
+    c2 = c(x$filters["n.markers.start"],
+           "-",
+           if (has_depth_rm) n_total_dp,
+           x$filters["miss.rm"],
+           x$filters["clusters.rm"],
+           x$filters["no.geno.info.rm"],
+           x$filters["n.markers.end"],
+           if (has_zscore_end) x$filters["n.markers.zscore.end"]),
+    c3 = c("(100%)",
+           paste0("(", x$filters["geno.prob.rm"], " %)"),
+           if (has_depth_rm) "-",
+           paste0("(", round(x$filters["miss.rm"]    / x$filters["n.markers.start"] * 100, 2), " %)"),
+           paste0("(", round(x$filters["clusters.rm"] / x$filters["n.markers.start"] * 100, 2), " %)"),
+           paste0("(", round(x$filters["no.geno.info.rm"] / x$filters["n.markers.start"] * 100, 2), " %)"),
+           paste0("(", round(x$filters["n.markers.end"]   / x$filters["n.markers.start"] * 100, 2), " %)"),
+           if (has_zscore_end) paste0("(", round(x$filters["n.markers.zscore.end"] / x$filters["n.markers.start"] * 100, 2), " %)")))
+
 
   colnames(info) <- rownames(info) <- colnames(format.df) <- rownames(format.df) <- NULL
 
@@ -565,7 +655,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##'   - Position: Genomic position (base-pair coordinate)
 ##'
 ##' @param hmm_CN_multi An object of class `hmm_CN` as returned by `hmm_estimate_CN_multi`.
-##' @param selected_model Character. The name of the model to use from `hmm_CN_multi$params_samples` (required).
+##' @param use_estimated_dosages Logical. If \code{FALSE} (default), uses the original dosage calls stored in \code{hmm_CN_multi$by_marker$geno} (from fitpoly/updog, based on raw theta values), setting dosages to \code{NA} for markers whose \code{CN_call} differs from \code{ploidy.standardization}. This is the recommended approach for re-standardization because it avoids circularity: the original dosages are independent of the BAF signal. If \code{TRUE}, calls \code{call_hmm_dosages} to re-estimate per-marker dosages from the BAF model; note that these dosages are derived from the BAF values themselves, which may propagate imperfections from the original standardization.
 ##' @param ploidy.standardization Integer. Ploidy level to use for standardization. If NULL, uses the mode of CN_call in dosages.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. Defaults to ploidy + 1.
 ##' @param n.cores Integer. Number of cores for parallel computation. Default is 1.
@@ -574,10 +664,23 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param out_filename Optional. Path to save the standardized dataset (CSV/TSV).
 ##' @param type Character. Data type for clustering: "intensities" (default), "counts", or "updog".
 ##' @param multidog_obj Optional. updog multidog object for cluster center estimation.
-##' @param parallel.type Character. Parallel backend: "FORK" or "PSOCK". Default is "PSOCK".
+##' @param parallel.type Character. Parallel backend: \code{"FORK"} (Unix/macOS, lower overhead, default on non-Windows) or \code{"PSOCK"} (cross-platform, default on Windows). Auto-detected from OS when not specified.
 ##' @param rm_outlier Logical. Remove outliers before estimating cluster centers. Default is TRUE.
 ##' @param cluster_median Logical. Use median (TRUE) or mean (FALSE) for cluster centers. Default is TRUE.
 ##' @param verbose Logical. Print progress messages. Default is TRUE.
+##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value are set to missing before standardization. Default is NULL (no filtering).
+##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value are set to missing before standardization. Default is NULL (no filtering).
+##' @param cn_grid Integer vector or \code{NULL}. Copy number states for per-sample BAF model selection. When \code{NULL} (default), the value stored in \code{hmm_CN_multi$params_samples} is used; falls back to \code{2:8} if absent.
+##' @param dists Character vector or \code{NULL}. Distribution families to test. When \code{NULL} (default), the distribution stored in the params is used; falls back to all four families if absent.
+##' @param bw_grid Numeric vector or \code{NULL}. Bandwidth values to search. When \code{NULL} (default), the bandwidth from params is used; falls back to \code{c(0.02, 0.03, 0.04)} if absent.
+##' @param add_uniform_grid Logical vector or \code{NULL}. Whether to include a uniform noise component. When \code{NULL} (default), the value from params is used; falls back to \code{FALSE} if absent.
+##' @param uniform_weight_grid Numeric vector or \code{NULL}. Mixture weights for the uniform component. When \code{NULL} (default), the value from params is used; falls back to \code{c(0.01, 0.03, 0.05, 0.10, 0.15)} if absent.
+##' @param M Integer. Number of BAF histogram bins for model selection. Default: \code{100}.
+##' @param reflect Logical. Reflect BAF values for symmetric templates. Default: \code{TRUE}.
+##' @param param_count Optional named integer vector. Number of free parameters per distribution for BIC penalisation. Default: \code{NULL}.
+##' @param count_grid_as_params Logical. Add +1 BIC penalty per tuned hyperparameter. Default: \code{TRUE}.
+##' @param min_het_frac Numeric. Minimum heterozygous fraction required to exclude CN=1 from \code{cn_grid}. Default: \code{0.05}.
+##' @param het_range Numeric vector of length 2. BAF interval defining heterozygous loci. Default: \code{c(0.2, 0.8)}.
 ##'
 ##' @return An object of class `qploidy_standardization` (list) with elements:
 ##'   - info: Named vector of standardization parameters
@@ -602,7 +705,6 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' #   data = my_data,
 ##' #   geno.pos = my_geno_pos,
 ##' #   hmm_CN_multi = hmm_CN_multi,
-##' #   selected_model = "model1",
 ##' #   ploidy.standardization = 4
 ##' # )
 ##'
@@ -610,7 +712,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 re_standardize <- function(data = NULL,
                            geno.pos = NULL,
                            hmm_CN_multi,
-                           selected_model = NULL,
+                           use_estimated_dosages = FALSE,
                            ploidy.standardization = NULL,
                            threshold.n.clusters = NULL,
                            n.cores = 1,
@@ -619,34 +721,89 @@ re_standardize <- function(data = NULL,
                            out_filename = NULL,
                            type = "intensities",
                            multidog_obj = NULL,
-                           parallel.type = "PSOCK",
+                           parallel.type = if (.Platform$OS.type == "windows") "PSOCK" else "FORK",
                            rm_outlier = TRUE,
                            cluster_median = TRUE,
-                           verbose = TRUE) {
+                           verbose = TRUE,
+                           min.depth = NULL,
+                           max.depth = NULL,
+                           cn_grid = NULL,
+                           dists = NULL,
+                           bw_grid = NULL,
+                           add_uniform_grid = NULL,
+                           uniform_weight_grid = NULL,
+                           M = 100,
+                           reflect = TRUE,
+                           param_count = NULL,
+                           count_grid_as_params = TRUE,
+                           min_het_frac = 0.05,
+                           het_range = c(0.2, 0.8)) {
 
   # Check input object
   # check if hmm_CN_multi is hmm_CN class
   if (!inherits(hmm_CN_multi, "hmm_CN")) stop("Input object must be of class 'hmm_CN'")
   # check if hmm_CN_multi has params_samples element
   if (!any(names(hmm_CN_multi) == "params_samples")) stop("Input object must come from hmm_estimate_CN_multi function")
+  if (is.null(data))     stop("'data' must be provided (currently NULL).")
+  if (is.null(geno.pos)) stop("'geno.pos' must be provided (currently NULL).")
 
-  # make selected_model required
-  if (is.null(selected_model)) stop("selected_model must be provided")
+  if (use_estimated_dosages) {
+    # Call dosages with per-sample BAF model selection
+    dosages <- call_hmm_dosages(
+      hmm_CN              = hmm_CN_multi,
+      cn_grid             = cn_grid,
+      dists               = dists,
+      bw_grid             = bw_grid,
+      add_uniform_grid    = add_uniform_grid,
+      uniform_weight_grid = uniform_weight_grid,
+      M                   = M,
+      reflect             = reflect,
+      param_count         = param_count,
+      count_grid_as_params = count_grid_as_params,
+      min_het_frac        = min_het_frac,
+      het_range           = het_range,
+      verbose             = verbose,
+      n.cores             = n.cores,
+      parallel.type       = parallel.type
+    )
 
-  # Call dosages for the selected model
-  dosages <- call_hmm_dosages(hmm_CN = hmm_CN_multi, selected_model)
+    # Set ploidy.standardization if not provided
+    if (is.null(ploidy.standardization)) {
+      ploidy.standardization <- mode(hmm_CN_multi$by_marker$CN_call)
+      if (verbose) cat("ploidy.standardization not provided, using:", ploidy.standardization, "\n")
+    }
 
-  # Set ploidy.standardization if not provided
-  if(is.null(ploidy.standardization)) {
-    ploidy.standardization <- mode( hmm_CN_multi$by_marker$CN_call)
-    if (verbose) cat("ploidy.standardization not provided, using:", ploidy.standardization, "\n")
+    dosages[which(dosages$CN_call != ploidy.standardization), "dosage"] <- NA
+
+    if (all(is.na(dosages$dosage))) {
+      stop(sprintf(
+        "No dosage calls remain after filtering for ploidy.standardization = %d. All markers were assigned a different CN. Check ploidy.standardization or the HMM results.",
+        ploidy.standardization
+      ))
+    }
+
+    genos <- dosages[, c("MarkerName", "SampleName", "dosage", "post_max_dosage")]
+    colnames(genos)[3:4] <- c("geno", "prob")
+    genos <- genos[order(genos$MarkerName, genos$SampleName),]
+  } else {
+    # Use original dosage calls from by_marker$geno, masking non-euploid markers
+    if (is.null(ploidy.standardization)) {
+      ploidy.standardization <- mode(hmm_CN_multi$by_marker$CN_call)
+      if (verbose) cat("ploidy.standardization not provided, using:", ploidy.standardization, "\n")
+    }
+
+    genos <- hmm_CN_multi$by_marker[, c("MarkerName", "SampleName", "geno")]
+    genos$geno[hmm_CN_multi$by_marker$CN_call != ploidy.standardization] <- NA
+
+    if (all(is.na(genos$geno))) {
+      stop(sprintf(
+        "No dosage calls remain after filtering for ploidy.standardization = %d. All markers were assigned a different CN. Check ploidy.standardization or the HMM results.",
+        ploidy.standardization
+      ))
+    }
+
+    genos <- genos[order(genos$MarkerName, genos$SampleName),]
   }
-
-  dosages[which(dosages$CN_call != ploidy.standardization), "dosage"] <- NA
-
-  genos <- dosages[, c("MarkerName", "SampleName", "dosage", "post_max_dosage")]
-  colnames(genos)[3:4] <- c("geno", "prob")
-  genos <- genos[order(genos$MarkerName, genos$SampleName),]
 
   if (is.null(threshold.n.clusters)) {
     threshold.n.clusters <- ploidy.standardization + 1
@@ -668,7 +825,9 @@ re_standardize <- function(data = NULL,
     parallel.type = parallel.type,
     rm_outlier = rm_outlier,
     cluster_median = cluster_median,
-    verbose = verbose
+    verbose = verbose,
+    min.depth = min.depth,
+    max.depth = max.depth
   )
 
   return(re_qploidy_standardization)

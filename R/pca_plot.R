@@ -1,3 +1,5 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c("PC1", "PC2", "PC3"))
+
 #' PCA Plot for Qploidy Standardized Data
 #'
 #' Performs Principal Component Analysis (PCA) on a Qploidy standardized object
@@ -58,6 +60,7 @@
 #' @importFrom tidyr pivot_wider
 #' @importFrom tibble column_to_rownames
 #' @importFrom scales percent_format
+#' @importFrom utils read.delim
 #'
 #' @author Josue Chinchilla-Vargas
 #'
@@ -68,7 +71,7 @@ pca_plot <- function(
     passport_file,
     group_column,
     sampleID_column,
-    col2use = c("R", "z", "ratio"),
+    col2use = "R",
     plot_title = NULL,
     palette = "auto",
     samples = NULL
@@ -235,6 +238,7 @@ pca_plot <- function(
     id <- sampleID_column
   }
 
+  if(!all(pca_scores$ID %in% id)) warning("None or some of the samples in the input file were found in the passport data")
   merged_df <- left_join(pca_scores, passport, by = c("ID" = id))
   merged_df[[group_column]] <- as.factor(merged_df[[group_column]])
 

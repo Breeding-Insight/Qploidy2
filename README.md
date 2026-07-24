@@ -27,7 +27,8 @@ devtools::install_github("Breeding-Insight/Qploidy2")
 
 ## Documentation
 
-* [Tutorial](https://Breeding-Insight.github.io/Qploidy2/Qploidy_alfalfa_tutorial.html) - large-scale copy number estimation in alfalfa mapping population using DArTag sequencing data
+* [Prepare input files tutorial](https://Breeding-Insight.github.io/Qploidy2/Prepare_inputs_Qploidy.Rmd)
+* [Aneuploid Detection with DArTag Markers in Alfalfa F1 Population](https://Breeding-Insight.github.io/Qploidy2/Qploidy_alfalfa_tutorial.html) - large-scale copy number estimation in alfalfa mapping population using DArTag sequencing data
 
 ## Interactive visualization and curation of results
 

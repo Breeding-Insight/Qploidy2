@@ -1,3 +1,7 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c(
+  "SampleProp", "PopAvgProp", "CHROM", "DepthProp", "ID", "Label", "SignifCat"
+))
+
 #' Chromosome-level Depth Comparison Plot
 #'
 #' Generates a bar plot comparing the normalized SNP depth of selected samples against the population mean at the chromosome level.

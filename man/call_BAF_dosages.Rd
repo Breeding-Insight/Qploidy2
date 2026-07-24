@@ -12,6 +12,7 @@ call_BAF_dosages(
   add_uniform = NULL,
   uniform_weight = NULL,
   cn = NULL,
+  max_cn = NULL,
   plot = FALSE
 )
 }
@@ -30,10 +31,18 @@ call_BAF_dosages(
 
 \item{cn}{Integer. Copy number (required if selected_model is NULL).}
 
+\item{max_cn}{Integer or NULL. When provided, the output data.frame will include columns
+\code{dosage_0} through \code{dosage_{max_cn}}, with \code{NA} for dosages exceeding \code{cn}.
+Useful for aligning outputs across markers with different CN values.}
+
 \item{plot}{Logical. If TRUE, generates a plot of BAF values colored by maximum probability.}
 }
 \value{
-A data.frame with columns: BAF, dosage (integer), max_prob (probability), and a matrix of probabilities for each possible dosage. If plot=TRUE, returns a list with data and plot.
+A list with element \code{data}: a data.frame with columns \code{BAF}, \code{dosage}
+  (integer), \code{max_prob} (probability), and per-dosage probability columns
+  \code{dosage_0} through \code{dosage_{cn}} (or \code{dosage_{max_cn}} when \code{max_cn} is
+  provided, with \code{NA} for impossible dosages). If \code{plot=TRUE}, also includes element
+  \code{plot}.
 }
 \description{
 Given a vector of BAF values and a selected_BAF_model object (from select_best_baf_model),

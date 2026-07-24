@@ -7,6 +7,7 @@
 plot_baf_with_ploidy_guides(
   df,
   ploidy = 2,
+  marker = NULL,
   fallback_to_ratio = FALSE,
   normalize_depth = TRUE,
   radius = NULL,
@@ -16,13 +17,16 @@ plot_baf_with_ploidy_guides(
 )
 }
 \arguments{
-\item{df}{A `data.frame` with required columns:
-- `baf` (numeric in \[0,1\]): standardized B-allele frequency.
-- `R` (numeric): total read depth.
-- `SampleName` (character/factor): sample label used for coloring.
-Optional column `ratio` may be present and used when `fallback_to_ratio = TRUE`.}
+\item{df}{A `data.frame` with columns `baf`, `R`, and `SampleName`, a data frame
+that also contains a `MarkerName` column, or an object of class
+`qploidy_standardization`. When multiple markers are present, `marker` must be
+supplied.}
 
 \item{ploidy}{Integer (≥ 2). Ploidy used to compute dosage guide lines.}
+
+\item{marker}{Character or integer. Required when `df` (or `df$data`) contains a
+`MarkerName` column with more than one unique value. Provide the marker name as
+a string or its integer index (1-based) in the vector of unique marker names.}
 
 \item{fallback_to_ratio}{Logical. If `TRUE`, fill `NA` values in `baf` with
 corresponding values from `ratio` (when available). Default: `FALSE`.}
@@ -34,13 +38,18 @@ corresponding values from `ratio` (when available). Default: `FALSE`.}
 If `NULL`, uses `stats::median(df$R, na.rm = TRUE)`. Ignored when
 `normalize_depth = FALSE`. Default: `NULL`.}
 
-\item{sample}{Character. Either `"all"` to color all samples by `SampleName`,
-or the name of a single sample to highlight. Default: `"all"`.}
+\item{sample}{Character, character vector, or data.frame.
+* `NULL` (default): no coloring by sample.
+* `"all"`: color all samples by `SampleName`.
+* A character vector: highlight those samples in `highlight_color`; others in `other_color`.
+* A data.frame with columns `SampleName` and `color`: the `color` column is
+  treated as a group label. Groups are assigned distinct viridis colors
+  automatically; samples not in the table use `other_color`.}
 
-\item{highlight_color}{Color for the highlighted sample when `sample != "all"`.
-Default: `"tomato"`.}
+\item{highlight_color}{Color for the highlighted sample when `sample` is a
+character vector. Default: `"tomato"`.}
 
-\item{other_color}{Color for non-highlighted samples when `sample != "all"`.
+\item{other_color}{Color for non-highlighted / unlisted samples.
 Default: `"grey75"`.}
 }
 \value{
@@ -53,6 +62,12 @@ then draws a scatter plot with expected dosage guide lines for a given ploidy.
 You can color all samples by `SampleName` or highlight a single sample and render
 the rest in gray. Samples with no plottable points (non-finite coordinates) are
 automatically omitted from the legend.
+
+Accepts three types of input for `df`:
+* A `qploidy_standardization` object — its `$data` slot is used automatically.
+* A data frame with a `MarkerName` column. When multiple markers are present, you
+  must specify `marker`.
+* A plain data frame with columns `baf`, `R`, and `SampleName`.
 }
 \details{
 * Coordinates are computed from BAF and depth: \eqn{X=(1-\mathrm{BAF})R}, \eqn{Y=\mathrm{BAF}R}.

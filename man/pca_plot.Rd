@@ -10,7 +10,7 @@ pca_plot(
   passport_file,
   group_column,
   sampleID_column,
-  col2use = c("R", "z", "ratio"),
+  col2use = "R",
   plot_title = NULL,
   palette = "auto",
   samples = NULL

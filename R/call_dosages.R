@@ -1,3 +1,8 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c(
+  "GT", "dosage", ".N", "AD", "Z", "PMC", "post_max_CN", "PMD",
+  "post_max_dosage", "FORMAT", "INFO", ".BY", "color_blend", "PLC", "PLD", "WBF"
+))
+
 #' Export hmm_dosage_calls to VCF
 #'
 #' Converts a hmm_dosage_calls object (data.frame) to a VCF file with GT, CN, AD, BAF, Z, post_max_CN, and post_max_dosage in FORMAT.
@@ -5,9 +10,9 @@
 #' @param hmm_dosage_calls A data.frame with columns: MarkerName, SampleName, Chr, Position, X, Y, CN_call, post_max_CN, dosage, post_max_dosage, BAF, z
 #' @param file Path to output VCF file
 #'
-#' @importFrom data.table data.table setDT dcast fwrite setcolorder
+#' @importFrom data.table data.table setDT dcast fwrite setcolorder ':='
 #'
-#' @details The VCF INFO field will contain the mode of CN_call values for each marker. The FORMAT field will include GT (genotype), CN (copy number call), AD (allelic depths), BAF, Z, PMC (posterior max CN), and PMD (posterior max dosage). Genotypes are assigned based on the dosage and CN_call, with 1 representing the alternate allele and 0 representing the reference allele.
+#' @details The VCF INFO field will contain the mode of CN_call values for each marker. The FORMAT field will include GT (genotype), CN (copy number call), AD (allelic depths), BAF, Z, PMC (posterior max CN), PMD (posterior max dosage), PLC (Phred-scaled likelihoods for each tested CN state, comma-separated), and PLD (Phred-scaled likelihoods for each dosage from 0 to max CN, comma-separated; "." for impossible dosages). Genotypes are assigned based on the dosage and CN_call, with 1 representing the alternate allele and 0 representing the reference allele.
 #'
 #' @return The path to the written VCF file (invisible)
 #'
@@ -36,14 +41,51 @@ export_VCF <- function(hmm_dosage_calls, file) {
   hmm_dosage_calls[, PMC := ifelse(is.na(post_max_CN), ".", format(round(as.numeric(post_max_CN),3), nsmall=3))]
   hmm_dosage_calls[, PMD := ifelse(is.na(post_max_dosage), ".", format(round(as.numeric(post_max_dosage),3), nsmall=3))]
   hmm_dosage_calls[, CN_call := ifelse(is.na(CN_call), ".", as.character(CN_call))]
-  hmm_dosage_calls[, FORMAT := paste(GT, CN_call, AD, BAF, Z, PMC, PMD, sep=":")]
 
+  # Compute PLC: Phred-scaled per-CN likelihoods (comma-separated, ordered by CN)
+  cn_post_cols <- grep("^post_CN[0-9]+$", names(hmm_dosage_calls), value = TRUE)
+  cn_post_cols <- cn_post_cols[order(as.integer(sub("^post_CN", "", cn_post_cols)))]
+  if (length(cn_post_cols) > 0) {
+    plc_phred_df <- lapply(
+      as.data.frame(hmm_dosage_calls[, cn_post_cols, with = FALSE]),
+      function(p) ifelse(is.na(p), ".", sprintf("%.1f", -10 * log10(pmax(p, 1e-300))))
+    )
+    hmm_dosage_calls[, PLC := do.call(paste, c(plc_phred_df, list(sep = ",")))]
+  } else {
+    hmm_dosage_calls[, PLC := "."]
+  }
+
+  # Compute PLD: Phred-scaled per-dosage likelihoods (comma-separated, ordered by dosage index)
+  dosage_prob_cols <- grep("^dosage_[0-9]+$", names(hmm_dosage_calls), value = TRUE)
+  dosage_prob_cols <- dosage_prob_cols[order(as.integer(sub("^dosage_", "", dosage_prob_cols)))]
+  if (length(dosage_prob_cols) > 0) {
+    pld_phred_df <- lapply(
+      as.data.frame(hmm_dosage_calls[, dosage_prob_cols, with = FALSE]),
+      function(p) ifelse(is.na(p), ".", sprintf("%.1f", -10 * log10(pmax(p, 1e-300))))
+    )
+    hmm_dosage_calls[, PLD := do.call(paste, c(pld_phred_df, list(sep = ",")))]
+  } else {
+    hmm_dosage_calls[, PLD := "."]
+  }
+
+  # Compute WBF: BAF weight from HMM (if present)
+  has_w_baf <- "w_baf" %in% names(hmm_dosage_calls)
+  if (has_w_baf) {
+    hmm_dosage_calls[, WBF := ifelse(is.na(w_baf), ".", sprintf("%.4f", as.numeric(w_baf)))]
+  }
+
+  fmt_fields <- if (has_w_baf) c("GT", "CN_call", "AD", "BAF", "Z", "PMC", "PMD", "PLC", "PLD", "WBF") else
+                               c("GT", "CN_call", "AD", "BAF", "Z", "PMC", "PMD", "PLC", "PLD")
+  fmt_list <- lapply(fmt_fields, function(f) hmm_dosage_calls[[f]])
+  hmm_dosage_calls[, FORMAT := do.call(paste, c(fmt_list, list(sep = ":")))]
   # Use data.table for wide format, but process in chunks if needed
+  fill_val   <- if (has_w_baf) "./:.:.,.:.:.:.:.:.:." else "./:.:.,.:.:.:.:.:." 
+  format_str <- if (has_w_baf) "GT:CN:AD:BAF:Z:PMC:PMD:PLC:PLD:WBF" else "GT:CN:AD:BAF:Z:PMC:PMD:PLC:PLD"
   vcf_dt <- dcast(
     hmm_dosage_calls,
     Chr + Position + MarkerName ~ SampleName,
     value.var = "FORMAT",
-    fill = "./:.:.,.:.:.:.:."
+    fill = fill_val
   )
 
   # INFO: CN is the mode of all CN_call values for this marker
@@ -52,7 +94,7 @@ export_VCF <- function(hmm_dosage_calls, file) {
     mode_cn <- as.integer(names(sort(table(cn_vals), decreasing=TRUE))[1])
     paste0("CN=", mode_cn)
   }, by=.(Chr, Position, MarkerName)]
-  vcf_dt[, `:=`(REF = ".", ALT = ".", QUAL = ".", FILTER = ".", FORMAT = "GT:CN:AD:BAF:Z:PMC:PMD")]
+  vcf_dt[, `:=`(REF = ".", ALT = ".", QUAL = ".", FILTER = ".", FORMAT = format_str)]
 
   # Set column order for VCF
   setcolorder(vcf_dt, c("Chr", "Position", "MarkerName", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", samples))
@@ -67,8 +109,15 @@ export_VCF <- function(hmm_dosage_calls, file) {
     "##FORMAT=<ID=BAF,Number=1,Type=Float,Description=BAF value>",
     "##FORMAT=<ID=Z,Number=1,Type=Float,Description=Z value>",
     "##FORMAT=<ID=PMC,Number=1,Type=Float,Description=Posterior probability of CN_call>",
-    "##FORMAT=<ID=PMD,Number=1,Type=Float,Description=Posterior probability of dosage call>"
+    "##FORMAT=<ID=PMD,Number=1,Type=Float,Description=Posterior probability of dosage call>",
+    "##FORMAT=<ID=PLC,Number=.,Type=String,Description=Phred-scaled likelihoods for each tested CN state comma-separated in ascending CN order>",
+    "##FORMAT=<ID=PLD,Number=.,Type=String,Description=Phred-scaled likelihoods for each dosage from 0 to max CN comma-separated; dot for impossible dosages>"
   )
+  if (has_w_baf) {
+    vcf_header <- c(vcf_header,
+      "##FORMAT=<ID=WBF,Number=1,Type=Float,Description=BAF weight used in the HMM (0=z-score only, 1=BAF only)>"
+    )
+  }
   vcf_col_header <- paste0("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t", paste(samples, collapse="\t"))
   vcf_header <- c(vcf_header, vcf_col_header)
 
@@ -89,16 +138,25 @@ export_VCF <- function(hmm_dosage_calls, file) {
 #' @param add_uniform Logical. Whether to add a uniform noise component (required if selected_model is NULL).
 #' @param uniform_weight Numeric in [0,1]. Mixture weight for uniform component (required if selected_model is NULL and add_uniform is TRUE).
 #' @param cn Integer. Copy number (required if selected_model is NULL).
+#' @param max_cn Integer or NULL. When provided, the output data.frame will include columns
+#'   \code{dosage_0} through \code{dosage_{max_cn}}, with \code{NA} for dosages exceeding \code{cn}.
+#'   Useful for aligning outputs across markers with different CN values.
 #' @param plot Logical. If TRUE, generates a plot of BAF values colored by maximum probability.
 #'
 #' @importFrom ggplot2 ggplot aes geom_density geom_point geom_vline scale_color_gradient labs theme_bw
+#' @importFrom grDevices rainbow
 #'
 #'
-#' @return A data.frame with columns: BAF, dosage (integer), max_prob (probability), and a matrix of probabilities for each possible dosage. If plot=TRUE, returns a list with data and plot.
+#' @return A list with element \code{data}: a data.frame with columns \code{BAF}, \code{dosage}
+#'   (integer), \code{max_prob} (probability), and per-dosage probability columns
+#'   \code{dosage_0} through \code{dosage_{cn}} (or \code{dosage_{max_cn}} when \code{max_cn} is
+#'   provided, with \code{NA} for impossible dosages). If \code{plot=TRUE}, also includes element
+#'   \code{plot}.
 #' @export
 
 call_BAF_dosages <- function(baf_vec, selected_model = NULL, bw = NULL, dist = NULL,
-                             add_uniform = NULL, uniform_weight = NULL, cn = NULL, plot = FALSE) {
+                             add_uniform = NULL, uniform_weight = NULL, cn = NULL,
+                             max_cn = NULL, plot = FALSE) {
   stopifnot(is.numeric(baf_vec))
   if (!is.null(selected_model)) {
     stopifnot(inherits(selected_model, "selected_BAF_model"))
@@ -168,6 +226,12 @@ call_BAF_dosages <- function(baf_vec, selected_model = NULL, bw = NULL, dist = N
     max_prob = max_prob
   )
   out <- cbind(out, prob_mat)
+  # Pad with NA columns for dosages cn+1 through max_cn for a uniform column set across CNs
+  if (!is.null(max_cn) && max_cn > cn) {
+    extra_cols <- data.frame(matrix(NA_real_, nrow = nrow(out), ncol = max_cn - cn))
+    names(extra_cols) <- paste0("dosage_", seq(cn + 1L, max_cn))
+    out <- cbind(out, extra_cols)
+  }
   if (plot) {
     df_plot <- out
     # Create rainbow palette for dosages
@@ -195,7 +259,7 @@ call_BAF_dosages <- function(baf_vec, selected_model = NULL, bw = NULL, dist = N
     plot_obj <- ggplot(df_plot, aes(x = BAF, y = after_stat(density))) +
       geom_density(data = df_plot, aes(x = BAF), color = NA, fill = "#848d98", alpha = 0.3) +
       geom_point(aes(y = 0, color = color_blend), size = 6) +
-      geom_vline(xintercept = peak_pos, color = "black", linetype = "dashed", size = 0.7) +
+      geom_vline(xintercept = peak_pos, color = "black", linetype = "dashed", linewidth = 0.7) +
       scale_color_identity() +
       labs(title = paste0("BAF Dosage Assignment (CN=", cn, ", dist=", dist, ")"),
            x = "BAF",
@@ -213,66 +277,219 @@ call_BAF_dosages <- function(baf_vec, selected_model = NULL, bw = NULL, dist = N
 
 #' Assign BAF dosages to markers in hmm_CN object
 #'
-#' For each marker in hmm_CN$by_marker, assigns dosage and dosage probability using call_BAF_dosages
-#' with the CN_call for that marker and either the selected_model or custom parameters.
+#' For each sample in \code{hmm_CN$by_marker}, selects the best BAF model via
+#' \code{select_best_baf_model} (grid search over distributions and bandwidths),
+#' then assigns dosage and dosage probability to every marker using that
+#' per-sample model.
 #'
-#' @param hmm_CN An object of class 'hmm_CN' (output of hmm_estimate_CN)
-#' @param selected_model Optional. An object of class 'selected_BAF_model'. If not provided, custom arguments must be supplied.
-#' @param bw Bandwidth for kernel smoothing (required if selected_model is not provided)
-#' @param dist Distribution family (required if selected_model is not provided)
-#' @param add_uniform Logical, add uniform noise (required if selected_model is not provided)
-#' @param uniform_weight Numeric, weight for uniform component (required if selected_model is not provided)
-#' @param ... Additional arguments passed to call_BAF_dosages
-#' @return A data.frame with columns: MarkerName, SampleName, Chr, Position, X, Y, CN_call, post_max_CN, dosage, post_max_dosage
+#' @param hmm_CN An object of class \code{'hmm_CN'} (output of \code{hmm_estimate_CN}).
+#' @param cn_grid Integer vector or \code{NULL}. Copy number states to consider
+#'   during per-sample model selection. When \code{NULL} (default), the value
+#'   stored in \code{hmm_CN$params} / \code{hmm_CN$params_samples} is used; if
+#'   that is also absent, falls back to \code{2:8}.
+#' @param dists Character vector or \code{NULL}. Distribution families to test.
+#'   When \code{NULL} (default), the distribution stored in the params is used as
+#'   a single-element grid; falls back to all four families if absent.
+#' @param bw_grid Numeric vector or \code{NULL}. Bandwidth values to search.
+#'   When \code{NULL} (default), the bandwidth stored in the params is used as a
+#'   single-element grid; falls back to \code{c(0.02, 0.03, 0.04)} if absent.
+#' @param add_uniform_grid Logical vector or \code{NULL}. Whether to include a
+#'   uniform noise component. When \code{NULL} (default), the value stored in the
+#'   params is used; falls back to \code{FALSE} if absent.
+#' @param uniform_weight_grid Numeric vector or \code{NULL}. Mixture weights for
+#'   the uniform component. When \code{NULL} (default), the value stored in the
+#'   params is used as a single-element grid; falls back to
+#'   \code{c(0.01, 0.03, 0.05, 0.10, 0.15)} if absent.
+#' @param M Integer. Number of BAF histogram bins for model selection. Default: \code{100}.
+#' @param reflect Logical. Reflect BAF values for symmetric templates. Default: \code{TRUE}.
+#' @param param_count Optional named integer vector. Number of free parameters per
+#'   distribution for BIC penalisation. Default: \code{NULL}.
+#' @param count_grid_as_params Logical. Add \code{+1} BIC penalty per tuned
+#'   hyperparameter. Default: \code{TRUE}.
+#' @param min_het_frac Numeric. Minimum heterozygous fraction required to
+#'   exclude CN=1 from \code{cn_grid}. Default: \code{0.05}.
+#' @param het_range Numeric vector of length 2. BAF interval defining heterozygous
+#'   loci. Default: \code{c(0.2, 0.8)}.
+#' @param verbose Logical. Print per-sample progress messages. Default: \code{FALSE}.
+#' @param n.cores Integer. Number of cores for parallel processing across samples.
+#'   Default: \code{1} (serial).
+#' @param parallel.type Character. Parallel backend: \code{"FORK"} (Unix/macOS,
+#'   lower overhead, default on non-Windows) or \code{"PSOCK"} (cross-platform,
+#'   default on Windows).
+#'
+#' @return A data.frame with columns: MarkerName, SampleName, Chr, Position, X, Y,
+#'   baf, z, CN_call, post_max_CN, post_CN[k] (posterior probability per CN state
+#'   mapped from the HMM windows, one column per CN in the tested grid),
+#'   dosage, post_max_dosage, dosage_0 through dosage_[max_cn] (per-dosage posterior
+#'   probabilities; \code{NA} for dosages that exceed the CN call of that marker).
+#'   The attribute \code{"selected_models"} is a named list of
+#'   \code{selected_BAF_model} objects, one per sample.
+#' @importFrom parallel makeCluster stopCluster clusterExport clusterEvalQ parLapply mclapply
 #' @export
-call_hmm_dosages <- function(hmm_CN, selected_model = NULL, bw = NULL, dist = NULL, add_uniform = NULL, uniform_weight = NULL, ...) {
+call_hmm_dosages <- function(hmm_CN,
+                             cn_grid = NULL,
+                             dists = NULL,
+                             bw_grid = NULL,
+                             add_uniform_grid = NULL,
+                             uniform_weight_grid = NULL,
+                             M = 100,
+                             reflect = TRUE,
+                             param_count = NULL,
+                             count_grid_as_params = TRUE,
+                             min_het_frac = 0.05,
+                             het_range = c(0.2, 0.8),
+                             verbose = FALSE,
+                             n.cores = 1,
+                             parallel.type = if (.Platform$OS.type == "windows") "PSOCK" else "FORK") {
   if (!inherits(hmm_CN, "hmm_CN")) stop("Input must be an object of class 'hmm_CN'.")
   d <- hmm_CN$by_marker
   if (is.null(d)) stop("hmm_CN object must have a by_marker data.frame.")
-  required_cols <- c("MarkerName", "SampleName", "Chr", "Position", "X", "Y", "baf", "CN_call", "post_max")
+  required_cols <- c("MarkerName", "SampleName", "Chr", "Position", "X", "Y", "baf", "z", "CN_call", "post_max")
   missing_cols <- setdiff(required_cols, names(d))
   if (length(missing_cols) > 0) stop(sprintf("Missing columns in by_marker: %s", paste(missing_cols, collapse=", ")))
 
-  # Prepare output columns
-  out <- d[, c("MarkerName", "SampleName", "Chr", "Position", "X", "Y", "CN_call", "post_max")]
-  names(out)[names(out) == "post_max"] <- "post_max_CN"
-
-  # For each marker, assign dosage and dosage probability
-  baf_vec <- d$baf
-  cn_vec <- as.numeric(as.character(d$CN_call))
-  # Use selected_model if provided, else require all custom args
-  if (!is.null(selected_model)) {
-    if (!inherits(selected_model, "selected_BAF_model")) stop("selected_model must be of class 'selected_BAF_model'.")
-    bw_val <- selected_model$best$bw
-    dist_val <- selected_model$best$dist
-    add_uniform_val <- selected_model$best$add_uniform
-    uniform_weight_val <- selected_model$best$uniform_weight
-  } else {
-    if (is.null(bw) || is.null(dist) || is.null(add_uniform) || is.null(uniform_weight)) {
-      stop("If selected_model is not provided, must supply bw, dist, add_uniform, and uniform_weight.")
+  # Helper: retrieve per-sample params from hmm_CN (params_samples or params)
+  .get_samp_params <- function(samp) {
+    if (!is.null(hmm_CN$params_samples)) {
+      hmm_CN$params_samples[[samp]]
+    } else if (!is.null(hmm_CN$params)) {
+      hmm_CN$params
+    } else {
+      NULL
     }
-    bw_val <- bw
-    dist_val <- dist
-    add_uniform_val <- add_uniform
-    uniform_weight_val <- uniform_weight
   }
 
-  d_call <- split(d, d$CN_call)
+  # Resolve a grid argument: use user value if provided, else try params slot,
+  # else fall back to a hardcoded default.
+  .resolve <- function(user_val, params_val, fallback) {
+    if (!is.null(user_val)) user_val else if (!is.null(params_val)) params_val else fallback
+  }
 
-  res <- mapply(function(baf, cn) {
-      r <- call_BAF_dosages(baf$baf, cn=cn, bw=bw_val, plot=FALSE, dist=dist_val,
-                       add_uniform=add_uniform_val, uniform_weight=uniform_weight_val)
+  samples <- unique(d$SampleName)
 
-    cbind(baf, dosage = r$data$dosage, post_max_dosage = r$data$max_prob)
-  }, d_call, as.numeric(names(d_call)), SIMPLIFY = FALSE)
+  # Determine max CN across all markers to align dosage probability columns
+  cn_vals_all <- suppressWarnings(as.integer(d$CN_call[!is.na(d$CN_call)]))
+  max_cn_all <- if (length(cn_vals_all) > 0 && any(!is.na(cn_vals_all))) max(cn_vals_all, na.rm = TRUE) else 2L
 
-  d_dosages <- do.call(rbind, res)
+  # Pre-split data and params to avoid exporting large objects to parallel workers
+  d_by_sample <- split(d, d$SampleName)
+  params_by_sample <- setNames(lapply(samples, .get_samp_params), samples)
 
-  out <- d_dosages[,c("MarkerName", "SampleName", "Chr", "Position","X", "Y", "baf","z", "CN_call", "post_max", "dosage", "post_max_dosage")]
+  # Per-sample worker: returns list(data = <data.frame>, model = <selected_BAF_model>)
+  .process_sample <- function(samp) {
+    if (verbose) message("Selecting BAF model for sample: ", samp)
+    d_samp <- d_by_sample[[samp]]
+    sp <- params_by_sample[[samp]]
 
+    cn_grid_use     <- .resolve(cn_grid,             sp$cn_grid,       2:8)
+    dists_use       <- .resolve(dists,               sp$distribution,  c("gaussian", "beta", "beta_binomial", "negative_binomial"))
+    bw_grid_use     <- .resolve(bw_grid,             sp$bw,            c(0.02, 0.03, 0.04))
+    add_uniform_use <- .resolve(add_uniform_grid,    sp$add_uniform,   FALSE)
+    uw_grid_use     <- .resolve(uniform_weight_grid, sp$uniform_weight, c(0.01, 0.03, 0.05, 0.10, 0.15))
+
+    sel_model <- select_best_baf_model(
+      baf_vec             = d_samp$baf,
+      sample              = samp,
+      cn_grid             = cn_grid_use,
+      dists               = dists_use,
+      reflect             = reflect,
+      bw_grid             = bw_grid_use,
+      add_uniform_grid    = add_uniform_use,
+      uniform_weight_grid = uw_grid_use,
+      M                   = M,
+      plot                = FALSE,
+      param_count         = param_count,
+      count_grid_as_params = count_grid_as_params,
+      min_het_frac        = min_het_frac,
+      het_range           = het_range
+    )
+
+    if (is.null(sel_model$best)) {
+      warning(sprintf("Model selection failed for sample '%s'. Dosage will be NA.", samp))
+      d_samp$dosage          <- NA_integer_
+      d_samp$post_max_dosage <- NA_real_
+      for (k in seq(0L, max_cn_all)) d_samp[[paste0("dosage_", k)]] <- NA_real_
+      return(list(data = d_samp, model = sel_model))
+    }
+
+    bw_val   <- sel_model$best$bw
+    dist_val <- sel_model$best$dist
+    add_u    <- sel_model$best$add_uniform
+    uw_val   <- sel_model$best$uniform_weight
+
+    d_cn <- split(d_samp, d_samp$CN_call)
+    sample_res <- lapply(d_cn, function(sub) {
+      cn_val <- suppressWarnings(as.numeric(unique(sub$CN_call)))
+      if (length(cn_val) != 1 || is.na(cn_val)) {
+        sub$dosage          <- NA_integer_
+        sub$post_max_dosage <- NA_real_
+        for (k in seq(0L, max_cn_all)) sub[[paste0("dosage_", k)]] <- NA_real_
+        return(sub)
+      }
+      r <- call_BAF_dosages(sub$baf, cn = cn_val, bw = bw_val, dist = dist_val,
+                            add_uniform = add_u, uniform_weight = uw_val,
+                            max_cn = max_cn_all, plot = FALSE)
+      sub$dosage          <- r$data$dosage
+      sub$post_max_dosage <- r$data$max_prob
+      dosage_prob_cols <- grep("^dosage_", names(r$data), value = TRUE)
+      sub[dosage_prob_cols] <- r$data[dosage_prob_cols]
+      sub
+    })
+    list(data = do.call(rbind, sample_res), model = sel_model)
+  }
+
+  # Run serial or parallel
+  if (n.cores > 1) {
+    if (parallel.type == "FORK") {
+      # mclapply uses fork: workers share parent memory (copy-on-write), no clusterExport needed
+      res_list <- mclapply(samples, .process_sample, mc.cores = n.cores)
+    } else {
+      cl <- makeCluster(n.cores, type = "PSOCK")
+      on.exit(stopCluster(cl), add = TRUE)
+      # Export only lightweight pre-split objects, not the full d or hmm_CN
+      clusterExport(cl, c("d_by_sample", "params_by_sample",
+                          "cn_grid", "dists", "bw_grid",
+                          "add_uniform_grid", "uniform_weight_grid", "M", "reflect",
+                          "param_count", "count_grid_as_params", "min_het_frac",
+                          "het_range", "verbose", "max_cn_all",
+                          ".resolve", ".process_sample"),
+                    envir = environment())
+      clusterEvalQ(cl, library(Qploidy2))
+      res_list <- parLapply(cl, samples, .process_sample)
+    }
+  } else {
+    res_list <- lapply(samples, .process_sample)
+  }
+
+  # Collect results
+  names(res_list) <- samples
+  selected_models <- lapply(res_list, `[[`, "model")
+
+  out <- do.call(rbind, lapply(res_list, `[[`, "data"))
+
+  # Map post_CN{k} columns from by_window to markers via the .__w__ (WindowID) column
+  post_cn_cols <- character(0)
+  if (".__w__" %in% names(out) && !is.null(hmm_CN$by_window)) {
+    bw_post_cols <- grep("^post_CN", names(hmm_CN$by_window), value = TRUE)
+    if (length(bw_post_cols) > 0) {
+      post_cn_cols <- bw_post_cols
+      bw_sub <- hmm_CN$by_window[, c("Sample", "WindowID", bw_post_cols), drop = FALSE]
+      out_key <- paste(out$SampleName, out[[".__w__"]])
+      bw_key  <- paste(bw_sub$Sample, bw_sub$WindowID)
+      idx <- match(out_key, bw_key)
+      out[bw_post_cols] <- bw_sub[idx, bw_post_cols, drop = FALSE]
+    }
+  }
+
+  dosage_prob_cols <- grep("^dosage_", names(out), value = TRUE)
+  optional_cols <- intersect("w_baf", names(out))
+  base_cols <- c("MarkerName", "SampleName", "Chr", "Position", "X", "Y",
+                 "baf", "z", "CN_call", "post_max", post_cn_cols,
+                 "dosage", "post_max_dosage", dosage_prob_cols, optional_cols)
+  out <- out[, base_cols]
   colnames(out)[colnames(out) == "post_max"] <- "post_max_CN"
-  out <- out[order(out$SampleName, out$Chr, out$Position),]
+  out <- out[order(out$SampleName, out$Chr, out$Position), ]
+  attr(out, "selected_models") <- selected_models
   class(out) <- c("hmm_dosage_calls", class(out))
-
   out
 }

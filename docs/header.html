@@ -6,3 +6,28 @@
 <div class="toc-overlay" id="tocOverlay"></div>
 
 <script src="hamburger_menu.js"></script>
+
+<!-- Lightbox2: click any figure to expand it -->
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.4/css/lightbox.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.4/js/lightbox.min.js"></script>
+<style>
+  /* Show a zoom cursor on all expandable figures */
+  div.figure img, p > img { cursor: zoom-in; }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // Wrap every knitr plot image that isn't already inside an <a> tag
+    document.querySelectorAll('div.figure img, p > img').forEach(function (img, i) {
+        if (img.parentNode.tagName.toLowerCase() !== 'a') {
+            var a = document.createElement('a');
+            a.href = img.src;
+            a.setAttribute('data-lightbox', 'rmd-figures');
+            a.setAttribute('data-title', img.alt || '');
+            img.parentNode.insertBefore(a, img);
+            a.appendChild(img);
+        }
+    });
+    lightbox.option({ resizeDuration: 200, wrapAround: true });
+});
+</script>

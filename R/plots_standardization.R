@@ -1,4 +1,7 @@
-globalVariables(c("Chr", "baf", "z", "ratio", "median", "window", "prop_het"))
+globalVariables(c("Chr", "baf", "z", "ratio", "median", "window", "prop_het",
+  "Xb", "Yb", ".__hl__", ".__col__", ".__grp__", ".__sel__",
+  "max_geno", "geno_cat", "geno_str", "metric", "geno_num", "max_val", "min_val",
+  "decreasing", "expected", "type"))
 
 #' Plot BAF
 #'
@@ -969,8 +972,18 @@ all_resolutions_plots <- function(
 #' Samples that have no plotted points (e.g., due to non-finite `X`/`Y`) are
 #' automatically omitted from the legend.
 #'
+#' Accepts three types of input for `df`:
+#' * A `qploidy_standardization` object — its `$data` slot is used automatically.
+#' * A data frame with a `MarkerName` column (e.g. the per-marker long format
+#'   exported by Axiom/Illumina readers). When multiple markers are present, you
+#'   must specify `marker`.
+#' * A plain data frame with columns `X` and `Y` (original behavior).
+#'
 #' @details
 #' The function:
+#' * Accepts a `qploidy_standardization` object or a data frame that may contain a
+#'   `MarkerName` column. When `MarkerName` is present and more than one unique
+#'   marker exists, `marker` must be supplied.
 #' * Drops rows where `X` or `Y` are non-finite before plotting and builds the legend
 #'   from the remaining points.
 #' * When `sample = "all"`, colors points by `SampleName` (requires a `SampleName` column).
@@ -984,17 +997,37 @@ all_resolutions_plots <- function(
 #' * Uses a fixed aspect ratio (`coord_fixed`) so that one unit on the x- and y-axes
 #'   has the same length.
 #'
-#' @param df A `data.frame` containing at least columns `X` and `Y`. If
-#'   `sample = "all"` or a specific sample is to be highlighted, `df` should also
-#'   contain a `SampleName` column.
+#' @param df A `data.frame` with at least columns `X` and `Y`, a data frame that
+#'   also contains a `MarkerName` column (per-marker long format), or an object of
+#'   class `qploidy_standardization`.
 #' @param ploidy Integer (≥ 2). Ploidy used to compute and draw dosage guide lines.
-#' @param sample Character. Either `"all"` to color all samples by `SampleName`,
-#'   or the name of a single sample to highlight. Default: `"all"`.
-#' @param highlight_color Color used for the highlighted sample when
-#'   `sample != "all"`. Default: `"tomato"`.
-#' @param other_color Color used for non-highlighted samples when
-#'   `sample != "all"`. Default: `"grey75"`.
-#' @param color_by_geno Logical. If TRUE and a 'geno' column is present in df, color points by genotype. Default is FALSE.
+#' @param marker Character or integer. Required when `df` (or `df$data`) contains a
+#'   `MarkerName` column with more than one unique value. Provide the marker name as
+#'   a string or its integer index (1-based) in the vector of unique marker names.
+#' @param samples Controls which samples are highlighted and how they are colored.
+#'   Three modes (requires a `SampleName` column in `df` for modes 2 and 3):
+#'   * `NULL` (default): all points drawn in black, no grouping.
+#'   * A **character or integer vector**: only those samples are plotted, in
+#'     black. Integer values are interpreted as 1-based indices into
+#'     `unique(df$SampleName)`.
+#'   * A **data.frame** with at least two columns: the first column contains
+#'     sample names and the second column contains a group identifier (any type).
+#'     Each unique group receives a distinct colour (controlled by `palette`);
+#'     samples not listed are drawn in grey. The group labels appear in the
+#'     plot legend.
+#' @param palette Character string naming a built-in colour palette, or a
+#'   character vector of colours to use directly. Only used when `samples` is a
+#'   data.frame. Built-in options:
+#'   \describe{
+#'     \item{`"auto"` (default)}{ggplot2 default discrete colour scale.}
+#'     \item{`"alphabet"`}{26 highly-distinguishable colours (hand-tuned for
+#'       large group counts).}
+#'     \item{`"polychrome"`}{24 perceptually-distinct colours from the
+#'       Polychrome palette, suitable for 20+ groups.}
+#'     \item{`"okabe_ito"`}{8-colour Okabe-Ito palette — the recommended
+#'       colorblind-friendly choice. Colours are recycled if there are more
+#'       than 8 groups.}
+#'   }
 #'
 #' @return A **ggplot** object.
 #'
@@ -1004,28 +1037,48 @@ all_resolutions_plots <- function(
 #' @import ggplot2
 #' @export
 plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
-                                       sample = NULL,
-                                       highlight_color = "tomato",
-                                       other_color = "grey75",
-                                       color_by_geno = FALSE) {
-  stopifnot(all(c("X","Y") %in% names(df)))
-  if (!"SampleName" %in% names(df) && identical(sample, "all")) {
-    stop("Column 'SampleName' is required when sample='all'.")
+                                       marker = NULL,
+                                       samples = NULL,
+                                       palette = "auto") {
+  # Accept qploidy_standardization objects
+  if (inherits(df, "qploidy_standardization")) {
+    df <- df$data
   }
+
+  # Handle MarkerName column: filter to a single marker
+  if ("MarkerName" %in% names(df)) {
+    markers <- unique(df$MarkerName)
+    if (length(markers) > 1) {
+      if (is.null(marker)) {
+        stop(
+          "Multiple markers found in 'df'. Specify a single 'marker'"
+        )
+      }
+      if (is.numeric(marker) && length(marker) == 1) {
+        idx <- as.integer(marker)
+        if (idx < 1L || idx > length(markers)) {
+          stop("'marker' index ", idx, " is out of range (1 to ", length(markers), ").")
+        }
+        marker <- markers[idx]
+      }
+      if (!marker %in% markers) {
+        stop("Marker '", marker, "' not found in 'df'.")
+      }
+      df <- df[df$MarkerName == marker, , drop = FALSE]
+    } else if (length(markers) == 1 && !is.null(marker)) {
+      if (is.numeric(marker)) marker <- markers[as.integer(marker)]
+      if (!marker %in% markers) {
+        stop("Marker '", marker, "' not found. Only available marker: ", markers)
+      }
+    }
+  }
+
+  stopifnot(all(c("X","Y") %in% names(df)))
 
   # Keep only rows that will actually plot
   df$.__ok__ <- is.finite(df$X) & is.finite(df$Y)
   df_plot <- df[df$.__ok__, , drop = FALSE]
   if (nrow(df_plot) == 0) stop("No points to plot after removing NAs in coordinates.")
-
-  # Ensure SampleName is a factor with only observed levels
-  if ("SampleName" %in% names(df_plot)) {
-    if (is.factor(df_plot$SampleName)) {
-      df_plot$SampleName <- droplevels(df_plot$SampleName)
-    } else {
-      df_plot$SampleName <- factor(df_plot$SampleName)
-    }
-  }
 
   max_x <- max(df_plot$X, na.rm = TRUE)
   max_y <- max(df_plot$Y, na.rm = TRUE)
@@ -1038,39 +1091,98 @@ plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
                    ifelse(dosage == ploidy, "v", "abline"))
   guides <- data.frame(dosage, ratio, slope, type)
 
-  # Base plot (legend reflects only samples present in df_plot)
-  if (color_by_geno && "geno" %in% names(df_plot)) {
-    p <- ggplot(df_plot, aes(X, Y, color = as.factor(geno))) +
-      geom_point(alpha = 0.85, size = 2, na.rm = TRUE) +
-      guides(color = guide_legend(override.aes = list(alpha = 1))) +
-      labs(color = "geno")
-  } else if(is.null(sample)){
+  # Resolve numeric sample indices to names
+  if (is.numeric(samples) && !is.data.frame(samples)) {
+    if (!"SampleName" %in% names(df_plot))
+      stop("Column 'SampleName' is required when 'samples' is a numeric vector.")
+    all_sn <- unique(df_plot$SampleName)
+    bad <- samples[samples < 1 | samples > length(all_sn)]
+    if (length(bad)) stop("Sample index out of range (1 to ", length(all_sn), "): ",
+                          paste(bad, collapse = ", "))
+    samples <- all_sn[as.integer(samples)]
+  }
+
+  show_legend <- is.data.frame(samples)
+
+  # Build base plot
+  if (is.null(samples)) {
+    # All points black, no grouping
     p <- ggplot(df_plot, aes(X, Y)) +
-      geom_point(alpha = 0.85, size = 2, na.rm = TRUE) +
-      guides(color = guide_legend(override.aes = list(alpha = 1)))
-  } else if (identical(sample, "all")) {
+      geom_point(alpha = 0.85, size = 2, color = "black", na.rm = TRUE)
+  } else if (is.data.frame(samples)) {
+    # data.frame: col1 = SampleName, col2 = group ID
+    if (ncol(samples) < 2)
+      stop("When 'samples' is a data.frame it must have at least 2 columns: sample names and group ID.")
+    if (!"SampleName" %in% names(df_plot)) stop("Column 'SampleName' not found.")
+    sn_col  <- as.character(samples[[1]])
+    grp_col <- as.character(samples[[2]])
+    idx <- match(df_plot$SampleName, sn_col)
+    grp_labels <- ifelse(is.na(idx), NA_character_, grp_col[idx])
+    group_levels <- sort(unique(grp_labels[!is.na(grp_labels)]))
+    n_grp <- length(group_levels)
+    # Resolve palette (mirrors pca_plot logic)
+    .palettes <- list(
+      alphabet = c(
+        "#AA0DFE", "#3283FE", "#85660D", "#782AB6", "#565656", "#1C8356",
+        "#16FF32", "#F7E1A0", "#E2E2E2", "#1CBE4F", "#C4451C", "#DEA0FD",
+        "#FE00FA", "#325A9B", "#FEAF16", "#F8A19F", "#90AD1C", "#F6222E",
+        "#1CFFCE", "#2ED9FF", "#B10DA1", "#C075A6", "#FC1CBF", "#B00068",
+        "#FBE426", "#FA0087"
+      ),
+      polychrome = c(
+        "#5A5156", "#E4E1E3", "#F6222E", "#FE00FA", "#16FF32", "#3283FE",
+        "#FEAF16", "#B00068", "#1CFFCE", "#90AD1C", "#2ED9FF", "#DEA0FD",
+        "#AA0DFE", "#F8A19F", "#325A9B", "#C4451C", "#1C8356", "#85660D",
+        "#B10DA1", "#FBE426", "#1CBE4F", "#FA0087", "#FC1CBF", "#F7E1A0"
+      ),
+      okabe_ito = c(
+        "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+        "#0072B2", "#D55E00", "#CC79A7", "#000000"
+      )
+    )
+    if (identical(palette, "auto")) {
+      pal_cols <- scales::hue_pal()(max(n_grp, 1L))
+    } else if (is.character(palette) && length(palette) == 1 && palette %in% names(.palettes)) {
+      pal_cols <- .palettes[[palette]]
+      if (n_grp > length(pal_cols)) {
+        warning(sprintf("Palette '%s' has %d colours but there are %d groups; colours will be recycled.",
+                        palette, length(pal_cols), n_grp))
+        pal_cols <- rep_len(pal_cols, n_grp)
+      }
+      pal_cols <- pal_cols[seq_len(n_grp)]
+    } else if (is.character(palette) && length(palette) > 1) {
+      if (n_grp > length(palette)) {
+        warning(sprintf("Supplied palette has %d colours but there are %d groups; colours will be recycled.",
+                        length(palette), n_grp))
+        palette <- rep_len(palette, n_grp)
+      }
+      pal_cols <- palette[seq_len(n_grp)]
+    } else {
+      stop("'palette' must be one of 'auto', 'alphabet', 'polychrome', 'okabe_ito', or a character vector of colours.")
+    }
+    grp_colors <- setNames(pal_cols, group_levels)
+    df_plot$.__grp__ <- factor(
+      ifelse(is.na(grp_labels), "other", grp_labels),
+      levels = c(group_levels, "other")
+    )
+    color_vals <- c(grp_colors, other = "grey75")
     p <- ggplot(df_plot, aes(X, Y)) +
-      geom_point(aes(color = SampleName), alpha = 0.85, size = 2, na.rm = TRUE) +
-      scale_color_discrete(drop = TRUE) +
+      geom_point(aes(color = .__grp__), alpha = 0.85, size = 2, na.rm = TRUE) +
+      scale_color_manual(
+        values = color_vals,
+        breaks = group_levels,
+        labels = group_levels,
+        drop = TRUE,
+        name = NULL
+      ) +
       guides(color = guide_legend(override.aes = list(alpha = 1)))
   } else {
+    # Character vector: keep only selected samples, plot them in black
     if (!"SampleName" %in% names(df_plot)) stop("Column 'SampleName' not found.")
-    has_highlight <- any(df_plot$SampleName == sample, na.rm = TRUE)
-    if (has_highlight) {
-      df_plot$.__hl__ <- factor(ifelse(df_plot$SampleName == sample, "highlight", "other"),
-                                levels = c("highlight","other"))
-      brks <- "highlight"; labs <- sample
-    } else {
-      df_plot$.__hl__ <- factor("other", levels = c("highlight","other"))
-      brks <- NULL; labs <- NULL
-      warning(sprintf("Sample '%s' has no plotted points. Legend will omit it.", sample))
-    }
-
+    df_plot <- df_plot[df_plot$SampleName %in% samples, , drop = FALSE]
+    if (nrow(df_plot) == 0) stop("None of the specified 'samples' have plotted points.")
     p <- ggplot(df_plot, aes(X, Y)) +
-      geom_point(aes(color = .__hl__), alpha = 0.85, size = 2, na.rm = TRUE) +
-      scale_color_manual(values = c(highlight = highlight_color, other = other_color),
-                         breaks = brks, labels = labs, drop = TRUE) +
-      guides(color = guide_legend(title = NULL, override.aes = list(alpha = 1)))
+      geom_point(alpha = 0.85, size = 2, color = "black", na.rm = TRUE)
   }
 
   lim <- max(max_x, max_y)            # same range on both axes
@@ -1084,7 +1196,8 @@ plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
          y = "Y (reads for allele B)") +
     theme_minimal(base_size = 12) +
     theme(aspect.ratio = 1,           # make the panel square
-          plot.margin = margin(12, 24, 12, 24))
+          plot.margin = margin(12, 24, 12, 24),
+          legend.position = if (show_legend) "right" else "none")
 
   # Intermediate dosages (lines through origin)
   ab <- subset(guides, type == "abline")
@@ -1126,6 +1239,12 @@ plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
 #' the rest in gray. Samples with no plottable points (non-finite coordinates) are
 #' automatically omitted from the legend.
 #'
+#' Accepts three types of input for `df`:
+#' * A `qploidy_standardization` object — its `$data` slot is used automatically.
+#' * A data frame with a `MarkerName` column. When multiple markers are present, you
+#'   must specify `marker`.
+#' * A plain data frame with columns `baf`, `R`, and `SampleName`.
+#'
 #' @details
 #' * Coordinates are computed from BAF and depth: \eqn{X=(1-\mathrm{BAF})R}, \eqn{Y=\mathrm{BAF}R}.
 #' * If `fallback_to_ratio = TRUE` and `baf` is `NA`, values from `ratio` are used.
@@ -1142,12 +1261,14 @@ plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
 #'   has no plottable points, it is omitted from the legend.
 #' * Uses a fixed aspect ratio (`coord_fixed`) so x and y units are comparable.
 #'
-#' @param df A `data.frame` with required columns:
-#'   - `baf` (numeric in \[0,1\]): standardized B-allele frequency.
-#'   - `R` (numeric): total read depth.
-#'   - `SampleName` (character/factor): sample label used for coloring.
-#'   Optional column `ratio` may be present and used when `fallback_to_ratio = TRUE`.
+#' @param df A `data.frame` with columns `baf`, `R`, and `SampleName`, a data frame
+#'   that also contains a `MarkerName` column, or an object of class
+#'   `qploidy_standardization`. When multiple markers are present, `marker` must be
+#'   supplied.
 #' @param ploidy Integer (≥ 2). Ploidy used to compute dosage guide lines.
+#' @param marker Character or integer. Required when `df` (or `df$data`) contains a
+#'   `MarkerName` column with more than one unique value. Provide the marker name as
+#'   a string or its integer index (1-based) in the vector of unique marker names.
 #' @param fallback_to_ratio Logical. If `TRUE`, fill `NA` values in `baf` with
 #'   corresponding values from `ratio` (when available). Default: `FALSE`.
 #' @param normalize_depth Logical. If `TRUE`, place all points on a common radius
@@ -1155,11 +1276,16 @@ plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
 #' @param radius Numeric scalar radius to use when `normalize_depth = TRUE`.
 #'   If `NULL`, uses `stats::median(df$R, na.rm = TRUE)`. Ignored when
 #'   `normalize_depth = FALSE`. Default: `NULL`.
-#' @param sample Character. Either `"all"` to color all samples by `SampleName`,
-#'   or the name of a single sample to highlight. Default: `"all"`.
-#' @param highlight_color Color for the highlighted sample when `sample != "all"`.
-#'   Default: `"tomato"`.
-#' @param other_color Color for non-highlighted samples when `sample != "all"`.
+#' @param sample Character, character vector, or data.frame.
+#'   * `NULL` (default): no coloring by sample.
+#'   * `"all"`: color all samples by `SampleName`.
+#'   * A character vector: highlight those samples in `highlight_color`; others in `other_color`.
+#'   * A data.frame with columns `SampleName` and `color`: the `color` column is
+#'     treated as a group label. Groups are assigned distinct viridis colors
+#'     automatically; samples not in the table use `other_color`.
+#' @param highlight_color Color for the highlighted sample when `sample` is a
+#'   character vector. Default: `"tomato"`.
+#' @param other_color Color for non-highlighted / unlisted samples.
 #'   Default: `"grey75"`.
 #'
 #' @return A **ggplot** object.
@@ -1172,12 +1298,46 @@ plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
 #' @export
 plot_baf_with_ploidy_guides <- function(df,
                                         ploidy = 2,
+                                        marker = NULL,
                                         fallback_to_ratio = FALSE,
                                         normalize_depth = TRUE,
                                         radius = NULL,
                                         sample = NULL,
                                         highlight_color = "tomato",
                                         other_color = "grey75") {
+  # Accept qploidy_standardization objects
+  if (inherits(df, "qploidy_standardization")) {
+    df <- df$data
+  }
+
+  # Handle MarkerName column: filter to a single marker
+  if ("MarkerName" %in% names(df)) {
+    markers <- unique(df$MarkerName)
+    if (length(markers) > 1) {
+      if (is.null(marker)) {
+        stop(
+          "Multiple markers found in 'df'. Specify a single 'marker'."
+        )
+      }
+      if (is.numeric(marker) && length(marker) == 1) {
+        idx <- as.integer(marker)
+        if (idx < 1L || idx > length(markers)) {
+          stop("'marker' index ", idx, " is out of range (1 to ", length(markers), ").")
+        }
+        marker <- markers[idx]
+      }
+      if (!marker %in% markers) {
+        stop("Marker '", marker, "' not found in 'df'.")
+      }
+      df <- df[df$MarkerName == marker, , drop = FALSE]
+    } else if (length(markers) == 1 && !is.null(marker)) {
+      if (is.numeric(marker)) marker <- markers[as.integer(marker)]
+      if (!marker %in% markers) {
+        stop("Marker '", marker, "' not found. Only available marker: ", markers)
+      }
+    }
+  }
+
   stopifnot("R" %in% names(df))
   if (!"baf" %in% names(df)) stop("Column 'baf' not found.")
   if (!"SampleName" %in% names(df)) stop("Column 'SampleName' not found (needed for coloring).")
@@ -1216,22 +1376,52 @@ plot_baf_with_ploidy_guides <- function(df,
   max_x <- max(df_plot$Xb, na.rm = TRUE)
   max_y <- max(df_plot$Yb, na.rm = TRUE)
 
+  show_legend <- is.data.frame(sample)
+
   # Coloring
   if(is.null(sample)){
     p <- ggplot(df_plot, aes(Xb, Yb)) +
       geom_point(alpha = 0.85, size = 2, na.rm = TRUE) +
       guides(color = guide_legend(override.aes = list(alpha = 1)))
-  } else   if (identical(sample, "all")) {
+  } else if (identical(sample, "all")) {
     p <- ggplot(df_plot, aes(Xb, Yb)) +
       geom_point(aes(color = SampleName), alpha = 0.85, size = 2, na.rm = TRUE) +
       scale_color_discrete(drop = TRUE) +
       guides(color = guide_legend(override.aes = list(alpha = 1)))
+  } else if (is.data.frame(sample)) {
+    if (!all(c("SampleName", "color") %in% names(sample))) {
+      stop("When 'sample' is a data.frame, it must have columns 'SampleName' and 'color'.")
+    }
+    if (!"SampleName" %in% names(df_plot)) stop("Column 'SampleName' not found.")
+    idx <- match(df_plot$SampleName, sample$SampleName)
+    grp_labels <- ifelse(is.na(idx), NA_character_, as.character(sample$color[idx]))
+    group_levels <- sort(unique(grp_labels[!is.na(grp_labels)]))
+    n_grp <- length(group_levels)
+    grp_colors <- setNames(
+      scales::viridis_pal(end = 0.85)(max(n_grp, 1L))[seq_len(n_grp)],
+      group_levels
+    )
+    df_plot$.__grp__ <- factor(
+      ifelse(is.na(grp_labels), "other", grp_labels),
+      levels = c(group_levels, "other")
+    )
+    color_vals <- c(grp_colors, other = other_color)
+    p <- ggplot(df_plot, aes(Xb, Yb)) +
+      geom_point(aes(color = .__grp__), alpha = 0.85, size = 2, na.rm = TRUE) +
+      scale_color_manual(
+        values = color_vals,
+        breaks = group_levels,
+        labels = group_levels,
+        drop = TRUE,
+        name = NULL
+      ) +
+      guides(color = guide_legend(override.aes = list(alpha = 1)))
   } else {
-    has_highlight <- any(df_plot$SampleName == sample, na.rm = TRUE)
+    has_highlight <- any(df_plot$SampleName %in% sample, na.rm = TRUE)
     if (has_highlight) {
-      df_plot$.__hl__ <- factor(ifelse(df_plot$SampleName == sample, "highlight", "other"),
+      df_plot$.__hl__ <- factor(ifelse(df_plot$SampleName %in% sample, "highlight", "other"),
                                 levels = c("highlight","other"))
-      brks <- "highlight"; labs <- sample
+      brks <- "highlight"; labs <- paste(sample, collapse = ", ")
     } else {
       df_plot$.__hl__ <- factor("other", levels = c("highlight","other"))
       brks <- NULL; labs <- NULL
@@ -1257,7 +1447,8 @@ plot_baf_with_ploidy_guides <- function(df,
     ) +
     theme_minimal(base_size = 12) +
     theme(aspect.ratio = 1,           # make the panel square
-          plot.margin = margin(12, 24, 12, 24))
+          plot.margin = margin(12, 24, 12, 24),
+          legend.position = if (show_legend) "right" else "none")
 
   # Intermediate dosage guides
   ab <- subset(guides, type == "abline" & is.finite(slope))
@@ -1289,8 +1480,13 @@ plot_baf_with_ploidy_guides <- function(df,
 #'
 #' This function visualizes the distribution of observed values (ratio and BAF) by genotype dosage for each marker, and overlays the expected values for a given ploidy. For each marker, it shows jittered points for individual observations, the observed median per dosage (red), and the expected value per dosage (blue).
 #'
-#' @param df A data.frame containing columns 'geno' (genotype dosage), 'ratio', 'baf', and 'MarkerName'.
+#' @param df A data.frame containing columns 'geno' (genotype dosage), 'ratio', 'baf', and
+#'   'MarkerName', or an object of class `qploidy_standardization` (its `$data` slot is used).
 #' @param ploidy Integer specifying the expected ploidy. If NULL (default), the maximum observed genotype dosage in the data is used.
+#' @param marker Character or integer. When `df` contains a `MarkerName` column with more
+#'   than one unique value, use this to select a single marker or a subset of markers to plot.
+#'   Provide a character vector of marker names or integer indices (1-based). If `NULL` (default),
+#'   all markers are plotted.
 #' @param alpha Numeric (0-1) specifying the transparency of the jittered points. Default is 0.6.
 #'
 #' @return A ggplot object with one panel per marker and metric (ratio, BAF), showing observed and expected values by genotype dosage.
@@ -1306,8 +1502,27 @@ plot_baf_with_ploidy_guides <- function(df,
 #' @import ggplot2
 #' @importFrom dplyr summarise pull mutate if_else distinct
 #' @importFrom tidyr pivot_longer crossing
+#' @importFrom stats na.omit
 #' @export
-plot_geno_by_marker <- function(df, ploidy = NULL, alpha = 0.6) {
+plot_geno_by_marker <- function(df, ploidy = NULL, marker = NULL, alpha = 0.6) {
+
+  # Accept qploidy_standardization objects
+  if (inherits(df, "qploidy_standardization")) {
+    df <- df$data
+  }
+
+  # Handle MarkerName filtering
+  if ("MarkerName" %in% names(df) && !is.null(marker)) {
+    all_markers <- unique(df$MarkerName)
+    if (is.numeric(marker)) {
+      bad <- marker[marker < 1 | marker > length(all_markers)]
+      if (length(bad)) stop("'marker' index out of range (1 to ", length(all_markers), "): ", paste(bad, collapse = ", "))
+      marker <- all_markers[as.integer(marker)]
+    }
+    missing <- setdiff(marker, all_markers)
+    if (length(missing)) stop("Marker(s) not found in 'df': ", paste(missing, collapse = ", "))
+    df <- df[df$MarkerName %in% marker, , drop = FALSE]
+  }
 
   # infer ploidy from the highest observed geno (unless user supplies it)
   if (is.null(ploidy)) {
@@ -1320,14 +1535,12 @@ plot_geno_by_marker <- function(df, ploidy = NULL, alpha = 0.6) {
 
   df_plot <- df %>%
     mutate(
-      geno_cat = if_else(is.na(geno), "unknown", as.character(geno)),
-      geno_num = suppressWarnings(as.numeric(as.character(geno))),
-      MarkerName = as.factor(MarkerName),
-      geno_cat = factor(
-        geno_cat,
-        levels = c(sort(unique(na.omit(as.character(geno)))), "unknown")
-      )
+      geno_str  = as.character(geno),
+      geno_cat  = ifelse(is.na(geno_str) | geno_str == "NA", "unknown", geno_str),
+      geno_num  = suppressWarnings(as.numeric(geno_str)),
+      MarkerName = as.factor(MarkerName)
     ) %>%
+    select(-geno_str) %>%
     pivot_longer(
       cols = c(ratio, baf),
       names_to = "metric",
@@ -1336,6 +1549,17 @@ plot_geno_by_marker <- function(df, ploidy = NULL, alpha = 0.6) {
     mutate(
       metric = factor(metric, levels = c("ratio", "baf"))  # ratio on top
     )
+
+  # Build factor levels: numeric dosages first, then "unknown" only when NAs exist
+  geno_str_all <- as.character(df$geno)
+  geno_levels  <- sort(unique(geno_str_all[!is.na(geno_str_all) & geno_str_all != "NA"]))
+  has_unknown  <- any(is.na(geno_str_all) | (!is.na(geno_str_all) & geno_str_all == "NA"))
+  if (has_unknown) geno_levels <- c(geno_levels, "unknown")
+  df_plot$geno_cat <- factor(df_plot$geno_cat, levels = geno_levels)
+  # Safety net: any factor NA (value not in levels) → "unknown"
+  if (has_unknown && any(is.na(df_plot$geno_cat))) {
+    df_plot$geno_cat[is.na(df_plot$geno_cat)] <- "unknown"
+  }
 
   # For each marker, check if observed values decrease with dosage (ref/alt inverted)
   trend_df <- df_plot %>%
@@ -1354,7 +1578,7 @@ plot_geno_by_marker <- function(df, ploidy = NULL, alpha = 0.6) {
     tidyr::crossing(geno_num = 0:ploidy) %>%
     left_join(trend_df, by = c("MarkerName", "metric")) %>%
     mutate(
-      geno_cat = factor(as.character(geno_num), levels = levels(df_plot$geno_cat)),
+      geno_cat = factor(as.character(geno_num), levels = geno_levels),
       expected = ifelse(decreasing, 1 - geno_num / ploidy, geno_num / ploidy),
       type = "Expected"
     )
@@ -1378,6 +1602,8 @@ plot_geno_by_marker <- function(df, ploidy = NULL, alpha = 0.6) {
       size = 3
     ) +
     geom_jitter(width = 0.15, height = 0, alpha = alpha, na.rm = TRUE) +
+
+    scale_x_discrete(na.translate = FALSE) +
 
     facet_grid(
       rows = vars(metric),

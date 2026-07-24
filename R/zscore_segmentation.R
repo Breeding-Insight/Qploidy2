@@ -1,3 +1,5 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c("start", "end", "mean_z"))
+
 #' Segment ordered genomic z-scores into changepoint-based windows
 #'
 #' This function applies 1D changepoint detection on an ordered vector of
