@@ -668,7 +668,18 @@ Among the first 50 samples, sample `85-179` differ between previous standardizat
 ```{r}
 # Same plots can be generated
 plot_karyotype(re_multi_esti, sample_name = "85-182", nrow = 2, color_by = "post_max_CN")
+```
 
+In this case, there are a small fragment with higher copy number (CN 6) on chromosome 6 that may be actually a tandem duplication
+within one of the other homogologues. If you prefer to remove the dashed line showing the missing parts. Just set the
+`add_ghost` argument to FALSE:
+
+```{r}
+# Same plots can be generated
+plot_karyotype(re_multi_esti, sample_name = "85-182", nrow = 2, color_by = "post_max_CN", add_ghost = FALSE)
+```
+
+```{r}
 p_re <- plot_cn_track(hmm_CN = re_multi_esti,
                       qploidy_standarize_result = re_qploidy_standardization,
                       sample_id = "85-182",

@@ -165,9 +165,7 @@ plot_karyotype <- function(df, sample_name,
             color_value = first(color_value),
             .groups = "drop"
         ) %>%
-        rowwise() %>%
-        mutate(copy_num = list(seq_len(CN_call))) %>%
-        ungroup() %>%
+        mutate(copy_num = lapply(CN_call, seq_len)) %>%
         unnest(copy_num) %>%
         mutate(
             x_pos      = copy_num,
@@ -190,9 +188,7 @@ plot_karyotype <- function(df, sample_name,
             left_join(chr_max_CN, by = "Chr") %>%
             mutate(ghost_max = pmax(ploidy_mode, chr_max)) %>%
             filter(CN_call < ghost_max) %>%
-            rowwise() %>%
-            mutate(copy_num = list(seq(CN_call + 1L, ghost_max))) %>%
-            ungroup() %>%
+            mutate(copy_num = Map(seq, CN_call + 1L, ghost_max)) %>%
             unnest(copy_num) %>%
             mutate(x_pos = copy_num, width = 0.8, grey_type = "Expected (ghost)")
     } else {
@@ -231,7 +227,7 @@ plot_karyotype <- function(df, sample_name,
         .key_colors <- c(.key_colors, NA_character_)
         .key_lty    <- c(.key_lty, "solid")
     }
-    if (!is.null(ghost_segments)) {
+    if (!is.null(ghost_segments) && nrow(ghost_segments) > 0L) {
         .fill_vals  <- c(.fill_vals, "Expected (ghost)" = "transparent")
         .key_fills  <- c(.key_fills, NA)
         .key_colors <- c(.key_colors, "grey55")
@@ -325,7 +321,7 @@ plot_karyotype <- function(df, sample_name,
     # --- 8. Plot -------------------------------------------------------------
     p <- ggplot() +
         # Ghost copies: dashed outlines for expected-but-absent chromosome copies
-        (if (!is.null(ghost_segments)) geom_rect(
+        (if (!is.null(ghost_segments) && nrow(ghost_segments) > 0L) geom_rect(
             data = ghost_segments,
             aes(
                 xmin = x_pos - width / 2, xmax = x_pos + width / 2,
