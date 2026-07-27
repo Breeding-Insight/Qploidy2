@@ -232,8 +232,7 @@ and improving the accuracy of ploidy estimation. Markers from diverse platforms 
 characteristics, and standardization helps to make them comparable. 
 
 The function has several parameters that can be adjusted based on the characteristics of your dataset.
-You can access a description of all parameters in `?standardize`. Here we will focus only on two of them:
-`ploidy.standardization` and `threshold.n.clusters`:
+You can access a description of all parameters in `?standardize`. Here we will focus only a few of them:
 
 **Parameters:**
 - `genos`: This data.frame defines which samples are your reference for the standardization. If you have samples with known ploidy, filter this object to keep only them. You can use the command:
@@ -253,16 +252,35 @@ If you are not sure about ploidy of at least 60 samples, just keep all them and 
 defined on `ploidy.standardization` (ploidy + 1). Lower values requires imputation of dosage clusters for missing genotypes. The imputation is performed based on distance to other clusters, 
 so it is recommended to have at least 3 clusters for a good imputation. If too many markers are filtered, relax this threshold (e.g., to 4 for tetraploids) to retain more markers with imputed clusters.
 
+Other the the minimum number of clusters, the standardization step also apply some other filters:
+
+- `threshold.missing.geno`: Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.
+- `min.depth`: Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.
+- `max.depth`: Maximum read depth (R) threshold. Datapoints with R above this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations.
+
+If your data comes from sequencing (and not hybridization), filtering by depth is important for quality control.
+To decide on the minimum and maximum of depth, you may want to take a quick look on the total depth distribution:
+
+```{r}
+hist(data$R)
+summary(data$R)
+```
+
+The threshold should be around the mean but giving enough space for the variations:
+
 ```{r}
 qploidy_standardization5 <- standardize(
   data = data,
   genos = genos,
   geno.pos = geno.pos,
   ploidy.standardization = 4, # Set to known or most frequent ploidy
-  threshold.n.clusters = 5,   # Minimum clusters for marker retention
+  threshold.n.clusters = 5,   # Minimum clusters for marker retention 
+  threshold.missing.geno = 0.9,
+  min.depth = 30, 
+  max.depth = 600,
   n.cores = 2,
   out_filename = "standardization.tsv.gz",
-  verbose = TRUE, 
+  verbose = TRUE
 )
 
 # Check filtering summary
@@ -299,6 +317,9 @@ qploidy_standardization <- standardize(
   geno.pos = geno.pos,
   ploidy.standardization = 4,
   threshold.n.clusters = 4,
+  threshold.missing.geno = 0.9,
+  min.depth = 30, 
+  max.depth = 600,
   n.cores = 2,
   out_filename = "standardization.tsv.gz",
   verbose = TRUE
@@ -621,6 +642,9 @@ re_qploidy_standardization <- re_standardize(
   use_estimated_dosages = TRUE, 
   ploidy.standardization = 4,
   threshold.n.clusters = 4,
+  threshold.missing.geno = 0.9,
+  min.depth = 30, 
+  max.depth = 600,
   n.cores = 2,
   out_filename = "re_standardization.tsv.gz",
   verbose = TRUE
@@ -663,33 +687,33 @@ compare_cn_track(hmm_CN = re_multi_esti,
                  facet_ncol = 8)
 ```
 
-Among the first 50 samples, sample `85-179` differ between previous standardization and re-standardization results.
+Among the first 50 samples, sample `85-117` differ between previous standardization and re-standardization results.
 
 ```{r}
 # Same plots can be generated
-plot_karyotype(re_multi_esti, sample_name = "85-182", nrow = 2, color_by = "post_max_CN")
+plot_karyotype(re_multi_esti, sample_name = "85-2", nrow = 2, color_by = "post_max_CN")
 ```
 
-In this case, there are a small fragment with higher copy number (CN 6) on chromosome 6 that may be actually a tandem duplication
-within one of the other homogologues. If you prefer to remove the dashed line showing the missing parts. Just set the
+In this case, there are a small fragment with lower copy number (CN 3) on part of chromosome 7. And a higher CN in chromosome 8. 
+If you prefer to remove the dashed line showing the missing parts. Just set the
 `add_ghost` argument to FALSE:
 
 ```{r}
 # Same plots can be generated
-plot_karyotype(re_multi_esti, sample_name = "85-182", nrow = 2, color_by = "post_max_CN", add_ghost = FALSE)
+plot_karyotype(re_multi_esti, sample_name = "85-2", nrow = 2, color_by = "post_max_CN", add_ghost = FALSE)
 ```
 
 ```{r}
 p_re <- plot_cn_track(hmm_CN = re_multi_esti,
                       qploidy_standarize_result = re_qploidy_standardization,
-                      sample_id = "85-182",
+                      sample_id = "85-2",
                       show_window_lines = TRUE)
 
-plot_karyotype(multi_esti, sample_name = "85-182", nrow = 2, color_by = "post_max_CN")
+plot_karyotype(multi_esti, sample_name = "85-2", nrow = 2, color_by = "post_max_CN")
 
 p <- plot_cn_track(hmm_CN = multi_esti,
                    qploidy_standarize_result = qploidy_standardization,
-                   sample_id = "85-182",
+                   sample_id = "85-2",
                    show_window_lines = TRUE)
 
 p$arranged #before
@@ -705,15 +729,15 @@ for example, increasing the number of markers in the windows to better fit the m
 ```{r}
 
 res_tweak <- hmm_estimate_CN(qploidy_standarize_result = re_qploidy_standardization,
-                             sample_id = "85-182",
+                             sample_id = "85-2",
                              min_snps_per_window = 60,
                              cn_grid =  c(2,3,4,5,6))
 
-plot_karyotype(multi_esti, sample_name = "85-182", nrow = 2, color_by = "post_max_CN")
+plot_karyotype(multi_esti, sample_name = "85-2", nrow = 2, color_by = "post_max_CN")
 
 p <- plot_cn_track(hmm_CN = res_tweak,
                    qploidy_standarize_result = re_qploidy_standardization,
-                   sample_id = "85-182",
+                   sample_id = "85-2",
                    show_window_lines = TRUE)
 
 p$arranged

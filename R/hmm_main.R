@@ -155,7 +155,8 @@ hmm_estimate_CN <- function(
   het_range = c(0.2, 0.8),
   dosage_threshold = 0.6,
   rerun_overall_ploidy = TRUE,
-  recycled_obj_rerun_overall_ploidy = NULL
+  recycled_obj_rerun_overall_ploidy = NULL,
+  nQuack_EM = FALSE
 ) {
   # --- input checks ---
   # If second cycle of rerun_overall_ploidy, check that recycled_obj_rerun_overall_ploidy is provided
@@ -247,7 +248,6 @@ hmm_estimate_CN <- function(
       keep_baf_col <- baf_col
       keep_z_col <- z_col
       keep_cn_grid <- cn_grid
-
     } else {
       keep_d <- NULL
     }
@@ -256,13 +256,13 @@ hmm_estimate_CN <- function(
   # Calculate expected ploidy using sample-level BAF distribution
   vmsg("Setting internal parameters", verbose = verbose, level = 0, type = ">>")
 
-  if (!is.null(selected_model)) {
+  if (!is.null(selected_model) & !nQuack_EM) {
     if (!inherits(selected_model, "selected_BAF_model")) {
-      stop("selected_model argument must be of class 'selected_BAF_model'.")
+      stop("selected_model argument must be of class 'selected_BAF_model' when nQuack_EM is FALSE.")
     }
     # Use user-provided selected_model
     vmsg("Using user-provided selected_model object", verbose = verbose, level = 1, type = ">>")
-  } else {
+  } else if (!nQuack_EM) {
     # This step was added to be activated if rerun_overall_ploidy is TRUE
     if (!is.null(recycled_obj_rerun_overall_ploidy$rm_mks)) {
       bafs_overall <- d[[baf_col]][-which(d$MarkerName %in% recycled_obj_rerun_overall_ploidy$rm_mks)]
@@ -285,11 +285,33 @@ hmm_estimate_CN <- function(
       min_het_frac = min_het_frac,
       het_range = het_range
     )
+  } else if (nQuack_EM & is.null(selected_model)) {
+    stop("selected_model must be provided when nQuack_EM is TRUE.")
+  } else if (nQuack_EM & !is.null(selected_model)) {
+    if (!inherits(selected_model, "nQuack_model_selected")) {
+      stop("selected_model argument must be of class 'nQuack_model_selected' when nQuack_EM is TRUE.")
+    }
+    # This step was added to be activated if rerun_overall_ploidy is TRUE
+    if (!is.null(recycled_obj_rerun_overall_ploidy$rm_mks)) {
+      bafs_overall <- d[[baf_col]][-which(d$MarkerName %in% recycled_obj_rerun_overall_ploidy$rm_mks)]
+    } else {
+      bafs_overall <- d[[baf_col]]
+    }
+
+    bestquack_result <- bestquack(bafs_overall,
+      distribution = selected_model$best_model$Distribution,
+      type = selected_model$best_model$Type,
+      uniform = as.numeric(selected_model$best_model$Uniform),
+      samplename = sample_id
+    )
+    vmsg("Using user-provided selected_model object for nQuack_EM", verbose = verbose, level = 1, type = ">>")
   }
 
   # Use exp_ploidy argument if provided, otherwise use selected_model$best$best_cn
   if (is.null(exp_ploidy) || (length(exp_ploidy) == 1 && is.na(exp_ploidy))) {
-    exp_ploidy <- selected_model$best$best_cn
+    if (nQuack_EM) {} else {
+      exp_ploidy <- selected_model$best$best_cn
+    }
     vmsg("exp_ploidy not provided, using best CN from BAF model: %s", verbose = verbose, level = 1, type = ">>", exp_ploidy)
   } else {
     vmsg("exp_ploidy provided by user: %s", verbose = verbose, level = 1, type = ">>", exp_ploidy)
@@ -786,56 +808,58 @@ hmm_estimate_CN <- function(
   rm_markers <- d$MarkerName[which(d$CN_call != mode(d$CN_call))]
 
   if (rerun_overall_ploidy) {
-    if(length(rm_markers) > 0){
-    vmsg("Rerunning overall ploidy estimation with markers that disagree with the initial CN call removed", verbose = verbose, level = 0, type = ">>")
+    if (length(rm_markers) > 0) {
+      vmsg("Rerunning overall ploidy estimation with markers that disagree with the initial CN call removed", verbose = verbose, level = 0, type = ">>")
 
-    result <- hmm_estimate_CN(
-      qploidy_standarize_result = qploidy_standarize_result,
-      sample_id = sample_id,
-      data = data,
-      geno.pos = geno.pos,
-      use_values = use_values,
-      chr = chr,
-      reflect = reflect,
-      add_uniform = add_uniform,
-      segment_zscore = segment_zscore,
-      snps_per_window = snps_per_window,
-      min_snps_per_window = min_snps_per_window,
-      cn_grid = cn_grid,
-      M = M,
-      max_iter = max_iter,
-      het_quantile = het_quantile, # increase this value to reduce the weight of baf when few hets
-      baf_weight = baf_weight,
-      z_range = z_range,
-      transition_jump = transition_jump, # decrease this value if you think there changes in CN is likely
-      initial_prob = initial_prob, # Initial probability for the best CN state in the initial state distribution (pi0). Default 0.15. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
-      z_only = z_only,
-      verbose = verbose,
-      exp_ploidy = NULL,
-      rm_outliers = rm_outliers,
-      outlier_alpha = outlier_alpha,
-      selected_model = NULL,
-      dists = dists,
-      bw_grid = bw_grid,
-      add_uniform_grid = add_uniform_grid,
-      uniform_weight_grid = uniform_weight_grid,
-      param_count = param_count,
-      count_grid_as_params = count_grid_as_params,
-      correct_scale = correct_scale,
-      min_het_frac = min_het_frac,
-      het_range = het_range,
-      dosage_threshold = dosage_threshold,
-      rerun_overall_ploidy = FALSE,
-      recycled_obj_rerun_overall_ploidy = list(rm_mks = rm_markers,
-                                               recycled_d = keep_d,
-                                               recycled_baf_col = keep_baf_col,
-                                               recycled_z_col = keep_z_col,
-                                               recycled_cn_grid = keep_cn_grid)
-    )
+      result <- hmm_estimate_CN(
+        qploidy_standarize_result = qploidy_standarize_result,
+        sample_id = sample_id,
+        data = data,
+        geno.pos = geno.pos,
+        use_values = use_values,
+        chr = chr,
+        reflect = reflect,
+        add_uniform = add_uniform,
+        segment_zscore = segment_zscore,
+        snps_per_window = snps_per_window,
+        min_snps_per_window = min_snps_per_window,
+        cn_grid = cn_grid,
+        M = M,
+        max_iter = max_iter,
+        het_quantile = het_quantile, # increase this value to reduce the weight of baf when few hets
+        baf_weight = baf_weight,
+        z_range = z_range,
+        transition_jump = transition_jump, # decrease this value if you think there changes in CN is likely
+        initial_prob = initial_prob, # Initial probability for the best CN state in the initial state distribution (pi0). Default 0.15. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
+        z_only = z_only,
+        verbose = verbose,
+        exp_ploidy = NULL,
+        rm_outliers = rm_outliers,
+        outlier_alpha = outlier_alpha,
+        selected_model = NULL,
+        dists = dists,
+        bw_grid = bw_grid,
+        add_uniform_grid = add_uniform_grid,
+        uniform_weight_grid = uniform_weight_grid,
+        param_count = param_count,
+        count_grid_as_params = count_grid_as_params,
+        correct_scale = correct_scale,
+        min_het_frac = min_het_frac,
+        het_range = het_range,
+        dosage_threshold = dosage_threshold,
+        rerun_overall_ploidy = FALSE,
+        recycled_obj_rerun_overall_ploidy = list(
+          rm_mks = rm_markers,
+          recycled_d = keep_d,
+          recycled_baf_col = keep_baf_col,
+          recycled_z_col = keep_z_col,
+          recycled_cn_grid = keep_cn_grid
+        )
+      )
 
-    return(result)
+      return(result)
     } else {
-      vmsg(paste("Rerun option chosen but no CN different than mode", mode(d$CN_call),"was found. Rerun not needed."), verbose = verbose, level = 0, type = ">>")
+      vmsg(paste("Rerun option chosen but no CN different than mode", mode(d$CN_call), "was found. Rerun not needed."), verbose = verbose, level = 0, type = ">>")
     }
   }
 
@@ -1040,7 +1064,7 @@ write_hmm_CN <- function(hmm_CN, prefix) {
 #'
 #' @return An object of class 'hmm_CN'.
 #' @export
-read_hmm_CN <- function(by_marker_file, by_window_file , params_file) {
+read_hmm_CN <- function(by_marker_file, by_window_file, params_file) {
   by_window <- fread(by_window_file, data.table = FALSE)
   by_marker <- fread(by_marker_file, data.table = FALSE)
 
