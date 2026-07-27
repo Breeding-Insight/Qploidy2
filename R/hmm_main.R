@@ -298,7 +298,7 @@ hmm_estimate_CN <- function(
       bafs_overall <- d[[baf_col]]
     }
 
-    bestquack_result <- bestquack(bafs_overall,
+    bestquack_result <- bestquack(bafs_overall, ## this input had incorrect format - here it is a vector of BAF, the expected is a data.frame with total depth and one of the allele counts
       distribution = selected_model$best_model$Distribution,
       type = selected_model$best_model$Type,
       uniform = as.numeric(selected_model$best_model$Uniform),
