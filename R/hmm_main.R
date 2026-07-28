@@ -399,6 +399,9 @@ hmm_estimate_CN <- function(
   win_df <- win_df[o, ]
   W <- nrow(win_df) # W = number of windows
 
+  #!!!!---- nQuack integration stopped here, it would need to be adapted to R and allele count format to split the windows
+  # as well. Easier to adapt the functions to accept ratios/BAF -- dev blocked
+
   # extract BAF vectors per window (list) and z vector
   baf_list <- vector("list", W)
   for (i in seq_len(W)) {
