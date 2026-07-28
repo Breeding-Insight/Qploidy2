@@ -151,7 +151,7 @@ hmm_estimate_CN <- function(
   param_count = NULL,
   count_grid_as_params = TRUE,
   correct_scale = TRUE,
-  min_het_frac = 0.05,
+  min_het_frac = 0.01,
   het_range = c(0.2, 0.8),
   dosage_threshold = 0.6,
   rerun_overall_ploidy = TRUE,
