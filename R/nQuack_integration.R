@@ -50,57 +50,61 @@
 #' @export
 convert2nQuack <- function(qploidy_standardization_object,
                            min_depth = 10L,
-                           max_geno  = NULL,
-                           seed      = 123L) {
-
-
-  # Accept qploidy_standardization objects
-  if(is.null(max_geno)) {
-    max_geno <- as.numeric(qploidy_standardization_object$info["ploidy.standardization"])
-  }
-
-  if (inherits(qploidy_standardization_object, "qploidy_standardization")) {
-    qploidy_standardization_object <- qploidy_standardization_object$data
-  }
-
-  dat <- qploidy_standardization_object
-  required_cols <- c("SampleName", "R", "X", "Y", "ratio", "geno")
-  missing_cols  <- setdiff(required_cols, names(dat))
-  if (length(missing_cols) > 0L) {
-    stop("Input is missing required columns: ", paste(missing_cols, collapse = ", "))
-  }
-
-  samples  <- unique(dat$SampleName)
-  templist <- vector("list", length(samples))
-  names(templist) <- samples
-
-  for (i in seq_along(samples)) {
-    temp <- dat[dat$SampleName == samples[i], ]
-
-    # Remove homozygous sites by ratio and genotype call
-    temp <- temp[!is.na(temp$ratio) & temp$ratio != 0 & temp$ratio != 1, ]
-    temp <- temp[!is.na(temp$geno)  & temp$geno  != 0 & temp$geno  != max_geno, ]
-
-    if (nrow(temp) == 0L) {
-      templist[[i]] <- matrix(integer(0), nrow = 0L, ncol = 2L)
-      next
+                           max_geno = NULL,
+                           seed = 123L) {
+    # Accept qploidy_standardization objects
+    if (inherits(qploidy_standardization_object, "qploidy_standardization")) {
+        if (is.null(max_geno)) {
+            max_geno <- as.numeric(qploidy_standardization_object$info["ploidy.standardization"])
+            if (length(max_geno) == 0 || is.na(max_geno)) {
+                max_geno <- max(qploidy_standardization_object$data$geno, na.rm = TRUE)
+            }
+        }
+        dat <- qploidy_standardization_object$data
+    } else {
+        dat <- qploidy_standardization_object
+        if (is.null(max_geno)) {
+            max_geno <- max(dat$geno, na.rm = TRUE)
+        }
     }
 
-    # Randomly select X or Y coverage per site (vectorised)
-    set.seed(seed)  # For reproducibility
-    n       <- nrow(temp)
-    choices <- sample(c(1L, 2L), size = n, replace = TRUE)
-    allele  <- ifelse(choices == 1L, temp$X, temp$Y)
+    required_cols <- c("SampleName", "R", "X", "Y", "ratio", "geno")
+    missing_cols <- setdiff(required_cols, names(dat))
+    if (length(missing_cols) > 0L) {
+        stop("Input is missing required columns: ", paste(missing_cols, collapse = ", "))
+    }
 
-    xmr <- cbind(R = temp$R, allele = allele)
+    samples <- unique(dat$SampleName)
+    templist <- vector("list", length(samples))
+    names(templist) <- samples
 
-    # Apply depth and non-zero allele filters
-    keep <- !is.na(xmr[, 1L]) & xmr[, 1L] >= min_depth &
-      !is.na(xmr[, 2L]) & xmr[, 2L] > 0L
-    templist[[i]] <- as.matrix(xmr[keep, , drop = FALSE])
-  }
+    for (i in seq_along(samples)) {
+        temp <- dat[dat$SampleName == samples[i], ]
 
-  templist
+        # Remove homozygous sites by ratio and genotype call
+        temp <- temp[!is.na(temp$ratio) & temp$ratio != 0 & temp$ratio != 1, ]
+        temp <- temp[!is.na(temp$geno) & temp$geno != 0 & temp$geno != max_geno, ]
+
+        if (nrow(temp) == 0L) {
+            templist[[i]] <- matrix(integer(0), nrow = 0L, ncol = 2L)
+            next
+        }
+
+        # Randomly select X or Y coverage per site (vectorised)
+        set.seed(seed) # For reproducibility
+        n <- nrow(temp)
+        choices <- sample(c(1L, 2L), size = n, replace = TRUE)
+        allele <- ifelse(choices == 1L, temp$X, temp$Y)
+
+        xmr <- cbind(R = temp$R, allele = allele)
+
+        # Apply depth and non-zero allele filters
+        keep <- !is.na(xmr[, 1L]) & xmr[, 1L] >= min_depth &
+            !is.na(xmr[, 2L]) & xmr[, 2L] > 0L
+        templist[[i]] <- as.matrix(xmr[keep, , drop = FALSE])
+    }
+
+    templist
 }
 
 
@@ -145,15 +149,18 @@ convert2nQuack <- function(qploidy_standardization_object,
 ##' @export
 select_best_nQuack_model <- function(qploidy_standardization,
                                      n_cores = 1) {
-
     # --- 0. Input checks & derived values ------------------------------------
-    if (!inherits(qploidy_standardization, "qploidy_standardization"))
+    if (!inherits(qploidy_standardization, "qploidy_standardization")) {
         stop("`qploidy_standardization` must be a qploidy_standardization object.")
+    }
 
     ploidy <- as.numeric(qploidy_standardization$info["ploidy.standardization"])
-    if (is.na(ploidy) || ploidy < 2 || ploidy > 6)
-        stop("nQuack implementation supports ploidies 2 to 6 only. ",
-             "Got: ", ploidy)
+    if (is.na(ploidy) || ploidy < 2 || ploidy > 6) {
+        stop(
+            "nQuack implementation supports ploidies 2 to 6 only. ",
+            "Got: ", ploidy
+        )
+    }
 
     # --- 1. Reference samples (non-NA geno) ----------------------------------
     samples_genos <- unique(
@@ -162,50 +169,62 @@ select_best_nQuack_model <- function(qploidy_standardization,
         ]
     )
 
-    if (length(samples_genos) == 0)
-        stop("No reference samples found. Ensure the `genos` samples passed to ",
-             "`standardize()` are represented in `qploidy_standardization$data`.")
+    if (length(samples_genos) == 0) {
+        stop(
+            "No reference samples found. Ensure the `genos` samples passed to ",
+            "`standardize()` are represented in `qploidy_standardization$data`."
+        )
+    }
 
     # --- 2. Convert to nQuack format -----------------------------------------
     nQuack_list <- convert2nQuack(qploidy_standardization,
-                                  seed     = 123L,
-                                  max_geno = ploidy)
+        seed     = 123L,
+        max_geno = ploidy
+    )
 
     # --- 3. Run EM models on each reference sample ---------------------------
-    em_resultsNormal   <- vector("list", length(samples_genos))
-    em_resultsBeta     <- vector("list", length(samples_genos))
+    em_resultsNormal <- vector("list", length(samples_genos))
+    em_resultsBeta <- vector("list", length(samples_genos))
     em_resultsBetaBinom <- vector("list", length(samples_genos))
 
     for (i in seq_along(samples_genos)) {
-        xm <- nQuack_list[[samples_genos[i]]]   # index by name, not position
+        xm <- nQuack_list[[samples_genos[i]]] # index by name, not position
 
-        em_resultsNormal[[i]]    <- quackNormal(xm         = xm,
-                                                samplename = samples_genos[i],
-                                                cores      = n_cores,
-                                                parallel   = n_cores > 1L)
+        em_resultsNormal[[i]] <- quackNormal(
+            xm = xm,
+            samplename = samples_genos[i],
+            cores = n_cores,
+            parallel = n_cores > 1L
+        )
 
-        em_resultsBeta[[i]]      <- quackBeta(xm         = xm,
-                                              samplename = samples_genos[i],
-                                              cores      = n_cores,
-                                              parallel   = n_cores > 1L)
+        em_resultsBeta[[i]] <- quackBeta(
+            xm = xm,
+            samplename = samples_genos[i],
+            cores = n_cores,
+            parallel = n_cores > 1L
+        )
 
-        em_resultsBetaBinom[[i]] <- quackBetaBinom(xm         = xm,
-                                                   samplename = samples_genos[i],
-                                                   cores      = n_cores,
-                                                   parallel   = n_cores > 1L)
+        em_resultsBetaBinom[[i]] <- quackBetaBinom(
+            xm = xm,
+            samplename = samples_genos[i],
+            cores = n_cores,
+            parallel = n_cores > 1L
+        )
     }
 
-    em_results_df <- do.call(rbind, c(em_resultsNormal,
-                                      em_resultsBeta,
-                                      em_resultsBetaBinom))
+    em_results_df <- do.call(rbind, c(
+        em_resultsNormal,
+        em_resultsBeta,
+        em_resultsBetaBinom
+    ))
 
     # --- 4. Summarise accuracy per distribution/type -------------------------
     ploidy_names <- c("diploid", "triploid", "tetraploid", "pentaploid", "hexaploid")
-    ploidy_name  <- ploidy_names[ploidy - 1L]
+    ploidy_name <- ploidy_names[ploidy - 1L]
 
     summary_list <- vector("list", length(samples_genos))
     for (i in seq_along(samples_genos)) {
-        one_sample       <- em_results_df[em_results_df$sample == samples_genos[i], ]
+        one_sample <- em_results_df[em_results_df$sample == samples_genos[i], ]
         summary_list[[i]] <- quackit(model_out = one_sample)
     }
     summary_all <- do.call(rbind, summary_list)
@@ -219,12 +238,14 @@ select_best_nQuack_model <- function(qploidy_standardization,
 
     best_model <- as.data.frame(sumcheck[order(sumcheck$correct, decreasing = TRUE)[1L], ])
     best_model$Uniform <- grepl("-uniform", best_model$Distribution)
-    best_model$Distribution <- gsub("-uniform","", best_model$Distribution)
+    best_model$Distribution <- gsub("-uniform", "", best_model$Distribution)
 
     structure(
-        list(all_tested_models = em_results_df,
-             test_summary      = sumcheck,
-             best_model        = best_model),
+        list(
+            all_tested_models = em_results_df,
+            test_summary = sumcheck,
+            best_model = best_model
+        ),
         class = "nQuack_model_selected"
     )
 }

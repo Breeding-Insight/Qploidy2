@@ -168,6 +168,10 @@ hmm_estimate_CN <- function(
   } else {
     vmsg("Preparing inputs and applying initial filters", verbose = verbose, level = 0, type = ">>")
 
+    if(nQuack_EM && any(use_values %in% "BAF")) {
+      stop("This current nQuack + Qploidy2 integration cannot be applied to standardized data, only raw. Change use_values to c('ratio', 'R') to proceed with this feature.")
+    }
+
     if (!is.character(sample_id) || length(sample_id) != 1 || nchar(sample_id) == 0) {
       stop("sample_id must be a non-empty character scalar.")
     }
@@ -291,14 +295,10 @@ hmm_estimate_CN <- function(
     if (!inherits(selected_model, "nQuack_model_selected")) {
       stop("selected_model argument must be of class 'nQuack_model_selected' when nQuack_EM is TRUE.")
     }
-    # This step was added to be activated if rerun_overall_ploidy is TRUE
-    if (!is.null(recycled_obj_rerun_overall_ploidy$rm_mks)) {
-      bafs_overall <- d[[baf_col]][-which(d$MarkerName %in% recycled_obj_rerun_overall_ploidy$rm_mks)]
-    } else {
-      bafs_overall <- d[[baf_col]]
-    }
 
-    bestquack_result <- bestquack(bafs_overall, ## this input had incorrect format - here it is a vector of BAF, the expected is a data.frame with total depth and one of the allele counts
+    nquack_obj <- convert2nQuack(d)
+
+    bestquack_result <- bestquack(nquack_obj[[1]],
       distribution = selected_model$best_model$Distribution,
       type = selected_model$best_model$Type,
       uniform = as.numeric(selected_model$best_model$Uniform),
@@ -309,7 +309,10 @@ hmm_estimate_CN <- function(
 
   # Use exp_ploidy argument if provided, otherwise use selected_model$best$best_cn
   if (is.null(exp_ploidy) || (length(exp_ploidy) == 1 && is.na(exp_ploidy))) {
-    if (nQuack_EM) {} else {
+    if (nQuack_EM) {
+      ploidies <- c("diploid", "triploid", "tetraploid", "pentaploid", "hexaploid")
+      exp_ploidy <- which(ploidies %in% bestquack_result$mixture[1]) + 1
+    } else {
       exp_ploidy <- selected_model$best$best_cn
     }
     vmsg("exp_ploidy not provided, using best CN from BAF model: %s", verbose = verbose, level = 1, type = ">>", exp_ploidy)
