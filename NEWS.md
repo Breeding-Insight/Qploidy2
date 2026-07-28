@@ -1,3 +1,8 @@
+# Qploidy2 1.16.1
+
+* Fix README link to new tutorial
+* Adapt Alfalfa tutorial 
+
 # Qploidy2 1.16.0
 
 * Modify `call_hmm_dosages` and `call_BAF_dosages` to output the BAF weights and likelihood of each CN and dosage called
