@@ -22,7 +22,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param add_uniform Logical. If TRUE, add a uniform noise component to the
 #'   mixture before renormalization. Default FALSE.
 #' @param min_snps_per_window Integer. Minimum SNPs required to keep a window. If NULL, a dynamic value is chosen based on chromosome size (see code for details). Windows with fewer SNPs are dropped. Default: NULL (dynamic), or user-specified value.
-#' @param cn_grid Integer vector of copy-number states to consider (e.g., \code{1:4}). Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.
+#' @param cn_grid Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 1-10. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.
 #' @param M Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.
 #' @param max_iter Integer. Maximum EM iterations. Default \code{60}.
 #' @param het_quantile Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.
@@ -151,7 +151,7 @@ hmm_estimate_CN <- function(
   param_count = NULL,
   count_grid_as_params = TRUE,
   correct_scale = TRUE,
-  min_het_frac = 0.01,
+  min_het_frac = 0.05,
   het_range = c(0.2, 0.8),
   dosage_threshold = 0.6,
   rerun_overall_ploidy = TRUE,
@@ -166,6 +166,8 @@ hmm_estimate_CN <- function(
     cn_grid <- recycled_obj_rerun_overall_ploidy$recycled_cn_grid
   } else {
     vmsg("Preparing inputs and applying initial filters", verbose = verbose, level = 0, type = ">>")
+
+    if(any(cn_grid < 1) | any(cn_grid > 10)) stop("All values in cn_grid must be between 1 and 10.")
 
     if (!is.character(sample_id) || length(sample_id) != 1 || nchar(sample_id) == 0) {
       stop("sample_id must be a non-empty character scalar.")
