@@ -2,7 +2,7 @@
 
 * Fix README link to new tutorial
 * Adapt Alfalfa tutorial 
-* Change `hmm_estimate_CN` `min_het_frac` default to 0.01
+* Add cn_grid limits 1-10
 
 # Qploidy2 1.16.0
 
