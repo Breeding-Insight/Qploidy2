@@ -1,3 +1,7 @@
+# Qploidy2 1.16.2
+
+* Add different VCF required fields for when `qploidy_read_vcf` is `geno = TRUE` or `FALSE`. When it is `FALSE`, `GT` is not required
+
 # Qploidy2 1.16.1
 
 * Fix README link to new tutorial

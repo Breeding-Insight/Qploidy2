@@ -26,8 +26,13 @@ qploidy_read_vcf <- function(vcf_file, geno = FALSE, geno.pos = FALSE) {
   checks <- vcf_sanity_check(vcf_file)
 
   # Check if the required checks are TRUE
-  required <- c("VCF_header", "VCF_columns", "GT", "allele_counts",
-                "samples", "chrom_info", "pos_info")
+  if(geno){
+    required <- c("VCF_header", "VCF_columns", "GT", "allele_counts",
+                  "samples", "chrom_info", "pos_info")
+  } else {
+    required <- c("VCF_header", "VCF_columns", "allele_counts",
+                  "samples", "chrom_info", "pos_info")
+  }
   if(!all(checks$checks[required])) {
     stop(paste(checks$message[1,required][which(!checks$checks[required])],
                collapse = "\n"))
