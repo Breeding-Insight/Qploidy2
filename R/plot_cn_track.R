@@ -442,7 +442,7 @@ plot_cn_track <- function(hmm_CN,
     facet_wrap(~ Chr, scales = "free_x", nrow = 1) +
     scale_y_continuous(breaks = seq(cn_min, cn_max, by = 1), minor_breaks = NULL) +
     scale_color_viridis_c(name = "P(CN call)", limits = c(0, 1), option = "D", direction = -1) +
-    labs(x = "Genomic position (bp)", y = "Copy number") +
+    labs(x = "Genomic position (bp)", y = "HMM-based CN") +
     theme_bw(base_size = 12) +
     theme(
       panel.grid.major.x = element_blank(),
@@ -595,7 +595,7 @@ plot_cn_track <- function(hmm_CN,
   min_snps <- if (!is.null(params$min_snps_per_window)) round(params$min_snps_per_window, 3) else "NA"
   param_text <- paste0(
     "Sample Name: ", sample_name, "\n",
-    "Est. overall ploidy: ", if (!is.null(params$exp_ploidy)) params$exp_ploidy else "NA", "\n",
+    "Mean total depth/Z CN: ", if (!is.null(params$exp_ploidy)) params$exp_ploidy else "NA", "\n",
     "CN grid: ", cn_grid, "\n",
     "Min SNPs p/window: ", min_snps, "\n",
     "Distribution: ", dist, "\n"

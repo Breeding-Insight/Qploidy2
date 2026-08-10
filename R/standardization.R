@@ -44,6 +44,7 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##'   - Position: Base-pair positions on the genome
 ##'
 ##' @param threshold.missing.geno Numeric (0–1). Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.
+##' @param threshold.missing.samples Numeric (0–1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed from both `data` and `genos`. Default is 1 (no filtering). Removed sample IDs are stored in `info$samples.rm.ids`.
 ##' @param threshold.geno.prob Numeric (0–1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.
 ##' @param ploidy.standardization Integer. The ploidy level of the reference panel used for standardization.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. For diploid data, this is typically 3 (corresponding to dosages 0, 1, and 2). Cannot exceed `ploidy.standardization + 1`.
@@ -89,6 +90,7 @@ standardize <- function(data = NULL,
                         genos = NULL,
                         geno.pos = NULL,
                         threshold.missing.geno=0.9,
+                        threshold.missing.samples = 1,
                         threshold.geno.prob=0.8,
                         ploidy.standardization = NULL,
                         threshold.n.clusters = NULL,
@@ -126,6 +128,10 @@ standardize <- function(data = NULL,
   if (!is.numeric(threshold.missing.geno) || length(threshold.missing.geno) != 1 ||
       threshold.missing.geno < 0 || threshold.missing.geno > 1)
     stop("'threshold.missing.geno' must be a single numeric value in [0, 1].")
+
+  if (!is.numeric(threshold.missing.samples) || length(threshold.missing.samples) != 1 ||
+      threshold.missing.samples < 0 || threshold.missing.samples > 1)
+    stop("'threshold.missing.samples' must be a single numeric value in [0, 1].")
 
   if (!is.numeric(threshold.geno.prob) || length(threshold.geno.prob) != 1 ||
       threshold.geno.prob < 0 || threshold.geno.prob > 1)
@@ -255,6 +261,19 @@ standardize <- function(data = NULL,
   } else {
     prob.rm <- 0
     vmsg("No 'prob' column in genos: skipping genotype probability filtering.", verbose = verbose, level = 1, type = ">>")
+  }
+
+  ## Filter samples by missing genotype data
+  samples.rm.ids <- character(0)
+  if (threshold.missing.samples < 1) {
+    n.na.samp <- genos %>% group_by(SampleName) %>% summarize(n.na = sum(is.na(geno)) / length(geno))
+    rm.samples <- n.na.samp$SampleName[which(n.na.samp$n.na > threshold.missing.samples)]
+    if (length(rm.samples) > 0) {
+      samples.rm.ids <- as.character(rm.samples)
+      genos <- genos[which(!(genos$SampleName %in% rm.samples)),]
+      data  <- data[which(!(data$SampleName  %in% rm.samples)),]
+    }
+    vmsg("Samples removed because of excess of missing data: %s", verbose = verbose, level = 2, type = ">>", length(samples.rm.ids))
   }
 
   ## Filter by missing data
@@ -395,16 +414,19 @@ standardize <- function(data = NULL,
   qploidy_data$Position <- as.numeric(geno.pos$Position[marker_idx])
 
   result <- structure(list(info = c(threshold.missing.geno = threshold.missing.geno,
+                                    threshold.missing.samples = threshold.missing.samples,
                                     threshold.geno.prob = threshold.geno.prob,
                                     ploidy.standardization = ploidy.standardization,
                                     threshold.n.clusters = threshold.n.clusters,
                                     min.depth = if (!is.null(min.depth)) min.depth else NA,
                                     max.depth = if (!is.null(max.depth)) max.depth else NA,
+                                    samples.rm.ids = paste(samples.rm.ids, collapse = ","),
                                     out_filename = out_filename,
                                     type = if(!is.null(multidog_obj)) "updog" else type),
                            filters = c(n.markers.start = length(unique(data$MarkerName)),
                                        geno.prob.rm = prob.rm,
                                        depth.rm = depth.rm,
+                                       samples.rm = length(samples.rm.ids),
                                        miss.rm = mis.rm,
                                        clusters.rm= clusters.rm,
                                        no.geno.info.rm = no.geno.info,
@@ -447,15 +469,19 @@ print.qploidy_standardization <- function(x, ...){
     )
   } else NULL
 
+  has_threshold.missing.samples <- "threshold.missing.samples" %in% names(x$info)
+
   info <- data.frame(
     c1 = c("Standardization type:", "Ploidy:",
            "Min # of heterozygous classes (clusters) present:",
            "Max proportion of missing genotype by marker:",
+           if (has_threshold.missing.samples) "Max proportion of missing genotype by sample:",
            "Min genotype probability:",
            if (!is.null(depth_info_rows)) depth_info_rows$c1),
     c2 = c(x$info["type"], x$info["ploidy.standardization"],
            x$info["threshold.n.clusters"],
            as.numeric(x$info["threshold.missing.geno"]),
+           if (has_threshold.missing.samples) as.numeric(x$info["threshold.missing.samples"]),
            x$info["threshold.geno.prob"],
            if (!is.null(depth_info_rows)) depth_info_rows$c2)
   )
@@ -467,6 +493,9 @@ print.qploidy_standardization <- function(x, ...){
     as.numeric(x$filters["depth.rm"])
   } else NULL
 
+  # samples.rm row (may be absent in older objects)
+  has_samples_rm <- "samples.rm" %in% names(x$filters)
+
   # n.markers.zscore.end (may be absent in older objects)
   has_zscore_end <- "n.markers.zscore.end" %in% names(x$filters)
 
@@ -474,6 +503,7 @@ print.qploidy_standardization <- function(x, ...){
     c1 = c("# markers at raw data:",
            "% datapoints filtered by low probability:",
            if (has_depth_rm) "# datapoints filtered by depth (min/max):",
+           if (has_samples_rm) "# samples filtered by missing data:",
            "# markers filtered by missing data:",
            "# markers filtered by min number of clusters:",
            "# markers filtered by lack of genomic information:",
@@ -482,6 +512,7 @@ print.qploidy_standardization <- function(x, ...){
     c2 = c(x$filters["n.markers.start"],
            "-",
            if (has_depth_rm) n_total_dp,
+           if (has_samples_rm) as.numeric(x$filters["samples.rm"]),
            x$filters["miss.rm"],
            x$filters["clusters.rm"],
            x$filters["no.geno.info.rm"],
@@ -490,6 +521,7 @@ print.qploidy_standardization <- function(x, ...){
     c3 = c("(100%)",
            paste0("(", x$filters["geno.prob.rm"], " %)"),
            if (has_depth_rm) "-",
+           if (has_samples_rm) "-",
            paste0("(", round(x$filters["miss.rm"]    / x$filters["n.markers.start"] * 100, 2), " %)"),
            paste0("(", round(x$filters["clusters.rm"] / x$filters["n.markers.start"] * 100, 2), " %)"),
            paste0("(", round(x$filters["no.geno.info.rm"] / x$filters["n.markers.start"] * 100, 2), " %)"),
