@@ -693,6 +693,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param n.cores Integer. Number of cores for parallel computation. Default is 1.
 ##' @param threshold.geno.prob Numeric (0–1). Minimum genotype call probability. Default is 0.5.
 ##' @param threshold.missing.geno Numeric (0–1). Maximum fraction of missing datapoints per marker. Default is 0.90.
+##' @param threshold.missing.samples Numeric (0–1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed. Default is 1 (no filtering).
 ##' @param out_filename Optional. Path to save the standardized dataset (CSV/TSV).
 ##' @param type Character. Data type for clustering: "intensities" (default), "counts", or "updog".
 ##' @param multidog_obj Optional. updog multidog object for cluster center estimation.
@@ -750,6 +751,7 @@ re_standardize <- function(data = NULL,
                            n.cores = 1,
                            threshold.geno.prob = 0.5,
                            threshold.missing.geno = 0.90,
+                           threshold.missing.samples = 1,
                            out_filename = NULL,
                            type = "intensities",
                            multidog_obj = NULL,
@@ -851,6 +853,7 @@ re_standardize <- function(data = NULL,
     n.cores = n.cores,
     threshold.geno.prob = threshold.geno.prob,
     threshold.missing.geno = threshold.missing.geno,
+    threshold.missing.samples = threshold.missing.samples,
     out_filename = out_filename,
     type = type,
     multidog_obj = multidog_obj,
