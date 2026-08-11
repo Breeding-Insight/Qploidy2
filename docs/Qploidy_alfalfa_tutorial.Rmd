@@ -50,29 +50,29 @@ vcf_path_local <- "alfalfa_F1_marker_panel_dataset_publicly_available.vcf.gz"
 
 # Remarks
 
-The Qploidy standardization methodology is effective under the following conditions:
+The Qploidy standardization methodology **is effective** under the following conditions:
 
-* Your marker data originates from Axiom or Illumina genotyping arrays
-* Your marker data is derived from targeted sequencing platforms (e.g., DArTag, GTseq, AgriSeq)
-* Your marker data is derived from whole-genome sequencing platforms 
-* All DNA samples were prepared following the same library preparation protocol (check [this section](#check-for-batch-effect-before-standardization) for more details)
+* **Supported Sequencing Platforms**: Your marker data originates from Axiom or Illumina genotyping arrays, targeted sequencing platforms 
+(e.g., DArTag, GTseq, AgriSeq), or whole-genome sequencing (WGS) platforms. 
+* **Batch effect**: All DNA samples were prepared following the same library preparation protocol 
+*(check [this section](#check-for-batch-effect-before-standardization) for more details)*
 For example: If you extracted DNA and sequenced two plates (192 samples) as one batch, 
 and later sequenced an additional three plates (288 samples) as a second batch, you would need 
 to analyze the two batches separately in Qploidy. Combining all 480 samples into a single analysis will lead to incorrect results due to batch effects.
-* You know the ploidy of at least a subset (rough minimum of 60 samples) or you know the most common ploidy in the dataset.
+* **Minimum previous knowledge**: You know the ploidy of at least a subset (rough minimum of 60 samples) or you know the most common ploidy in the dataset.
 The higher the number of samples with known or common ploidy, the better the results
-* Your dataset includes heterozygous samples
+* **Heterozygosity**: Your dataset includes heterozygous samples
 
-The Qploidy2 B-allele frequency (BAF) model selection and HMM methodologies are effective under the following conditions:
+The Qploidy2 B-allele frequency (BAF) model selection and HMM methodologies **are effective** under the following conditions:
 
-* The ratio or BAF distributions of your samples present clear peaks corresponding to different copy numbers
-* The total read depth or z-scores variations within a sample follows a normal distribution, with the mean shifting according to the copy number
-* The sample includes heterozygous loci, which are essential for BAF-based ploidy estimation. 
+* **Standardized data**: The ratio or BAF distributions of your samples present clear peaks corresponding to different copy numbers
+* **Total read depth**: The total read depth or z-scores variations within a sample follows a normal distribution, with the mean shifting according to the copy number
+* **Heterozygosity**: The sample includes heterozygous loci, which are essential for BAF-based ploidy estimation.
 Samples with heterozygosity lower than 5% will be considered haploid (CN = 1) and they cannot be distinguished from inbred lines with higher CN
-* If allele counts are based on a sequencing platform, the sequencing should have enough depth to capture dosages of the 
+* **Sequencing depth**: If allele counts are based on a sequencing platform, the sequencing should have enough depth to capture dosages of the 
 highest possible copy number in the dataset
-* The number of markers is sufficient to provide a good resolution for the BAF distributions
-* The larger the amount of markers, the smaller the copy number variations that can be detected
+* **Number of markers**: The number of markers is sufficient to provide a good resolution for the BAF distributions
+* **CN call resolution**: The larger the amount of markers, the smaller the copy number variations that can be detected
 
 # Install
 
@@ -82,6 +82,12 @@ Install Qploidy2 (if not already installed):
 
 ```{r, eval=FALSE}
 devtools::install_github("Breeding-Insight/Qploidy2")
+```
+
+Check the package version:
+
+```{r}
+packageVersion("Qploidy2")
 ```
 
 # Input data
@@ -252,11 +258,26 @@ If you are not sure about ploidy of at least 60 samples, just keep all them and 
 defined on `ploidy.standardization` (ploidy + 1). Lower values requires imputation of dosage clusters for missing genotypes. The imputation is performed based on distance to other clusters, 
 so it is recommended to have at least 3 clusters for a good imputation. If too many markers are filtered, relax this threshold (e.g., to 4 for tetraploids) to retain more markers with imputed clusters.
 
-Other the the minimum number of clusters, the standardization step also apply some other filters:
+Other than the minimum number of clusters, the standardization step also applies some other filters:
 
 - `threshold.missing.geno`: Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.
-- `min.depth`: Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.
+- `threshold.missing.sample`: Maximum fraction of missing datapoints allowed per sample. Samples with a higher fraction will be removed.
+- `min.depth`: Minimum read depth (R) threshold. Datapoints with R below this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations.
 - `max.depth`: Maximum read depth (R) threshold. Datapoints with R above this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations.
+
+Here is a summarized table with the arguments presented:
+
+| Argument | Description |
+|----------|-------------|
+| `genos` | Data.frame with samples and their dosage based on known or most common ploidy for standardization |
+| `ploidy.standardization` | Predominant ploidy for the dataset used to call the dosages in the object `genos` |
+| `threshold.n.clusters` | Minimum number of genotype dosage clusters required for a marker to be retained |
+| `threshold.missing.geno` | Maximum fraction of missing datapoints allowed per marker |
+| `threshold.missing.sample` | Maximum fraction of missing datapoints allowed per sample |
+| `min.depth` | Minimum read depth (R) threshold |
+| `max.depth` | Maximum read depth (R) threshold |
+
+Explore more options with `?standardize`.
 
 If your data comes from sequencing (and not hybridization), filtering by depth is important for quality control.
 To decide on the minimum and maximum of depth, you may want to take a quick look on the total depth distribution:

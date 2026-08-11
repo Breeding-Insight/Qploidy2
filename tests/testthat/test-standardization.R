@@ -125,8 +125,8 @@ test_that("standardize runs and returns expected object", {
 
   # Check print.qploidy_standardization
   txt <- print(result)
-  expect_equal(dim(txt), c(8,3))
-  expect_equal(as.character(txt[4,3]), "(0 %)  ")
+  expect_equal(dim(txt), c(9,3))
+  expect_equal(as.character(txt[5,3]), "(0 %)  ")
 
   # Check read.qploidy_standardization
   result <- read_qploidy_standardization(temp)
@@ -137,8 +137,8 @@ test_that("standardize runs and returns expected object", {
 
   # Check print.qploidy_standardization
   txt <- print(result)
-  expect_equal(dim(txt), c(8,3))
-  expect_equal(as.character(txt[4,3]), "(0 %)  ")
+  expect_equal(dim(txt), c(9,3))
+  expect_equal(as.character(txt[5,3]), "(0 %)  ")
 })
 
 test_that("rm_outlier removes extreme values", {
