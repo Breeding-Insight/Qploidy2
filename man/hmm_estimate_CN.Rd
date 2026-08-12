@@ -23,7 +23,7 @@ hmm_estimate_CN(
   baf_weight = 0.5,
   z_range = NULL,
   transition_jump = 0.995,
-  initial_prob = 0.95,
+  initial_prob = 0.5,
   z_only = FALSE,
   verbose = TRUE,
   exp_ploidy = NA,
@@ -40,6 +40,7 @@ hmm_estimate_CN(
   min_het_frac = 0.05,
   het_range = c(0.2, 0.8),
   dosage_threshold = 0.6,
+  z_no_baf_scale = 0.25,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 )
@@ -117,6 +118,8 @@ mixture before renormalization. Default FALSE.}
 
 \item{dosage_threshold}{Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.}
 
+\item{z_no_baf_scale}{Numeric in [0,1]. Floor weight applied to \code{w_baf} when computing \code{CN_reliability} for windows with no BAF support (\code{w_baf == 0}). A value of 0 means z-only calls have \code{CN_reliability = 0}; 0.25 (default) allows z-only calls to reach at most 25\% of \code{post_max}. Does not affect the HMM emission or CN calling. Applies only when \code{z_only = FALSE}.}
+
 \item{rerun_overall_ploidy}{Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.}
 
 \item{recycled_obj_rerun_overall_ploidy}{Named list for internal use during the recursive call triggered by
@@ -175,7 +178,7 @@ chromosomes/batches.
 }
 \section{Required helpers}{
 
-This function calls \code{\link{generate_baf_template}}, \code{\link{baf_log_likelihood}}, \code{\link{logsumexp}}, and \code{\link{viterbi}} which must be available in your package/namespace.
+This function calls \code{\link{generate_baf_template}}, \code{\link{baf_log_likelihood}}, \code{\link{logsumexp}}, and \code{\link{em_hmm_cn}} which must be available in your package/namespace.
 }
 
 \examples{

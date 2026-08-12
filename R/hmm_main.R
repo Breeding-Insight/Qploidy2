@@ -46,7 +46,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param min_het_frac Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded from \code{cn_grid} during BAF model selection and per-window likelihood computation, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default \code{0.05}.
 #' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.2, 0.8)}). Used by the \code{min_het_frac} filter and by \code{plot_heterozygosity}.
 #' @param dosage_threshold Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.
-#' @param z_no_baf_scale Numeric in (0,1]. Scale factor applied to z-score emission log-likelihoods at decode time for windows with no BAF support (\code{w_baf == 0}, e.g. all-homozygous windows). Values less than 1 require a proportionally larger z-score deviation to call a CN change and produce lower \code{post_max} values, reflecting reduced confidence when BAF is absent. Applies only when \code{z_only = FALSE}. Default \code{0.25}.
+#' @param z_no_baf_scale Numeric in [0,1]. Floor weight applied to \code{w_baf} when computing \code{CN_reliability} for windows with no BAF support (\code{w_baf == 0}). A value of 0 means z-only calls have \code{CN_reliability = 0}; 0.25 (default) allows z-only calls to reach at most 25\% of \code{post_max}. Does not affect the HMM emission or CN calling. Applies only when \code{z_only = FALSE}.
 #' @param rerun_overall_ploidy Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.
 #' @param recycled_obj_rerun_overall_ploidy Named list for internal use during the recursive call triggered by
 #'   \code{rerun_overall_ploidy = TRUE}. Contains two elements:
@@ -447,6 +447,7 @@ hmm_estimate_CN <- function(
         z = win_df$z_mean[keep],
         w_baf = 1,
         CN_call = cn_call,
+        CN_reliability = post_max,
         post_max = post_max,
         stringsAsFactors = FALSE
       ),
@@ -736,16 +737,22 @@ hmm_estimate_CN <- function(
   A_dec <- matrix(1e-3, K, K)
   diag(A_dec) <- transition_jump
   A_dec <- A_dec / rowSums(A_dec)
-  # Scale down z-only window emissions so a consistent chromosome-wide z shift
-  # cannot accumulate enough to override the boundary prior from chr2+ BAF context.
-  ll_em_dec <- ll_em
-  if (!z_only && z_no_baf_scale < 1) {
-    z_only_mask <- w_baf == 0
-    if (any(z_only_mask)) ll_em_dec[z_only_mask, ] <- ll_em_dec[z_only_mask, ] * z_no_baf_scale
+  # Decode per chromosome: each chromosome gets a fresh uniform init so no
+  # chromosome is disadvantaged by its position in the chain.  EM parameters
+  # (mu, sig) are still global so z-scores remain comparable across chromosomes.
+  gamma_dec <- matrix(0, W, K, dimnames = list(NULL, colnames(ll_em)))
+  for (chr in unique(win_df$Chr)) {
+    idx <- which(win_df$Chr == chr)
+    gamma_dec[idx, ] <- fb_smooth(ll_em[idx, , drop = FALSE], log(A_dec))
   }
-  gamma_dec <- fb_smooth(ll_em_dec, log(A_dec))
   cn_call <- cn_grid[apply(gamma_dec, 1, which.max)]
   post_max <- apply(gamma_dec, 1, max)
+  # CN_reliability: joint confidence in both the HMM call and BAF support.
+  # Low whenever post_max is low OR BAF evidence is absent; high only when both
+  # the HMM is confident AND BAF data corroborates the call.
+  w_baf_use <- if (z_only) rep(0, W) else w_baf
+  w_baf_norm <- pmax(z_no_baf_scale, pmin(1, w_baf_use / baf_weight))
+  CN_reliability <- post_max * w_baf_norm
 
   vmsg("CN path decoded", verbose = verbose, level = 1, type = ">>")
 
@@ -764,6 +771,7 @@ hmm_estimate_CN <- function(
       z = z,
       w_baf = if (z_only) 0 else w_baf,
       CN_call = cn_call,
+      CN_reliability = CN_reliability,
       post_max = post_max,
       stringsAsFactors = FALSE
     ),

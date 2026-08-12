@@ -20,7 +20,8 @@ em_hmm_cn(
   pi0,
   W,
   max_iter,
-  verbose
+  verbose,
+  update_pi0 = FALSE
 )
 }
 \arguments{
