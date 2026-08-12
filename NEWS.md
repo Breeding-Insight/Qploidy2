@@ -1,4 +1,4 @@
-# Qploidy2 1.17.0
+# Qploidy2 1.18.0
 
 ## HMM stability improvements
 
@@ -93,13 +93,12 @@ the primary solution for all-homozygous chromosomes as well.
   plus a `$by_cn` breakdown by sample-level CN) and auto-prints a summary table
   via `print.count_types`.  
 
-## Other changes
+# Qploidy2 1.17.0
 
 * Change `plot_cn_track` labels from `Est overall ploidy` to `Mean total depth/Z CN` and y-axis label `Copy Number` to `HMM-based CN`
 * Add argument `threshold.missing.samples` to `standardize` and `re_standardize`. It filters samples with fraction of markers containig missing information higher than defined by the argument. Default set to `1` (filter not applied).
 * Function `export_mappoly` to produce input file for `filter_aneuploidy` function in `MAPpoly`
 * Alfalfa tutorial updates
-
 
 # Qploidy2 1.16.2
 
