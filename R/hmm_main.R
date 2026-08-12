@@ -46,6 +46,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param min_het_frac Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded from \code{cn_grid} during BAF model selection and per-window likelihood computation, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default \code{0.05}.
 #' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.2, 0.8)}). Used by the \code{min_het_frac} filter and by \code{plot_heterozygosity}.
 #' @param dosage_threshold Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.
+#' @param z_no_baf_scale Numeric in (0,1]. Scale factor applied to z-score emission log-likelihoods at decode time for windows with no BAF support (\code{w_baf == 0}, e.g. all-homozygous windows). Values less than 1 require a proportionally larger z-score deviation to call a CN change and produce lower \code{post_max} values, reflecting reduced confidence when BAF is absent. Applies only when \code{z_only = FALSE}. Default \code{0.25}.
 #' @param rerun_overall_ploidy Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.
 #' @param recycled_obj_rerun_overall_ploidy Named list for internal use during the recursive call triggered by
 #'   \code{rerun_overall_ploidy = TRUE}. Contains two elements:
@@ -93,7 +94,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' \strong{Numerical safety.} The implementation guards against non-finite emissions, enforces stochastic \code{A} rows, and lower-bounds \code{sigma}.
 #'
 #' @section Required helpers:
-#' This function calls \code{\link{generate_baf_template}}, \code{\link{baf_log_likelihood}}, \code{\link{logsumexp}}, and \code{\link{viterbi}} which must be available in your package/namespace.
+#' This function calls \code{\link{generate_baf_template}}, \code{\link{baf_log_likelihood}}, \code{\link{logsumexp}}, and \code{\link{em_hmm_cn}} which must be available in your package/namespace.
 #'
 #' @examples
 #' \dontrun{
@@ -137,7 +138,7 @@ hmm_estimate_CN <- function(
   baf_weight = 0.5,
   z_range = NULL,
   transition_jump = 0.995, # decrease this value if you think there changes in CN is likely
-  initial_prob = 0.95, # Initial probability for the best CN state in the initial state distribution (pi0). Default 0.95. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
+  initial_prob = 0.5, # Initial probability for the best CN state in the initial state distribution (pi0). Default 0.95. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
   z_only = FALSE,
   verbose = TRUE,
   exp_ploidy = NA,
@@ -154,6 +155,7 @@ hmm_estimate_CN <- function(
   min_het_frac = 0.05,
   het_range = c(0.2, 0.8),
   dosage_threshold = 0.6,
+  z_no_baf_scale = 0.25,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 ) {
@@ -647,7 +649,8 @@ hmm_estimate_CN <- function(
   rm_res <- em_hmm_cn(
     cn_grid, mu, K, state_ids, sig, z,
     z_only, ll_baf_matrix, n_baf, w_baf,
-    correct_scale, A, pi0, W, max_iter, verbose
+    correct_scale, A, pi0, W, max_iter, verbose,
+    update_pi0 = FALSE
   )
 
   list2env(rm_res, envir = environment())
@@ -713,7 +716,8 @@ hmm_estimate_CN <- function(
     rm_res <- em_hmm_cn(
       cn_grid, mu, K, state_ids, sig, z,
       z_only, as.matrix(ll_baf_matrix), n_baf, w_baf,
-      correct_scale, as.matrix(A), pi0, W, max_iter, verbose
+      correct_scale, as.matrix(A), pi0, W, max_iter, verbose,
+      update_pi0 = FALSE
     )
     list2env(rm_res, envir = environment())
     vmsg("Updated z-score mean by state: %s", verbose = verbose, level = 2, type = ">>", paste(sprintf("CN%d: %.3f", cn_grid, mu), collapse = "; "))
@@ -722,18 +726,31 @@ hmm_estimate_CN <- function(
 
   vmsg("EM loop complete", verbose = verbose, level = 1, type = ">>")
 
-  vmsg("Decoding Viterbi path", verbose = verbose, level = 0, type = ">>")
-  # Decode Viterbi path
-  vit_path <- viterbi(ll_em, log(A), log(pi0))
-  cn_call <- cn_grid[vit_path]
+  vmsg("Decoding CN path", verbose = verbose, level = 0, type = ">>")
+  # EM-learned A can have degenerate uniform rows for states never visited:
+  # a missing-state can "jump for free" to the best future window, giving it a
+  # ~log(K) backward bonus that can flip window 1's call.  Using the prior A
+  # (strong diagonal, rare off-diagonal) costs ~log(K/1e-3) ≈ 8 for any
+  # off-diagonal transition, making a degenerate state unable to overcome the
+  # correct state's backward advantage regardless of emission noise.
+  A_dec <- matrix(1e-3, K, K)
+  diag(A_dec) <- transition_jump
+  A_dec <- A_dec / rowSums(A_dec)
+  # Scale down z-only window emissions so a consistent chromosome-wide z shift
+  # cannot accumulate enough to override the boundary prior from chr2+ BAF context.
+  ll_em_dec <- ll_em
+  if (!z_only && z_no_baf_scale < 1) {
+    z_only_mask <- w_baf == 0
+    if (any(z_only_mask)) ll_em_dec[z_only_mask, ] <- ll_em_dec[z_only_mask, ] * z_no_baf_scale
+  }
+  gamma_dec <- fb_smooth(ll_em_dec, log(A_dec))
+  cn_call <- cn_grid[apply(gamma_dec, 1, which.max)]
+  post_max <- apply(gamma_dec, 1, max)
 
-  # max posterior per window
-  post_max <- apply(gamma, 1, max)
-
-  vmsg("Viterbi path decoded", verbose = verbose, level = 1, type = ">>")
+  vmsg("CN path decoded", verbose = verbose, level = 1, type = ">>")
 
   # Prepare output
-  post_df <- as.data.frame(gamma)
+  post_df <- as.data.frame(gamma_dec)
   names(post_df) <- paste0("post_CN", cn_grid)
   result <- cbind(
     data.frame(
@@ -827,6 +844,7 @@ hmm_estimate_CN <- function(
       min_het_frac = min_het_frac,
       het_range = het_range,
       dosage_threshold = dosage_threshold,
+      z_no_baf_scale = z_no_baf_scale,
       rerun_overall_ploidy = FALSE,
       recycled_obj_rerun_overall_ploidy = list(rm_mks = rm_markers,
                                                recycled_d = keep_d,

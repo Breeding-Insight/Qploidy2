@@ -21,7 +21,7 @@
 #' @param verbose Logical, print progress
 #'
 #' @return List with updated parameters: mu, cn_grid, K, state_ids, sig, gamma, ll_em, pi0, A, ll_hist
-em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, n_baf, w_baf, correct_scale, A, pi0, W, max_iter, verbose) {
+em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, n_baf, w_baf, correct_scale, A, pi0, W, max_iter, verbose, update_pi0 = FALSE) {
   ll_hist <- numeric(max_iter)
   for (iter in 1:max_iter) {
     # Emissions
@@ -76,18 +76,27 @@ em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, 
       xi_sum <- xi_sum + exp(M_ij)
     }
     # M-step: update parameters
-    pi0 <- gamma[1, ] / sum(gamma[1, ])
+    # pi0 is kept fixed (update_pi0=FALSE by default) to prevent the window-1
+    # feedback loop where pi0 <- gamma[1,] <- pi0 can converge to a wrong state
+    if (update_pi0) pi0 <- gamma[1, ] / sum(gamma[1, ])
     A <- xi_sum / pmax(rowSums(xi_sum), 1e-12)
     A[!is.finite(A)] <- 0
     A <- sweep(A, 1, pmax(rowSums(A), 1e-12), "/")
     A <- pmax(A, 1e-12); A <- sweep(A, 1, rowSums(A), "/")
     # update mu and sigma
-    mu <- numeric(K)
+    # Only update mu[k] when the state has meaningful total posterior weight.
+    # States with near-zero weight (never visited) have mu driven by the 1e-12
+    # guard denominator, collapsing to mean(z) and making the emission flat —
+    # which prevents the decoder from discriminating (e.g. for all-homozygous
+    # chromosomes where only z-score is available). Keeping mu at its previous
+    # (physically motivated) value avoids this collapse.
+    mu_new <- as.numeric(mu)
     for (k in 1:K) {
       w <- gamma[,k]
-      mu[k] <- sum(w * z) / pmax(sum(w), 1e-12)
+      total_w <- sum(w)
+      if (total_w > 0.5) mu_new[k] <- sum(w * z) / total_w
     }
-    mu <- setNames(mu, as.character(cn_grid))
+    mu <- setNames(mu_new, as.character(cn_grid))
     mu <- mu[state_ids]
     # update shared sigma
     sig <- sqrt(sum(gamma * (matrix(z, W, K) - rep(mu, each=W))^2) /
