@@ -50,15 +50,12 @@ n_cores <- 2
 # Copy number range to test (adjust based on your expected ploidy)
 cn_grid <- c(2, 3, 4, 5, 6)
 
-# BAF kernel bandwidth values to evaluate
-bw <- c(0.02, 0.04, 0.06, 0.08, 0.1)
-
 # Predominant ploidy for re-standardization (should match the most frequent ploidy in your dataset)
 ploidy_standardization <- 4
 
 # Depth thresholds used during re-standardization
-min_depth <- 30
-max_depth <- 600
+min_depth <- quantile(standardization_file$data$R, 15)
+max_depth <- quantile(standardization_file$data$R, 85)
 
 # Quality thresholds for filter_hmm_CN
 min_CN_reliability <- 0.25
@@ -139,7 +136,6 @@ in the chromosome-level screening above) to guide model selection.
 selected_model <- select_best_baf_model(qploidy_standardization = qploidy_standardization,
                                         sample = sample_id,
                                         cn_grid = cn_grid,
-                                        bw = bw,
                                         plot = TRUE)
 
 selected_model$plot
@@ -241,8 +237,7 @@ your available resources and dataset size.
 multi_esti <- hmm_estimate_CN_multi(qploidy_standarize_result = qploidy_standardization,
                                     sample_ids = "all",
                                     n_cores = n_cores,
-                                    cn_grid = cn_grid,
-                                    bw = bw)
+                                    cn_grid = cn_grid)
 ```
 
 Visualize a CNV summary for multiple samples:
@@ -375,8 +370,7 @@ re_multi_esti <- hmm_estimate_CN_multi(
   qploidy_standarize_result = re_qploidy_standardization,
   sample_ids = "all",
   n_cores = n_cores,
-  cn_grid = cn_grid,
-  bw = bw)
+  cn_grid = cn_grid)
 
 re_multi_esti_filtered <- filter_hmm_CN(re_multi_esti,
                                         min_CN_reliability = min_CN_reliability,
@@ -507,7 +501,6 @@ baf <- final_res$by_marker$baf[final_res$by_marker$SampleName == sample_id]
 selected_model_dosage <- select_best_baf_model(baf_vec = baf,
                                                sample = sample_id,
                                                cn_grid = cn_grid,
-                                               bw = bw,
                                                plot = TRUE)
 
 dosages_one_sample <- call_BAF_dosages(baf, selected_model = selected_model_dosage, plot = TRUE)
