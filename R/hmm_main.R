@@ -478,9 +478,10 @@ hmm_estimate_CN <- function(
       uniform_weight = selected_model$best$uniform_weight
     )
     window_map <- match(d$.__w__, result$WindowID)
-    d$w_baf <- result$w_baf[window_map]
-    d$CN_call <- result$CN_call[window_map]
-    d$post_max <- result$post_max[window_map]
+    d$w_baf          <- result$w_baf[window_map]
+    d$CN_call        <- result$CN_call[window_map]
+    d$post_max       <- result$post_max[window_map]
+    d$CN_reliability <- result$CN_reliability[window_map]
     vmsg("Done!", verbose = verbose, level = 1, type = ">>")
     return(structure(list(by_window = result, by_marker = d, params = params), class = "hmm_CN"))
   }
@@ -831,7 +832,7 @@ hmm_estimate_CN <- function(
   )
 
   if (!is.null(result) && !is.null(d)) {
-    map_df <- result[, c("Chr", "WindowID", "w_baf", "CN_call", "post_max")]
+    map_df <- result[, c("Chr", "WindowID", "w_baf", "CN_call", "post_max", "CN_reliability")]
     names(map_df)[names(map_df) == "WindowID"] <- ".__w__"
     d <- merge(d, map_df, by = c("Chr", ".__w__"), all.x = TRUE, sort = FALSE)
     d <- d[order(match(seq_len(nrow(d)), as.integer(rownames(d)))), ]

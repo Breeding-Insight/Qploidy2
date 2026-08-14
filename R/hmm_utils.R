@@ -85,6 +85,11 @@ fb_smooth <- function(ll_em, logA) {
   W <- nrow(ll_em); K <- ncol(ll_em)
   logpi0_unif <- rep(-log(K), K)
 
+  if (W == 1L) {
+    log_gamma <- matrix(ll_em[1, ] - logsumexp(ll_em[1, ]), nrow = 1)
+    return(exp(log_gamma))
+  }
+
   log_alpha <- matrix(-Inf, W, K)
   log_alpha[1, ] <- logpi0_unif + ll_em[1, ]
   for (i in 2:W) {
@@ -125,6 +130,8 @@ fb_smooth <- function(ll_em, logA) {
 #' @noRd
 viterbi_bidi <- function(ll_em, logA, logpi0) {
   W <- nrow(ll_em); K <- ncol(ll_em)
+
+  if (W == 1L) return(which.max(ll_em[1, ]))
 
   # Forward max pass — uniform init so window 1 is not biased by pi0
   delta <- matrix(-Inf, W, K)

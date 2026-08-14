@@ -1,3 +1,12 @@
+# Qploidy2 1.18.1
+
+* Bugfix on `fb_smooth` when there is only one window at the chromosome
+* Adapt `plot_karyotype` to objects coming from `filter_hmm_cn`. Now, a gray bar is plotted on filtered regions
+* Add color option by `CN_reliability` on `plot_karyotype`
+* Add `CN_reliability` to results by window 
+* Add generalized Rmd document to reproduce alfalfa tutorial with any `qploidy_standardized` initial file
+* Update alfalfa tutorial adding new functions
+
 # Qploidy2 1.18.0
 
 ## HMM stability improvements

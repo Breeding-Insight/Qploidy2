@@ -1,0 +1,660 @@
+---
+title: "Qploidy2 QuickStart Template"
+subtitle: "Copy number estimation from standardized data"
+author: "Breeding Insight"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    css: BIcolors_template.css
+    includes:
+      in_header: header.html
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+---
+
+```{r, echo=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 10,
+  out.width = "40%"
+)
+```
+
+# Parameters
+
+Define key parameters before running the analysis. Adjust these to match your dataset.
+
+```{r parameters}
+# Path to your standardized data file
+standardization_file <- "standardization.tsv.gz"
+
+# Index of the example sample used throughout this template for single-sample steps.
+# Increase if samples[3] is not informative (e.g., low heterozygosity).
+example_sample_idx <- 3
+
+# Number of CPU cores for parallel computation
+n_cores <- 2
+
+# Copy number range to test (adjust based on your expected ploidy)
+cn_grid <- c(2, 3, 4, 5, 6)
+
+# BAF kernel bandwidth values to evaluate
+bw <- c(0.02, 0.04, 0.06, 0.08, 0.1)
+
+# Predominant ploidy for re-standardization (should match the most frequent ploidy in your dataset)
+ploidy_standardization <- 4
+
+# Depth thresholds used during re-standardization
+min_depth <- 30
+max_depth <- 600
+
+# Quality thresholds for filter_hmm_CN
+min_CN_reliability <- 0.25
+min_post_max <- 0.6
+
+# Output file prefix for exported results
+output_prefix <- "qploidy_results"
+```
+
+# Introduction
+
+This template demonstrates the Qploidy2 workflow starting from a pre-computed `standardization.tsv.gz`
+file. It covers quality assessment, BAF model selection, Hidden Markov Model (HMM)-based copy number
+estimation, visualization, interactive curation, and VCF export.
+
+If you have not yet produced the standardization file, follow the full tutorial
+(`Qploidy_alfalfa_tutorial.Rmd`) for input preparation and standardization steps.
+
+# Load Standardized Data
+
+```{r}
+library(Qploidy2)
+
+qploidy_standardization <- read_qploidy_standardization(standardization_file)
+samples <- unique(qploidy_standardization$data$SampleName)
+sample_id <- samples[example_sample_idx]
+
+cat("Loaded", length(samples), "samples\n")
+cat("Example sample:", sample_id, "\n")
+```
+
+# Quality Assessment and Visualization
+
+Visualize the effect of standardization for a single sample and explore BAF and Z-score distributions:
+
+```{r}
+plot_qploidy_standardization(x = qploidy_standardization,
+                             sample = sample_id,
+                             type = c("Ratio_hist_overall", "BAF_hist_overall"))
+
+plot_qploidy_standardization(x = qploidy_standardization,
+                             sample = sample_id,
+                             type = c("zscore", "R"))
+```
+
+See `?plot_qploidy_standardization` for all available plot types.
+
+## Chromosome-level screening for abnormalities based on Z-score (optional)
+
+Standardized Z-scores can be used to rapidly identify candidate samples with potential aneuploidies
+or large CNVs before running the full HMM, and to select samples with known ploidy to guide BAF model
+selection.
+
+```{r}
+chromosome_level_test_plot_qploidy(input = qploidy_standardization,
+                                   selected_samples = samples[1:12],
+                                   col2test = "z")
+```
+
+# BAF Model Selection
+
+Select the best BAF model for a sample. The approach implemented here tests different statistical
+distribution mixture models for each candidate ploidy on the BAF distributions and selects the best
+fit based on BIC.
+
+There are two approaches available:
+
+- **Grid approach**: Tests a grid of parameters — less computationally demanding but may not provide
+  the most tailored parameters. The results from this step serve as initial parameters for the HMM,
+  which will be further optimized by the EM algorithm implemented in the HMM.
+- **EM approach**: Uses a robust EM algorithm to return optimized parameters. See tutorial
+  *Qploidy2 and nQuack integration* for details.
+
+This template applies the grid approach. You can select a sample with known ploidy (e.g., identified
+in the chromosome-level screening above) to guide model selection.
+
+```{r}
+selected_model <- select_best_baf_model(qploidy_standardization = qploidy_standardization,
+                                        sample = sample_id,
+                                        cn_grid = cn_grid,
+                                        bw = bw,
+                                        plot = TRUE)
+
+selected_model$plot
+head(selected_model$grid_results)
+```
+
+# HMM Copy Number Estimation (Single Sample)
+
+Estimate copy number for a sample using a Hidden Markov Model. This step integrates standardized BAF
+and Z-score information across genomic regions to infer CNV segments.
+Find all parameter descriptions in `?hmm_estimate_CN`.
+
+**Warning**: Avoid testing copy numbers that are not biologically plausible for your species to reduce
+the number of evaluated scenarios and improve runtime.
+
+```{r}
+res <- hmm_estimate_CN(qploidy_standarize_result = qploidy_standardization,
+                       sample_id = sample_id,
+                       cn_grid = cn_grid)
+
+res
+```
+
+Note that the HMM multipoint approach considers marker position order based on the reference genome
+used. Therefore, changing the reference genome may change the results.
+
+`Qploidy2` offers several ways to visualize the estimated karyotype:
+
+```{r}
+plot_karyotype(res, sample_name = sample_id, nrow = 2)
+```
+
+Color by the CN call final likelihood (how confident the model was for each marker):
+
+```{r}
+plot_karyotype(res, sample_name = sample_id, nrow = 2, color_by = "post_max_CN")
+```
+
+Color by the BAF weight — windows inferred from both BAF and Z-score have weight 0.5; windows with no
+heterozygous genotypes are inferred from Z-score only and have BAF weight close to 0:
+
+```{r}
+plot_karyotype(res, sample_name = sample_id, nrow = 2, color_by = "w_baf")
+```
+
+The `plot_cn_track` function provides a detailed diagnostic of the process:
+
+```{r}
+p <- plot_cn_track(hmm_CN = res,
+                   qploidy_standarize_result = qploidy_standardization,
+                   sample_id = sample_id,
+                   show_window_lines = FALSE,
+                   z_by_mean = TRUE)
+
+p$arranged
+```
+
+The CN segments in the bottom track are coloured by `CN_reliability`, a joint confidence score
+calculated as `post_max × normalized_w_baf`. It summarises both the HMM's certainty about the
+called CN state and whether the call was supported by BAF evidence:
+
+- **Range 0–1**: a score of `1` means the HMM assigned the highest posterior to the called CN
+  state *and* the window contains enough heterozygous markers for BAF support to also be
+  confident.
+- **Low values near 0**: the call relies almost entirely on Z-score (total depth) because the
+  window lacks heterozygous markers (`w_baf ≈ 0`). By default, such windows are capped at
+  `0.25 × post_max`, so even a perfect HMM call cannot exceed 0.25 without BAF evidence.
+- **Interpreting the plot**: bright segments indicate high-confidence calls backed by both
+  signals; faded segments warrant manual inspection. Use `filter_hmm_CN(min_CN_reliability = ...)`
+  in the [Filter by CN Call Quality Metrics](#filter-by-cn-call-quality-metrics) section to
+  mask low-confidence windows before export.
+
+```{r}
+# Individual panels
+p$baf
+p$z
+p$cn
+p$baf_dist
+```
+
+View results in `data.frame` format:
+
+```{r}
+head(res$by_window)
+head(res$by_marker)
+head(res$params)
+```
+
+# HMM Copy Number Estimation (Multiple Samples)
+
+Run HMM for all samples in parallel. The BAF model is selected internally using
+`select_best_baf_model`; define the grids (`bw`, `add_uniform_grid`, and `uniform_weight_grid`)
+according to what you observed in the single-sample step above.
+
+**Note**: Running HMM for many samples can be computationally intensive. Adjust `n_cores` based on
+your available resources and dataset size.
+
+```{r}
+multi_esti <- hmm_estimate_CN_multi(qploidy_standarize_result = qploidy_standardization,
+                                    sample_ids = "all",
+                                    n_cores = n_cores,
+                                    cn_grid = cn_grid,
+                                    bw = bw)
+```
+
+Visualize a CNV summary for multiple samples:
+
+```{r}
+compare_cn_track(hmm_CN = multi_esti,
+                 samples_to_plot = samples[1:min(30, length(samples))],
+                 facet_ncol = 8)
+```
+
+# Filter by CN Call Quality Metrics
+
+`filter_hmm_CN()` masks CN calls that do not meet user-defined quality thresholds by replacing
+`CN_call`, `post_max`, `CN_reliability`, and all `post_CN*` posteriors with `NA`. Masked windows are
+treated as missing by all downstream plotting and export functions.
+
+The two most commonly used thresholds are:
+
+* `min_CN_reliability` — joint confidence combining HMM posterior probability and BAF weight.
+  A value of `0` means no BAF evidence at all; `1` means full BAF support with a confident HMM call.
+  Windows supported only by Z-score cannot exceed `z_no_baf_scale × post_max` in reliability
+  (default cap = `0.25 × post_max`).
+* `min_post_max` — the raw HMM posterior probability for the called CN state, regardless of BAF
+  support. Useful when you want to retain Z-score-only calls but still discard low-confidence HMM
+  calls.
+
+```{r}
+multi_esti_filtered <- filter_hmm_CN(multi_esti,
+                                     min_CN_reliability = min_CN_reliability,
+                                     min_post_max = min_post_max)
+```
+
+# Summarized Plots and Tables
+
+After filtering, get a high-level overview of the entire population.
+
+`count_types()` classifies every sample as **euploid** (all chromosomes match the sample-level copy
+number), **aneuploid** (one or more chromosomes carry a different but uniform CN — whole-chromosome
+gain or loss), or **segmental** (at least one chromosome has windows with mixed CN, indicating a
+partial chromosomal change):
+
+```{r}
+types_df <- count_types(multi_esti)
+types_df
+str(types_df)
+
+types_df_filtered <- count_types(multi_esti_filtered)
+types_df_filtered
+str(types_df_filtered)
+```
+
+Use the returned lists to visualize samples of each type:
+
+```{r}
+# Adjust indices if the first sample of a type is not informative
+plot_karyotype(multi_esti,
+               sample_name = types_df$aneuploid[1], color_by = "CN_reliability")
+
+# Option to remove ghost copies:
+plot_karyotype(multi_esti,
+               sample_name = types_df$aneuploid[1], color_by = "CN_reliability", add_ghost = FALSE)
+
+plot_karyotype(multi_esti_filtered,
+               sample_name = types_df_filtered$segmental[1], color_by = "CN_reliability")
+```
+
+`compare_cn_track_summary()` produces a karyotype-style matrix with samples in rows and chromosomes
+in columns. Samples are ordered by ascending sample-level CN and, within each CN block, by ploidy
+category (euploid → aneuploid → segmental). Chromosomes with mixed CN are shown in purple (segmental
+aneuploidy); group labels appear to the right:
+
+```{r}
+p_summ <- compare_cn_track_summary(multi_esti,
+                                   samples_to_plot = c(types_df$aneuploid, types_df$segmental))
+p_summ
+
+p_summ <- compare_cn_track_summary(multi_esti_filtered,
+                                   samples_to_plot = c(types_df_filtered$aneuploid,
+                                                       types_df_filtered$segmental))
+p_summ
+```
+
+You can plot specific samples of interest by providing a vector of sample IDs to the `samples_to_plot` argument.
+
+# Re-standardization (Optional)
+
+If you want to improve BAF resolution after identifying a subset of samples with known ploidy via the
+HMM, you can re-standardize using the estimated copy numbers as a reference.
+
+Re-standardization requires access to the original raw data objects (`data` and `geno.pos`). Load them
+before running this section if they are not already in your environment.
+
+```{r}
+re_qploidy_standardization <- re_standardize(
+  data = data,
+  geno.pos = geno.pos,
+  hmm_CN_multi = multi_esti_filtered,
+  use_estimated_dosages = TRUE,
+  ploidy.standardization = ploidy_standardization,
+  threshold.n.clusters = 4,
+  threshold.missing.geno = 0.9,
+  min.depth = min_depth,
+  max.depth = max_depth,
+  n.cores = n_cores,
+  out_filename = "re_standardization.tsv.gz",
+  verbose = TRUE
+)
+
+re_qploidy_standardization
+```
+
+If `use_estimated_dosages = TRUE`, Qploidy2 estimates dosages from its own algorithm. If `FALSE`, it
+uses the dosages in the initial `genos` object.
+
+Compare BAF distributions before and after re-standardization for a sample:
+
+```{r}
+plot_qploidy_standardization(x = qploidy_standardization,
+                             sample = sample_id,
+                             type = c("Ratio_hist_overall", "BAF_hist_overall"))
+plot_qploidy_standardization(x = re_qploidy_standardization,
+                             sample = sample_id,
+                             type = c("Ratio_hist_overall", "BAF_hist_overall"))
+```
+
+# Re-run the HMM with the New Standardization
+
+```{r}
+re_multi_esti <- hmm_estimate_CN_multi(
+  qploidy_standarize_result = re_qploidy_standardization,
+  sample_ids = "all",
+  n_cores = n_cores,
+  cn_grid = cn_grid,
+  bw = bw)
+
+re_multi_esti_filtered <- filter_hmm_CN(re_multi_esti,
+                                        min_CN_reliability = min_CN_reliability,
+                                        min_post_max = min_post_max)
+
+# CNV profiles before re-standardization
+compare_cn_track(hmm_CN = multi_esti_filtered,
+                 samples_to_plot = samples[1:min(50, length(samples))],
+                 facet_ncol = 8)
+
+# CNV profiles after re-standardization
+compare_cn_track(hmm_CN = re_multi_esti_filtered,
+                 samples_to_plot = samples[1:min(50, length(samples))],
+                 facet_ncol = 8)
+```
+
+# Refine Results for a Single Sample
+
+Inspect a sample of interest before adjusting parameters. Choose from the aneuploid or segmental
+samples identified above, or any sample that looks ambiguous:
+
+```{r}
+plot_karyotype(re_multi_esti_filtered, sample_name = sample_id, nrow = 2, color_by = "post_max_CN")
+
+p <- plot_cn_track(hmm_CN = re_multi_esti_filtered,
+                   qploidy_standarize_result = re_qploidy_standardization,
+                   sample_id = sample_id,
+                   show_window_lines = TRUE)
+p$arranged
+```
+
+If the result is ambiguous, try increasing the number of markers per window to better fit the
+mixture models on the BAF distributions:
+
+```{r}
+res_tweak <- hmm_estimate_CN(qploidy_standarize_result = re_qploidy_standardization,
+                             sample_id = sample_id,
+                             min_snps_per_window = 40,
+                             cn_grid = cn_grid)
+
+plot_karyotype(res_tweak, sample_name = sample_id, nrow = 2, color_by = "post_max_CN")
+
+p <- plot_cn_track(hmm_CN = res_tweak,
+                   qploidy_standarize_result = re_qploidy_standardization,
+                   sample_id = sample_id,
+                   show_window_lines = TRUE)
+p$arranged
+```
+
+Explore more parameters with `?hmm_estimate_CN`.
+
+Once you reach a conclusion, update the multi-sample HMM object:
+
+```{r}
+final_res <- update_hmm_CN_multi(re_multi_esti_filtered,
+                                 res_tweak,
+                                 rm_sample = FALSE)
+```
+
+Set `rm_sample = TRUE` to remove an inconclusive sample from the final results instead.
+
+# Plotting All Samples in Batches (Optional)
+
+Generate CNV plots for all samples in batches and save to disk:
+
+```{r, eval=FALSE}
+n_plots_by_page <- c(seq(1, length(samples), by = 40), length(samples))
+for (i in 1:(length(n_plots_by_page) - 1)) {
+  comp_p <- compare_cn_track(hmm_CN = final_res,
+                             samples_to_plot = samples[n_plots_by_page[[i]]:n_plots_by_page[i + 1]],
+                             facet_ncol = 12)
+  ggsave(comp_p,
+         filename = paste0("Samples_", n_plots_by_page[i], "_", n_plots_by_page[i + 1], ".png"),
+         height = 10, width = 11)
+}
+```
+
+# Interactive Curation of Results
+
+**Warning**: Qploidy2 HMM accuracy depends on many factors that the call likelihoods may not always
+capture. We strongly suggest reviewing diagnostic plots for unexpected results. The `GenoBrew` tool
+described below provides a streamlined interface for visual evaluation and results curation.
+
+## Export HMM Results
+
+All objects produced by `update_hmm_CN_multi`, `hmm_estimate_CN`, and `hmm_estimate_CN_multi` share
+the same class and can be exported with:
+
+```{r}
+write_hmm_CN(final_res, prefix = output_prefix)
+```
+
+This generates three files:
+
+- `"[prefix]_by_marker.csv.gz"`
+- `"[prefix]_by_window.csv.gz"`
+- `"[prefix]_params.rds"`
+
+Reload them in a new session with:
+
+```{r, eval=FALSE}
+final_res <- read_hmm_CN(
+  by_marker_file = paste0(output_prefix, "_by_marker.csv.gz"),
+  by_window_file = paste0(output_prefix, "_by_window.csv.gz"),
+  params_file    = paste0(output_prefix, "_params.rds")
+)
+```
+
+## Deploy GenoBrew
+
+The files produced by `write_hmm_CN` can be uploaded to the `GenoBrew` Shiny interface. The
+`CNV profiles` tab allows interactive inspection of BAF, Z-score and CN call plots, HMM re-running
+with adjusted parameters for specific samples, and results updating.
+
+Visit the `GenoBrew` GitHub [repository](https://github.com/Breeding-Insight/GenoBrew)
+and [tutorial](https://scribehow.com/viewer/GenoBrew_Interactive_Marker_Panel_Evaluation_CNV_Visualization_and_Curation__4uWloBuPT1WlnCvW2UWiTg)
+for more information.
+
+# Call Dosages
+
+**Warning**: Beta version — dosage call requires more testing and review.
+
+Qploidy2 uses BAF distributions to call dosages. Example for a single sample:
+
+```{r}
+baf <- final_res$by_marker$baf[final_res$by_marker$SampleName == sample_id]
+
+selected_model_dosage <- select_best_baf_model(baf_vec = baf,
+                                               sample = sample_id,
+                                               cn_grid = cn_grid,
+                                               bw = bw,
+                                               plot = TRUE)
+
+dosages_one_sample <- call_BAF_dosages(baf, selected_model = selected_model_dosage, plot = TRUE)
+head(dosages_one_sample$data)
+
+dosages_one_sample$plot
+```
+
+Call dosages for all samples considering the copy number estimated:
+
+```{r}
+dosages <- call_hmm_dosages(hmm_CN = final_res, n.cores = n_cores)
+head(dosages)
+```
+
+Visualize karyotype colored by dosage:
+
+```{r}
+plot_karyotype(dosages, sample_name = sample_id, nrow = 2, color_by = "dosage")
+plot_karyotype(dosages, sample_name = sample_id, nrow = 2, color_by = "post_max_dosage")
+```
+
+# Export Results
+
+## Summarized by Sample, Chromosome, Window, or Marker
+
+```{r}
+# By chromosome
+summ_hmm_chr <- summarize_cn_mode(final_res, level = "chromosome")
+head(summ_hmm_chr)
+
+# By sample
+summ_hmm_sample <- summarize_cn_mode(final_res, level = "sample")
+head(summ_hmm_sample)
+
+# By window
+head(final_res$by_window)
+
+# By marker
+head(final_res$by_marker)
+```
+
+Export to CSV:
+
+```{r, eval=FALSE}
+write.csv(summ_hmm_chr,          file = paste0(output_prefix, "_CN_by_chromosome.csv"))
+write.csv(summ_hmm_sample,       file = paste0(output_prefix, "_CN_by_sample.csv"))
+write.csv(final_res$by_window,   file = paste0(output_prefix, "_CN_by_window.csv"))
+write.csv(final_res$by_marker,   file = paste0(output_prefix, "_CN_by_marker.csv"))
+```
+
+## Export to MAPpoly filter_aneuploidy Function
+
+`export_mappoly()` converts per-window copy-number calls into the input format expected by the
+`filter_aneuploidy()` function in the [MAPpoly](https://github.com/mmollina/MAPpoly) package.
+It returns a data frame with one row per sample, indicating the estimated CN for each chromosome:
+
+```{r}
+for_mappoly <- export_mappoly(final_res)
+head(for_mappoly)
+```
+
+## Karyotype Notation
+
+`karyotype_notation()` summarises per-marker copy-number calls into a compact table:
+
+- **Ploidy**: overall ploidy
+- **ChrID**: chromosome identifier
+- **ChrCN**: most common CN for the chromosome
+- **Segment**: position of segments with CN different from overall ploidy (ISCN-inspired notation:
+  `g.start_end×CN`); `NA` if no CNV segments were detected
+
+```{r}
+k_not <- karyotype_notation(dosages)
+head(k_not)
+
+# Example: inspect a specific sample
+k_not[which(k_not$SampleName == sample_id), ]
+```
+
+## VCF Format
+
+```{r}
+export_VCF(dosages, file = paste0(output_prefix, "_CN_dosages.vcf"))
+```
+
+Read the VCF back with vcfR and extract fields:
+
+```{r}
+library(vcfR)
+vcf <- read.vcfR(paste0(output_prefix, "_CN_dosages.vcf"))
+vcf@gt[1:5, 1:5]
+
+CN <- extract.gt(vcf, "CN")
+CN[1:5, 1:5]
+```
+
+The VCF dosages are adapted to the CN estimated by Qploidy2. For example, if CN = 3, dosages can be
+0, 1, 2, 3 and are represented as `0/0/0`, `0/0/1`, `0/1/1`, `1/1/1`. If CN = 4, dosages range 0–4
+and are represented as `0/0/0/0` through `1/1/1/1`.
+
+```{r}
+tri <- which(CN == "3", arr.ind = TRUE)
+CN[tri[1:min(5, nrow(tri)), 1], 1:min(6, ncol(CN))]
+
+GT <- extract.gt(vcf, "GT")
+GT[tri[1:min(5, nrow(tri)), 1], 1:min(6, ncol(GT))]
+```
+
+The VCF contains the likelihood of each dosage call in the `PMD` field:
+
+```{r}
+dosage_prob <- extract.gt(vcf, "PMD")
+dosage_prob[1:5, 1:5]
+dosage_prob[tri[1:min(5, nrow(tri)), 1], 1:min(6, ncol(dosage_prob))]
+```
+
+# How to Cite
+
+### Qploidy — Standardization
+
+Taniguti, C. H., Lau, J., Hochhaus, T., Arias, D. C. L., Hokanson, S. C., Zlesak, D. C., Byrne, D. H.,
+Klein, P. E., & Riera-Lizarazu, O. (2025). Exploring chromosomal variations in garden roses: Insights
+from high-density SNP array data and a new tool, Qploidy. The Plant Genome, e70044.
+https://doi.org/10.1002/tpg2.70044
+
+### Qploidy2 — HMM and Grid Approach BAF Model Selection
+
+Manuscript in preparation. Please contact the author for more information.
+
+### nQuack — EM Approach BAF Model Selection
+
+Gaynor, M., Landis, J., O'Connor, T., Laport, R., Doyle, J., Soltis, D., Ponciano, J., & Soltis, P.
+(2024). "nQuack: An R package for predicting ploidal level from sequence data using site-based
+heterozygosity." Applications in Plant Sciences, 12(4), e11606. doi:10.1002/aps3.11606
+
+# Acknowledgments
+
+### Qploidy version 1.0.0
+
+Funded in part by the Robert E. Basye Endowment in Rose Genetics, Dept. of Horticultural Sciences,
+Texas A&M University, and USDA's National Institute of Food and Agriculture (NIFA), Specialty Crop
+Research Initiative (SCRI) projects: "Tools for Genomics-Assisted Breeding in Polyploids: Development
+of a Community Resource" (Award No. 2020-51181-32156); and "Developing Sustainable Rose Landscapes via
+Rose Rosette Disease Education, Socioeconomic Assessments, and Breeding RRD-Resistant Roses with Stable
+Black Spot Resistance" (Award No. 2022-51181-38330).
+
+### Qploidy versions > 1.0.0 and Qploidy2
+
+Supported by [Breeding Insight](https://www.breedinginsight.org/).
