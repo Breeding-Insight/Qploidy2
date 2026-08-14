@@ -4,80 +4,27 @@
 
 ### Issue 1 – First window of the first chromosome had higher CN variation
 
-The root cause was a **circular feedback loop in the EM M-step**: at each iteration
-the initial-state distribution was updated as `pi0 ← gamma[1,]`.  When the very
-first window was slightly biased toward a wrong CN state (e.g., because the initial
-z-score happened to be closer to the wrong mu), the M-step would progressively
-increase `pi0` for that wrong state.  By convergence, `mu` for the wrong state had
-collapsed to `z[1]` (driven by the `pmax(sum(w), 1e-12)` denominator guard when
-gamma was near-zero), making the emission maximally favorable for the wrong call
-at window 1.  Any subsequent decoder — including bidirectional Viterbi — would
-then also pick the wrong state because `ll_em[window1, wrong_state]` was at its
-peak.
-
 **Changes that remained in the EM (`em_hmm_cn.R`)**:
 
-* `update_pi0 = FALSE` (default): the initial-state distribution `pi0` is **no
-  longer updated** in the M-step.  `pi0` is fixed at the value set from
-  `initial_prob` and `exp_ploidy` before the EM starts, breaking the feedback
-  loop that caused window 1 to lock into the wrong state.
-* **Mu stability guard**: `mu[k]` is only updated when the total posterior weight
-  for state `k` exceeds `0.5`.  States that are genuinely absent from the data
-  (total weight ≈ 0 due to the `pmax` denominator guard) keep their physically
-  motivated initial estimate from `define_z_limits`, preventing mu from
-  collapsing to `mean(z)` and making emissions degenerate.
+* `update_pi0 = FALSE` (default)
+* Mu stability guard
 
 **Changes in the decoder (`hmm_main.R`)**:
 
-* **Per-chromosome forward-backward decoding** (`fb_smooth`): instead of running
-  a single HMM chain across all chromosomes, `fb_smooth` is now called
-  independently for each chromosome with a fresh uniform initial distribution.
-  This makes the result independent of chromosome ordering — no chromosome is
-  disadvantaged by its position in the chain — and gives window 1 of every
-  chromosome proper backward context from the rest of its own chromosome.
-* **Prior transition matrix for decoding** (`A_dec`): the decoder uses the
-  _prior_ transition matrix (strong diagonal = `transition_jump`, rare
-  off-diagonal ≈ `1e-3/(K-1)`) rather than the EM-converged `A`.  After EM
-  convergence on a sample dominated by one CN state, states never visited receive
-  uniform rows in `A` (due to the same `pmax` guard), giving them a "free jump"
-  advantage of only ~1.4 log-units.  The prior matrix imposes a ~8 log-unit
-  penalty for any off-diagonal transition, making it virtually impossible for a
-  degenerate state to win at window 1 through the backward pass alone.
+* Per-chromosome forward-backward decoding(`fb_smooth`)
+* Prior transition matrix for decoding (`A_dec`)
 
 ### Issue 2 – Higher variation in all-homozygous chromosomes
 
-When an entire chromosome has no heterozygous markers (`w_baf = 0` for all
-windows), the HMM emission reduces to z-score only.  Before the fixes in
-Issue 1, two compounding problems caused wrong CN calls on these chromosomes:
+* New output metric (`CN_reliability`): `hmm_estimate_CN` now returns a `CN_reliability` column in `by_window`
+* hmm results plots updated with this new metric
 
-1. The mu-collapse bug (Issue 1) could pull `mu[wrong_state]` toward the
-   chromosome's mean z-score, making the emission flat and removing any
-   discriminating power.
-2. Degenerate rows in the EM-learned `A` (uniform for never-visited states)
-   gave those states a ~1.4 log-unit "free jump" advantage in the backward
-   pass, easily overcoming the weak emission signal.
+### Issue 3 – CN estimation results differed based on chromosome ordering / naming
 
-The fixes from Issue 1 — the mu stability guard, `update_pi0 = FALSE`, the
-prior `A_dec` (8 log-unit penalty per off-diagonal transition), and
-per-chromosome decoding — together eliminate both compounding problems and are
-the primary solution for all-homozygous chromosomes as well.
+**Changes in `hmm_main.R`**:
 
-**New output metric (`CN_reliability`)**:
-
-* `hmm_estimate_CN` now returns a `CN_reliability` column in `by_window`:
-
-  ```
-  CN_reliability = post_max × max(z_no_baf_scale, min(1, w_baf / baf_weight))
-  ```
-
-  This metric does **not** affect the HMM emission or the CN call itself.  It
-  is a post-hoc quality indicator that is low whenever the HMM posterior is
-  low _or_ BAF evidence is absent.  The `z_no_baf_scale` parameter (default
-  `0.25`) sets the floor: a window with no BAF support can reach at most
-  `0.25 × post_max` in reliability, signalling to users that the call is
-  z-score only and should be treated with more caution.  Old `hmm_CN` objects
-  without this column automatically fall back to `post_max` in both plot
-  functions.
+* Sort windows by chromosome z-deviation before the EM
+* Recompute `ll_em` in original window order after the EM
 
 ## New functions
 

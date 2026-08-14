@@ -641,6 +641,16 @@ hmm_estimate_CN <- function(
   sig <- sd(z, na.rm = TRUE)
   if (!is.finite(sig) || sig <= 1e-6) sig <- 0.1
   W <- length(z)
+  # Sort windows so chromosomes with the largest z-deviation from the genome mean
+  # come first in the EM chain.  This ensures aneuploid chromosomes are processed
+  # early in the forward pass, improving mu calibration regardless of chr naming.
+  chr_z_dev <- abs(tapply(z, win_df$Chr, mean, na.rm = TRUE) - mean(z, na.rm = TRUE))
+  chr_em_ord <- names(sort(chr_z_dev, decreasing = TRUE))
+  em_perm     <- order(match(win_df$Chr, chr_em_ord), win_df$Start)
+  z_em        <- z[em_perm]
+  ll_baf_em   <- ll_baf_matrix[em_perm, , drop = FALSE]
+  n_baf_em    <- n_baf[em_perm]
+  w_baf_em    <- w_baf[em_perm]
   vmsg("Initial z-score mean by state: %s", verbose = verbose, level = 2, type = ">>", paste0(round(mu, 3), collapse = ", "))
   vmsg("Initial z-score SD: %s", verbose = verbose, level = 2, type = ">>", sig)
 
@@ -648,8 +658,8 @@ hmm_estimate_CN <- function(
   vmsg("Starting EM loop", verbose = verbose, level = 0, type = ">>")
 
   rm_res <- em_hmm_cn(
-    cn_grid, mu, K, state_ids, sig, z,
-    z_only, ll_baf_matrix, n_baf, w_baf,
+    cn_grid, mu, K, state_ids, sig, z_em,
+    z_only, ll_baf_em, n_baf_em, w_baf_em,
     correct_scale, A, pi0, W, max_iter, verbose,
     update_pi0 = FALSE
   )
@@ -709,14 +719,15 @@ hmm_estimate_CN <- function(
     ) # redefine mu with the new cn_grid, but without z_range to avoid changing the limits too much and keep the same order of the ploidies, which is already checked in the previous steps
     K <- length(cn_grid)
     ll_baf_matrix <- ll_baf_matrix[, valid_idx]
+    ll_baf_em     <- ll_baf_matrix[em_perm, , drop = FALSE]
     pi0 <- pi0[valid_idx]
     state_ids <- state_ids[valid_idx]
     A <- A[valid_idx, valid_idx]
     vmsg("Some ploidies were removed due to non-monotonic z means", verbose = verbose, level = 2, type = ">>")
     vmsg("Rerunning EM with updated cn_grid", verbose = verbose, level = 1, type = ">>")
     rm_res <- em_hmm_cn(
-      cn_grid, mu, K, state_ids, sig, z,
-      z_only, as.matrix(ll_baf_matrix), n_baf, w_baf,
+      cn_grid, mu, K, state_ids, sig, z_em,
+      z_only, as.matrix(ll_baf_em), n_baf_em, w_baf_em,
       correct_scale, as.matrix(A), pi0, W, max_iter, verbose,
       update_pi0 = FALSE
     )
@@ -726,6 +737,23 @@ hmm_estimate_CN <- function(
   }
 
   vmsg("EM loop complete", verbose = verbose, level = 1, type = ">>")
+
+  # Recompute ll_em in ORIGINAL window order from converged mu/sig.
+  # The EM ran on sorted windows; the decoder needs original order for correct chr labels.
+  ll_em <- matrix(NA_real_, W, K, dimnames = list(NULL, state_ids))
+  for (k in seq_len(K)) {
+    c_k  <- cn_grid[k]
+    llz  <- dnorm(z, mean = mu[as.character(c_k)], sd = sig, log = TRUE)
+    llz[is.nan(llz)] <- 0
+    if (z_only) {
+      ll_em[, k] <- llz
+    } else {
+      llb <- ll_baf_matrix[, k]
+      if (correct_scale) llb <- llb / n_baf
+      llb[is.nan(llb)] <- 0
+      ll_em[, k] <- (1 - w_baf) * llz + w_baf * llb
+    }
+  }
 
   vmsg("Decoding CN path", verbose = verbose, level = 0, type = ">>")
   # EM-learned A can have degenerate uniform rows for states never visited:
