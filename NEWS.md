@@ -1,3 +1,9 @@
+# Qploidy2 1.18.2
+
+* Revert mu stability guard introduced in 1.18.0: `em_hmm_cn` now always updates mu unconditionally (standard EM update with `pmax` denominator guard). The while-loop in `hmm_estimate_CN` already handles non-monotonic mu.
+* Add `hom_z_sigma_inflate` parameter to `hmm_estimate_CN` (default `1.5`). Applies two corrections for all-homozygous windows (`w_baf == 0`): (1) sigma is inflated by this factor during decoding to reduce z-emission discriminability; (2) post-decoding, chromosomes where every window has `w_baf == 0` are overridden to the sample-mode CN if their mean z-score is within `hom_z_sigma_inflate * sigma` of the baseline — suppressing false positive CNV calls driven by reference-homozygous depth bias while preserving genuine CN changes with larger z-deviations.
+* CN=1 samples are now labelled "1x or inbred" instead of "1x" in `compare_cn_track_summary` right-side block annotations, `count_types` printed summary, and `print.count_types` per-type rows.
+
 # Qploidy2 1.18.1
 
 * Bugfix on `fb_smooth` when there is only one window at the chromosome

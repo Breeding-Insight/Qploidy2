@@ -18,6 +18,10 @@ output:
     number_sections: true
     code_folding: show
     df_print: paged
+params:
+  standardization_file: "standardization.tsv.gz"
+  output_prefix: "qploidy_results"
+  n_cores: 2
 ---
 
 ```{r, echo=FALSE}
@@ -36,16 +40,24 @@ knitr::opts_chunk$set(
 
 Define key parameters before running the analysis. Adjust these to match your dataset.
 
+```{r, eval=FALSE, echo=FALSE}
+params <- list()
+
+params$standardization_file <- "standardization.tsv.gz"
+params$n_cores <- 3
+params$output_prefix <- "alfalfa_test"
+```
+
 ```{r parameters}
 # Path to your standardized data file
-standardization_file <- "standardization.tsv.gz"
+standardization_file <- params$standardization_file
 
 # Index of the example sample used throughout this template for single-sample steps.
 # Increase if samples[3] is not informative (e.g., low heterozygosity).
 example_sample_idx <- 3
 
 # Number of CPU cores for parallel computation
-n_cores <- 2
+n_cores <- params$n_cores
 
 # Copy number range to test (adjust based on your expected ploidy)
 cn_grid <- c(2, 3, 4, 5, 6)
@@ -53,16 +65,12 @@ cn_grid <- c(2, 3, 4, 5, 6)
 # Predominant ploidy for re-standardization (should match the most frequent ploidy in your dataset)
 ploidy_standardization <- 4
 
-# Depth thresholds used during re-standardization
-min_depth <- quantile(standardization_file$data$R, 15)
-max_depth <- quantile(standardization_file$data$R, 85)
-
 # Quality thresholds for filter_hmm_CN
 min_CN_reliability <- 0.25
 min_post_max <- 0.6
 
 # Output file prefix for exported results
-output_prefix <- "qploidy_results"
+output_prefix <- params$output_prefix
 ```
 
 # Introduction
@@ -78,6 +86,13 @@ If you have not yet produced the standardization file, follow the full tutorial
 
 ```{r}
 library(Qploidy2)
+packageVersion("Qploidy2")
+
+pkg_ver    <- as.character(packageVersion("Qploidy2"))
+output_dir <- paste0(output_prefix, "_v", pkg_ver)
+images_dir <- file.path(output_dir, "images")
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(images_dir, showWarnings = FALSE, recursive = TRUE)
 
 qploidy_standardization <- read_qploidy_standardization(standardization_file)
 samples <- unique(qploidy_standardization$data$SampleName)
@@ -103,44 +118,6 @@ plot_qploidy_standardization(x = qploidy_standardization,
 
 See `?plot_qploidy_standardization` for all available plot types.
 
-## Chromosome-level screening for abnormalities based on Z-score (optional)
-
-Standardized Z-scores can be used to rapidly identify candidate samples with potential aneuploidies
-or large CNVs before running the full HMM, and to select samples with known ploidy to guide BAF model
-selection.
-
-```{r}
-chromosome_level_test_plot_qploidy(input = qploidy_standardization,
-                                   selected_samples = samples[1:12],
-                                   col2test = "z")
-```
-
-# BAF Model Selection
-
-Select the best BAF model for a sample. The approach implemented here tests different statistical
-distribution mixture models for each candidate ploidy on the BAF distributions and selects the best
-fit based on BIC.
-
-There are two approaches available:
-
-- **Grid approach**: Tests a grid of parameters — less computationally demanding but may not provide
-  the most tailored parameters. The results from this step serve as initial parameters for the HMM,
-  which will be further optimized by the EM algorithm implemented in the HMM.
-- **EM approach**: Uses a robust EM algorithm to return optimized parameters. See tutorial
-  *Qploidy2 and nQuack integration* for details.
-
-This template applies the grid approach. You can select a sample with known ploidy (e.g., identified
-in the chromosome-level screening above) to guide model selection.
-
-```{r}
-selected_model <- select_best_baf_model(qploidy_standardization = qploidy_standardization,
-                                        sample = sample_id,
-                                        cn_grid = cn_grid,
-                                        plot = TRUE)
-
-selected_model$plot
-head(selected_model$grid_results)
-```
 
 # HMM Copy Number Estimation (Single Sample)
 
@@ -208,21 +185,6 @@ called CN state and whether the call was supported by BAF evidence:
   in the [Filter by CN Call Quality Metrics](#filter-by-cn-call-quality-metrics) section to
   mask low-confidence windows before export.
 
-```{r}
-# Individual panels
-p$baf
-p$z
-p$cn
-p$baf_dist
-```
-
-View results in `data.frame` format:
-
-```{r}
-head(res$by_window)
-head(res$by_marker)
-head(res$params)
-```
 
 # HMM Copy Number Estimation (Multiple Samples)
 
@@ -293,15 +255,22 @@ Use the returned lists to visualize samples of each type:
 
 ```{r}
 # Adjust indices if the first sample of a type is not informative
-plot_karyotype(multi_esti,
-               sample_name = types_df$aneuploid[1], color_by = "CN_reliability")
+if (length(types_df$aneuploid) > 0) {
+  plot_karyotype(multi_esti,
+                 sample_name = types_df$aneuploid[1], color_by = "CN_reliability")
 
-# Option to remove ghost copies:
-plot_karyotype(multi_esti,
-               sample_name = types_df$aneuploid[1], color_by = "CN_reliability", add_ghost = FALSE)
+  plot_karyotype(multi_esti,
+                 sample_name = types_df$aneuploid[1], color_by = "CN_reliability", add_ghost = FALSE)
+} else {
+  message("No aneuploid samples found in multi_esti.")
+}
 
-plot_karyotype(multi_esti_filtered,
-               sample_name = types_df_filtered$segmental[1], color_by = "CN_reliability")
+if (length(types_df_filtered$segmental) > 0) {
+  plot_karyotype(multi_esti_filtered,
+                 sample_name = types_df_filtered$segmental[1], color_by = "CN_reliability")
+} else {
+  message("No segmental samples found in multi_esti_filtered.")
+}
 ```
 
 `compare_cn_track_summary()` produces a karyotype-style matrix with samples in rows and chromosomes
@@ -310,14 +279,23 @@ category (euploid → aneuploid → segmental). Chromosomes with mixed CN are sh
 aneuploidy); group labels appear to the right:
 
 ```{r}
-p_summ <- compare_cn_track_summary(multi_esti,
-                                   samples_to_plot = c(types_df$aneuploid, types_df$segmental))
-p_summ
+samples_non_euploid <- c(types_df$aneuploid, types_df$segmental)
+if (length(samples_non_euploid) > 0) {
+  p_summ <- compare_cn_track_summary(multi_esti,
+                                     samples_to_plot = samples_non_euploid)
+  p_summ
+} else {
+  message("No aneuploid or segmental samples found in multi_esti.")
+}
 
-p_summ <- compare_cn_track_summary(multi_esti_filtered,
-                                   samples_to_plot = c(types_df_filtered$aneuploid,
-                                                       types_df_filtered$segmental))
-p_summ
+samples_non_euploid_filtered <- c(types_df_filtered$aneuploid, types_df_filtered$segmental)
+if (length(samples_non_euploid_filtered) > 0) {
+  p_summ <- compare_cn_track_summary(multi_esti_filtered,
+                                     samples_to_plot = samples_non_euploid_filtered)
+  p_summ
+} else {
+  message("No aneuploid or segmental samples found in multi_esti_filtered.")
+}
 ```
 
 You can plot specific samples of interest by providing a vector of sample IDs to the `samples_to_plot` argument.
@@ -331,6 +309,16 @@ Re-standardization requires access to the original raw data objects (`data` and 
 before running this section if they are not already in your environment.
 
 ```{r}
+# Recover original input columns; Chr -> Chromosome to match geno.pos schema
+data <- qploidy_standardization$data[, c("MarkerName", "SampleName", "X", "Y", "R", "ratio")]
+
+geno.pos <- unique(qploidy_standardization$data[, c("MarkerName", "Chr", "Position")])
+colnames(geno.pos)[colnames(geno.pos) == "Chr"] <- "Chromosome"
+
+# Depth thresholds used during re-standardization
+min_depth <- quantile(data$R, 0.1, na.rm = TRUE)
+max_depth <- quantile(data$R, 0.9, na.rm = TRUE)
+
 re_qploidy_standardization <- re_standardize(
   data = data,
   geno.pos = geno.pos,
@@ -342,7 +330,7 @@ re_qploidy_standardization <- re_standardize(
   min.depth = min_depth,
   max.depth = max_depth,
   n.cores = n_cores,
-  out_filename = "re_standardization.tsv.gz",
+  out_filename = file.path(output_dir, paste0(output_prefix, "_re_standardization.tsv.gz")),
   verbose = TRUE
 )
 
@@ -375,6 +363,11 @@ re_multi_esti <- hmm_estimate_CN_multi(
 re_multi_esti_filtered <- filter_hmm_CN(re_multi_esti,
                                         min_CN_reliability = min_CN_reliability,
                                         min_post_max = min_post_max)
+
+count_types(re_multi_esti)
+
+
+count_types(re_multi_esti_filtered)
 
 # CNV profiles before re-standardization
 compare_cn_track(hmm_CN = multi_esti_filtered,
@@ -436,14 +429,15 @@ Set `rm_sample = TRUE` to remove an inconclusive sample from the final results i
 
 Generate CNV plots for all samples in batches and save to disk:
 
-```{r, eval=FALSE}
+```{r}
+library(ggplot2)
 n_plots_by_page <- c(seq(1, length(samples), by = 40), length(samples))
 for (i in 1:(length(n_plots_by_page) - 1)) {
   comp_p <- compare_cn_track(hmm_CN = final_res,
                              samples_to_plot = samples[n_plots_by_page[[i]]:n_plots_by_page[i + 1]],
                              facet_ncol = 12)
   ggsave(comp_p,
-         filename = paste0("Samples_", n_plots_by_page[i], "_", n_plots_by_page[i + 1], ".png"),
+         filename = file.path(images_dir, paste0(output_prefix, "_Samples_", n_plots_by_page[i], "_", n_plots_by_page[i + 1], ".png")),
          height = 10, width = 11)
 }
 ```
@@ -460,7 +454,10 @@ All objects produced by `update_hmm_CN_multi`, `hmm_estimate_CN`, and `hmm_estim
 the same class and can be exported with:
 
 ```{r}
-write_hmm_CN(final_res, prefix = output_prefix)
+write_hmm_CN(multi_esti, prefix = file.path(output_dir, paste0(output_prefix, "firstrun")))
+write_hmm_CN(multi_esti_filtered, prefix = file.path(output_dir, paste0(output_prefix, "firstrun_filtered")))
+write_hmm_CN(re_multi_esti, prefix = file.path(output_dir, paste0(output_prefix, "rerun")))
+write_hmm_CN(re_multi_esti_filtered, prefix = file.path(output_dir, paste0(output_prefix, "rerun_filtered")))
 ```
 
 This generates three files:
@@ -473,9 +470,9 @@ Reload them in a new session with:
 
 ```{r, eval=FALSE}
 final_res <- read_hmm_CN(
-  by_marker_file = paste0(output_prefix, "_by_marker.csv.gz"),
-  by_window_file = paste0(output_prefix, "_by_window.csv.gz"),
-  params_file    = paste0(output_prefix, "_params.rds")
+  by_marker_file = file.path(output_dir, paste0(output_prefix, "firstrun_by_marker.csv.gz")),
+  by_window_file = file.path(output_dir, paste0(output_prefix, "firstrun_by_window.csv.gz")),
+  params_file    = file.path(output_dir, paste0(output_prefix, "firstrun_params.rds"))
 )
 ```
 
@@ -493,21 +490,7 @@ for more information.
 
 **Warning**: Beta version — dosage call requires more testing and review.
 
-Qploidy2 uses BAF distributions to call dosages. Example for a single sample:
-
-```{r}
-baf <- final_res$by_marker$baf[final_res$by_marker$SampleName == sample_id]
-
-selected_model_dosage <- select_best_baf_model(baf_vec = baf,
-                                               sample = sample_id,
-                                               cn_grid = cn_grid,
-                                               plot = TRUE)
-
-dosages_one_sample <- call_BAF_dosages(baf, selected_model = selected_model_dosage, plot = TRUE)
-head(dosages_one_sample$data)
-
-dosages_one_sample$plot
-```
+Qploidy2 uses BAF distributions to call dosages.
 
 Call dosages for all samples considering the copy number estimated:
 
@@ -546,10 +529,10 @@ head(final_res$by_marker)
 Export to CSV:
 
 ```{r, eval=FALSE}
-write.csv(summ_hmm_chr,          file = paste0(output_prefix, "_CN_by_chromosome.csv"))
-write.csv(summ_hmm_sample,       file = paste0(output_prefix, "_CN_by_sample.csv"))
-write.csv(final_res$by_window,   file = paste0(output_prefix, "_CN_by_window.csv"))
-write.csv(final_res$by_marker,   file = paste0(output_prefix, "_CN_by_marker.csv"))
+write.csv(summ_hmm_chr,          file = file.path(output_dir, paste0(output_prefix, "_CN_by_chromosome.csv")))
+write.csv(summ_hmm_sample,       file = file.path(output_dir, paste0(output_prefix, "_CN_by_sample.csv")))
+write.csv(final_res$by_window,   file = file.path(output_dir, paste0(output_prefix, "_CN_by_window.csv")))
+write.csv(final_res$by_marker,   file = file.path(output_dir, paste0(output_prefix, "_CN_by_marker.csv")))
 ```
 
 ## Export to MAPpoly filter_aneuploidy Function
@@ -584,14 +567,14 @@ k_not[which(k_not$SampleName == sample_id), ]
 ## VCF Format
 
 ```{r}
-export_VCF(dosages, file = paste0(output_prefix, "_CN_dosages.vcf"))
+export_VCF(dosages, file = file.path(output_dir, paste0(output_prefix, "_CN_dosages.vcf")))
 ```
 
 Read the VCF back with vcfR and extract fields:
 
 ```{r}
 library(vcfR)
-vcf <- read.vcfR(paste0(output_prefix, "_CN_dosages.vcf"))
+vcf <- read.vcfR(file.path(output_dir, paste0(output_prefix, "_CN_dosages.vcf")))
 vcf@gt[1:5, 1:5]
 
 CN <- extract.gt(vcf, "CN")

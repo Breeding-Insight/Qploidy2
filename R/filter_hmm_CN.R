@@ -199,7 +199,7 @@ count_types <- function(hmm_CN, chromosomes = NULL) {
         aneuploid = sub$Sample[sub$sample_type == "aneuploid"],
         segmental = sub$Sample[sub$sample_type == "segmental"]
       )
-    }), paste0(all_cns, "x")),
+    }), ifelse(all_cns == 1L, "1x or inbred", paste0(all_cns, "x"))),
     .summary  = sample_class   # stored for print.count_types; not intended for direct use
   )
   class(result) <- "count_types"
@@ -227,11 +227,12 @@ print.count_types <- function(x, ...) {
   cat(strrep("=", 52), "\n", sep = "")
   for (cn in all_cns) {
     sub <- sample_class[sample_class$sample_cn == cn, ]
-    cat(sprintf("  %dx  (n = %d)\n", cn, nrow(sub)))
+    cn_label <- if (cn == 1L) "1x or inbred" else paste0(cn, "x")
+    cat(sprintf("  %s  (n = %d)\n", cn_label, nrow(sub)))
     for (tp in all_types) {
       n <- sum(sub$sample_type == tp)
       if (n > 0) {
-        cat(sprintf("    %-22s  %d\n", paste0(cn, "x - ", tp), n))
+        cat(sprintf("    %-22s  %d\n", paste0(cn_label, " - ", tp), n))
         totals[tp] <- totals[tp] + n
       }
     }

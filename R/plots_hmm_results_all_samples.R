@@ -569,7 +569,8 @@ compare_cn_track_summary <- function(hmm_CN,
     summarise(mid_y = mean(y_pos), .groups = "drop") %>%
     mutate(
       lbl = paste0(
-        sample_cn, "x - ",
+        ifelse(sample_cn == 1L, "1x or inbred", paste0(sample_cn, "x")),
+        " - ",
         ifelse(sample_type == "euploid", "euploid",
         ifelse(sample_type == "aneuploid", "aneuploid",
                "segmental aneuploidy"))

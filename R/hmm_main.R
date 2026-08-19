@@ -47,6 +47,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.2, 0.8)}). Used by the \code{min_het_frac} filter and by \code{plot_heterozygosity}.
 #' @param dosage_threshold Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.
 #' @param z_no_baf_scale Numeric in [0,1]. Floor weight applied to \code{w_baf} when computing \code{CN_reliability} for windows with no BAF support (\code{w_baf == 0}). A value of 0 means z-only calls have \code{CN_reliability = 0}; 0.25 (default) allows z-only calls to reach at most 25\% of \code{post_max}. Does not affect the HMM emission or CN calling. Applies only when \code{z_only = FALSE}.
+#' @param hom_z_sigma_inflate Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.
 #' @param rerun_overall_ploidy Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.
 #' @param recycled_obj_rerun_overall_ploidy Named list for internal use during the recursive call triggered by
 #'   \code{rerun_overall_ploidy = TRUE}. Contains two elements:
@@ -156,6 +157,7 @@ hmm_estimate_CN <- function(
   het_range = c(0.2, 0.8),
   dosage_threshold = 0.6,
   z_no_baf_scale = 0.25,
+  hom_z_sigma_inflate = 1.5,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 ) {
@@ -741,10 +743,15 @@ hmm_estimate_CN <- function(
 
   # Recompute ll_em in ORIGINAL window order from converged mu/sig.
   # The EM ran on sorted windows; the decoder needs original order for correct chr labels.
+  # Per-window sigma inflation for all-hom windows (w_baf == 0) reduces z-emission
+  # discriminability in the forward-backward pass.
+  sig_dec <- rep(sig, W)
+  if (!z_only && hom_z_sigma_inflate > 1)
+    sig_dec <- ifelse(w_baf == 0, sig * hom_z_sigma_inflate, sig)
   ll_em <- matrix(NA_real_, W, K, dimnames = list(NULL, state_ids))
   for (k in seq_len(K)) {
     c_k  <- cn_grid[k]
-    llz  <- dnorm(z, mean = mu[as.character(c_k)], sd = sig, log = TRUE)
+    llz  <- dnorm(z, mean = mu[as.character(c_k)], sd = sig_dec, log = TRUE)
     llz[is.nan(llz)] <- 0
     if (z_only) {
       ll_em[, k] <- llz
@@ -776,6 +783,32 @@ hmm_estimate_CN <- function(
   }
   cn_call <- cn_grid[apply(gamma_dec, 1, which.max)]
   post_max <- apply(gamma_dec, 1, max)
+
+  # Post-processing: for chromosomes where every window has w_baf == 0, override
+  # all windows to the sample-mode CN when the chromosome mean z is within
+  # hom_z_sigma_inflate * sig of the baseline mu (reference bias).
+  # Chromosomes with larger mean z-deviation keep their decoded CN (genuine change).
+  if (!z_only && hom_z_sigma_inflate > 1) {
+    chr_all_hom  <- tapply(w_baf == 0, win_df$Chr, all, na.rm = TRUE)
+    all_hom_chrs <- names(chr_all_hom)[as.logical(chr_all_hom)]
+    if (length(all_hom_chrs) > 0) {
+      het_idx         <- w_baf > 0
+      mode_cn         <- as.integer(if (any(het_idx)) mode(cn_call[het_idx]) else round(exp_ploidy))
+      mode_col        <- which(cn_grid == mode_cn)
+      baseline_mu_val <- if (length(mode_col) == 1) mu[mode_col] else mu[which.min(abs(cn_grid - mode_cn))]
+      threshold       <- sig * hom_z_sigma_inflate
+      for (ch in all_hom_chrs) {
+        idx        <- win_df$Chr == ch
+        chr_z_mean <- mean(z[idx], na.rm = TRUE)
+        if (abs(chr_z_mean - baseline_mu_val) < threshold) {
+          cn_call[idx] <- mode_cn
+          if (length(mode_col) == 1)
+            post_max[idx] <- gamma_dec[idx, mode_col]
+        }
+      }
+    }
+  }
+
   # CN_reliability: joint confidence in both the HMM call and BAF support.
   # Low whenever post_max is low OR BAF evidence is absent; high only when both
   # the HMM is confident AND BAF data corroborates the call.
