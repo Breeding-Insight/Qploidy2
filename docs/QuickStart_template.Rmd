@@ -43,9 +43,9 @@ Define key parameters before running the analysis. Adjust these to match your da
 ```{r, eval=FALSE, echo=FALSE}
 params <- list()
 
-params$standardization_file <- "standardization.tsv.gz"
+params$standardization_file <- "blackberry_DArTag_standardization.tsv.gz"
 params$n_cores <- 3
-params$output_prefix <- "alfalfa_test"
+params$output_prefix <- "blackberry_test"
 ```
 
 ```{r parameters}
@@ -101,6 +101,7 @@ sample_id <- samples[example_sample_idx]
 cat("Loaded", length(samples), "samples\n")
 cat("Example sample:", sample_id, "\n")
 ```
+
 
 # Quality Assessment and Visualization
 
@@ -324,7 +325,6 @@ re_qploidy_standardization <- re_standardize(
   geno.pos = geno.pos,
   hmm_CN_multi = multi_esti_filtered,
   use_estimated_dosages = TRUE,
-  ploidy.standardization = ploidy_standardization,
   threshold.n.clusters = 4,
   threshold.missing.geno = 0.9,
   min.depth = min_depth,
