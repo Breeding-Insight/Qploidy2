@@ -18,8 +18,8 @@ select_best_baf_model(
   plot = FALSE,
   param_count = NULL,
   count_grid_as_params = TRUE,
-  min_het_frac = 0.05,
-  het_range = c(0.2, 0.8)
+  min_het_frac = 0.01,
+  het_range = c(0.05, 0.95)
 )
 }
 \arguments{
@@ -49,9 +49,9 @@ select_best_baf_model(
 
 \item{count_grid_as_params}{Logical. If TRUE (default), adds +1 to BIC penalty for each hyperparameter tuned by grid search (bw, and uniform_weight if used).}
 
-\item{min_het_frac}{Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded from \code{cn_grid}, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default 0.05.}
+\item{min_het_frac}{Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded from \code{cn_grid}, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default 0.01.}
 
-\item{het_range}{Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.2, 0.8)}). Values outside this range are treated as homozygous for the purpose of the \code{min_het_frac} filter.}
+\item{het_range}{Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.05, 0.95)}). Values outside this range are treated as homozygous for the purpose of the \code{min_het_frac} filter.}
 }
 \value{
 A list with the following elements:

@@ -1,3 +1,11 @@
+# Qploidy2 1.18.3
+
+* Changed default `min_het_frac` from `0.05` to `0.01` and default `het_range` from `c(0.2, 0.8)` to `c(0.05, 0.95)` in `compute_baf_likelihoods`, `select_best_baf_model`, `hmm_estimate_CN`, `call_hmm_dosages`, `select_best_raw_model`, and `re_standardize`. The wider interval and lower threshold are more appropriate for high-ploidy species where inner heterozygous peaks sit close to the boundaries, and produce fewer spurious CN=1 exclusions.
+* Allelic ratio plots now use the symbol `θ` (rendered via `expression(theta)`) instead of "Ratio" as the y-axis / x-axis label in `plot_raw` and `plot_standardization`, with facet strip labels parsed via `label_parsed`.
+* Bugfix in `re_standardize`: when `ploidy.standardization` is provided but differs from the mode CN call in `hmm_CN_multi`, a warning is issued and `ploidy.standardization` is overridden to the mode CN to avoid unexpected standardization results.
+* Fixed R CMD check NOTEs: added `CN_mode` to `globalVariables` in `export_results.R` and `CN_call_filled` to `globalVariables` in `karyotype_notation.R`.
+
+
 # Qploidy2 1.18.2
 
 * Revert mu stability guard introduced in 1.18.0: `em_hmm_cn` now always updates mu unconditionally (standard EM update with `pmax` denominator guard). The while-loop in `hmm_estimate_CN` already handles non-monotonic mu.

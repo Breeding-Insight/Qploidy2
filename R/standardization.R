@@ -712,8 +712,8 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param reflect Logical. Reflect BAF values for symmetric templates. Default: \code{TRUE}.
 ##' @param param_count Optional named integer vector. Number of free parameters per distribution for BIC penalisation. Default: \code{NULL}.
 ##' @param count_grid_as_params Logical. Add +1 BIC penalty per tuned hyperparameter. Default: \code{TRUE}.
-##' @param min_het_frac Numeric. Minimum heterozygous fraction required to exclude CN=1 from \code{cn_grid}. Default: \code{0.05}.
-##' @param het_range Numeric vector of length 2. BAF interval defining heterozygous loci. Default: \code{c(0.2, 0.8)}.
+##' @param min_het_frac Numeric. Minimum heterozygous fraction required to exclude CN=1 from \code{cn_grid}. Default: \code{0.01}.
+##' @param het_range Numeric vector of length 2. BAF interval defining heterozygous loci. Default: \code{c(0.05, 0.95)}.
 ##'
 ##' @return An object of class `qploidy_standardization` (list) with elements:
 ##'   - info: Named vector of standardization parameters
@@ -770,8 +770,8 @@ re_standardize <- function(data = NULL,
                            reflect = TRUE,
                            param_count = NULL,
                            count_grid_as_params = TRUE,
-                           min_het_frac = 0.05,
-                           het_range = c(0.2, 0.8)) {
+                           min_het_frac = 0.01,
+                           het_range = c(0.05, 0.95)) {
 
   # Check input object
   # check if hmm_CN_multi is hmm_CN class

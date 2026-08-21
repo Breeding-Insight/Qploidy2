@@ -307,9 +307,9 @@ call_BAF_dosages <- function(baf_vec, selected_model = NULL, bw = NULL, dist = N
 #' @param count_grid_as_params Logical. Add \code{+1} BIC penalty per tuned
 #'   hyperparameter. Default: \code{TRUE}.
 #' @param min_het_frac Numeric. Minimum heterozygous fraction required to
-#'   exclude CN=1 from \code{cn_grid}. Default: \code{0.05}.
+#'   exclude CN=1 from \code{cn_grid}. Default: \code{0.01}.
 #' @param het_range Numeric vector of length 2. BAF interval defining heterozygous
-#'   loci. Default: \code{c(0.2, 0.8)}.
+#'   loci. Default: \code{c(0.05, 0.95)}.
 #' @param verbose Logical. Print per-sample progress messages. Default: \code{FALSE}.
 #' @param n.cores Integer. Number of cores for parallel processing across samples.
 #'   Default: \code{1} (serial).
@@ -336,8 +336,8 @@ call_hmm_dosages <- function(hmm_CN,
                              reflect = TRUE,
                              param_count = NULL,
                              count_grid_as_params = TRUE,
-                             min_het_frac = 0.05,
-                             het_range = c(0.2, 0.8),
+                             min_het_frac = 0.01,
+                             het_range = c(0.05, 0.95),
                              verbose = FALSE,
                              n.cores = 1,
                              parallel.type = if (.Platform$OS.type == "windows") "PSOCK" else "FORK") {
