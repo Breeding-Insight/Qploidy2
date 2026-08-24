@@ -13,8 +13,8 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c(
 #'
 #' Plots CNV windows as horizontal segments for multiple samples, faceted by chromosome.
 #' Segments are colored by copy number (CN_call) using a high-contrast palette:
-#' baseline CN (most frequent, weighted by window length) is black; losses are blue;
-#' gains are red. Transparency reflects posterior confidence (post_max).
+#' baseline CN (most frequent, weighted by window length) is shown in gray; losses are blue;
+#' gains are red. Transparency reflects CN reliability (CN_reliability; falls back to post_max).
 #'
 #' @param hmm_CN An object of class hmm_CN (output from hmm_estimate_CN), containing a result data frame with columns: Sample, Chr, Start, End, CN_call, post_max, etc.
 #' @param samples_to_plot Character vector of sample IDs to include. If NULL, the first sample in the data is plotted.
@@ -234,7 +234,7 @@ compare_cn_track <- function(hmm_CN,
       "<br>post_max: ", round(plot_df$post_max, 3),
       "<br>CN_reliability: ", round(plot_df$CN_reliability, 3),
       "<br>w_baf: ", if ("w_baf" %in% names(plot_df)) round(plot_df$w_baf, 3) else "NA",
-      "<br>w_het: ", round(plot_df$n_het/plot_df$n_snps, 3)
+      "<br>w_het: ", if (all(c("n_het", "n_snps") %in% names(plot_df))) round(plot_df$n_het / pmax(plot_df$n_snps, 1), 3) else "NA"
     )
 
     # map CN colors to hex per row

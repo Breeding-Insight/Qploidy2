@@ -29,7 +29,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param baf_weight Numeric. Overall weight applied to BAF emission (0–1). Default \code{0.5}.
 #' @param z_range Numeric. Padding added to min/max z for initial mean estimation. Default \code{0.2}.
 #' @param transition_jump Numeric. Diagonal value for transition matrix (probability to stay in same CN state). Default \code{0.995}.
-#' @param initial_prob Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.95}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
+#' @param initial_prob Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.5}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
 #' @param z_only Logical. If \code{TRUE}, fit the HMM using the z-emission only (ignores BAF). Default \code{FALSE}.
 #' @param verbose Logical. If \code{TRUE}, print progress messages. Default \code{TRUE}.
 #' @param exp_ploidy Numeric. Expected ploidy value. If \code{NA} or \code{NULL}, it is set to the best CN from the BAF model. Default \code{NA}.
@@ -139,7 +139,7 @@ hmm_estimate_CN <- function(
   baf_weight = 0.5,
   z_range = NULL,
   transition_jump = 0.995, # decrease this value if you think there changes in CN is likely
-  initial_prob = 0.5, # Initial probability for the best CN state in the initial state distribution (pi0). Default 0.95. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
+  initial_prob = 0.5, # Initial probability for the best CN state in the initial state distribution (pi0). Default 0.5. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
   z_only = FALSE,
   verbose = TRUE,
   exp_ploidy = NA,
@@ -915,6 +915,7 @@ hmm_estimate_CN <- function(
       het_range = het_range,
       dosage_threshold = dosage_threshold,
       z_no_baf_scale = z_no_baf_scale,
+      hom_z_sigma_inflate = hom_z_sigma_inflate,
       rerun_overall_ploidy = FALSE,
       recycled_obj_rerun_overall_ploidy = list(rm_mks = rm_markers,
                                                recycled_d = keep_d,
