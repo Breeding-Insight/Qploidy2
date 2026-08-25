@@ -85,11 +85,11 @@ em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, 
     A <- sweep(A, 1, pmax(rowSums(A), 1e-12), "/")
     A <- pmax(A, 1e-12); A <- sweep(A, 1, rowSums(A), "/")
     # update mu and sigma
-    # Only update mu[k] when the state has meaningful total posterior weight.
-    # States with near-zero weight (never visited) have mu driven by the 1e-12
-    # guard denominator, collapsing to mean(z) and making the emission flat —
-    # which prevents the decoder from discriminating (e.g. for all-homozygous
-    # chromosomes where only z-score is available). Keeping mu at its previous
+    # Only update mu[k] when the state has meaningful total posterior weight. 
+    # States with near-zero weight (never visited) have mu driven by the 1e-12 
+    # guard denominator, collapsing to mean(z) and making the emission flat — 
+    # which prevents the decoder from discriminating (e.g. for all-homozygous 
+    # chromosomes where only z-score is available). Keeping mu at its previous 
     # (physically motivated) value avoids this collapse.
     mu_new <- as.numeric(mu)
     for (k in 1:K) {
