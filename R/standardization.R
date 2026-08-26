@@ -59,7 +59,7 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##' @param filter_R Logical. If TRUE, calculates Z-scores only for markers that passed missing data filter (default: FALSE).
 ##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
 ##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
-##' @param min_R_ratio Numeric in (0, 1) or NULL. Per-marker relative intensity filter. For each marker, the median R across all samples is computed; any sample whose R is below `min_R_ratio * median(R)` for that marker has its allele ratio, R, and genotype call set to missing. Because the threshold is expressed as a fraction of the marker-specific median, it adapts automatically to probes with different overall signal scales. Useful for array data where non-amplifying alleles produce near-background signal. Default is NULL (no filtering).
+##' @param min_R_ratio Numeric in (0, 1) or NULL. Per-marker bimodal intensity filter. For each marker, k-means (k = 2) is fitted to the R values across samples. The low cluster is flagged only when its centroid is below `min_R_ratio` times the high cluster centroid, meaning the two groups are clearly separated. Markers whose R distribution is unimodal (both centroids close together) are never filtered. A value around `0.5` flags low clusters whose mean signal is less than half that of the high cluster. Default is NULL (no filtering).
 ##'
 ##' @return An object of class `qploidy_standardization` (list) with the following components:
 ##'   - info: Named vector of standardization parameters
@@ -256,14 +256,31 @@ standardize <- function(data = NULL,
     )
   }
 
-  ## Per-marker relative intensity filter (min_R_ratio)
+  ## Per-marker bimodal R filter via k-means(k=2)
   low_R.rm <- 0L
   if (!is.null(min_R_ratio)) {
-    mk_medians  <- tapply(data$R, data$MarkerName, median, na.rm = TRUE)
-    # as.character avoids wrong integer-code indexing when MarkerName is a factor
-    marker_med  <- mk_medians[as.character(data$MarkerName)]
-    low_R_mask  <- !is.na(data$R) & (data$R < min_R_ratio * marker_med)
-    low_R.rm    <- sum(low_R_mask, na.rm = TRUE)
+    # split row indices by marker, run k-means per marker, flag the low cluster
+    # only when low_centroid / high_centroid < min_R_ratio (unimodal markers unaffected)
+    marker_idx_list <- split(seq_len(nrow(data)), data$MarkerName)
+    low_R_list <- lapply(marker_idx_list, function(idx) {
+      r      <- data$R[idx]
+      valid  <- !is.na(r)
+      result <- logical(length(idx))
+      if (sum(valid) < 4 || length(unique(r[valid])) < 2) return(result)
+      km <- tryCatch(
+        kmeans(r[valid], centers = 2, nstart = 1, iter.max = 20),
+        error = function(e) NULL
+      )
+      if (is.null(km)) return(result)
+      ctrs <- sort(km$centers)
+      if (ctrs[1] / ctrs[2] >= min_R_ratio) return(result)
+      low_cl <- which.min(km$centers)
+      result[valid] <- km$cluster == low_cl
+      result
+    })
+    ord <- order(unlist(marker_idx_list, use.names = FALSE))
+    low_R_mask <- unlist(low_R_list, use.names = FALSE)[ord]
+    low_R.rm   <- sum(low_R_mask, na.rm = TRUE)
     if (low_R.rm > 0) {
       data$X[low_R_mask]     <- NA
       data$Y[low_R_mask]     <- NA
@@ -279,7 +296,7 @@ standardize <- function(data = NULL,
       genos$geno[genos_hash %in% low_R_hash] <- NA
     }
     vmsg(
-      "Datapoints set to NA by per-marker low-R filter (min_R_ratio = %s): %s (%.2f %%)",
+      "Datapoints set to NA by k-means low-R cluster filter (min_R_ratio = %s): %s (%.2f %%)",
       verbose = verbose, level = 2, type = ">>",
       min_R_ratio, low_R.rm, low_R.rm / nrow(data) * 100
     )
@@ -740,7 +757,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param verbose Logical. Print progress messages. Default is TRUE.
 ##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value are set to missing before standardization. Default is NULL (no filtering).
 ##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value are set to missing before standardization. Default is NULL (no filtering).
-##' @param min_R_ratio Numeric in (0, 1) or NULL. Per-marker relative intensity filter passed to `standardize()`. Default is NULL (no filtering).
+##' @param min_R_ratio Numeric in (0, 1) or NULL. Per-marker bimodal intensity filter (k-means cluster ratio) passed to `standardize()`. Default is NULL (no filtering).
 ##' @param cn_grid Integer vector or \code{NULL}. Copy number states for per-sample BAF model selection. When \code{NULL} (default), the value stored in \code{hmm_CN_multi$params_samples} is used; falls back to \code{2:8} if absent.
 ##' @param dists Character vector or \code{NULL}. Distribution families to test. When \code{NULL} (default), the distribution stored in the params is used; falls back to all four families if absent.
 ##' @param bw_grid Numeric vector or \code{NULL}. Bandwidth values to search. When \code{NULL} (default), the bandwidth from params is used; falls back to \code{c(0.02, 0.03, 0.04)} if absent.
