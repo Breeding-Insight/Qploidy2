@@ -260,7 +260,8 @@ standardize <- function(data = NULL,
   low_R.rm <- 0L
   if (!is.null(min_R_ratio)) {
     mk_medians  <- tapply(data$R, data$MarkerName, median, na.rm = TRUE)
-    marker_med  <- mk_medians[data$MarkerName]
+    # as.character avoids wrong integer-code indexing when MarkerName is a factor
+    marker_med  <- mk_medians[as.character(data$MarkerName)]
     low_R_mask  <- !is.na(data$R) & (data$R < min_R_ratio * marker_med)
     low_R.rm    <- sum(low_R_mask, na.rm = TRUE)
     if (low_R.rm > 0) {
