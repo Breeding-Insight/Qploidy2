@@ -23,7 +23,8 @@ standardize(
   cluster_median = TRUE,
   filter_R = FALSE,
   min.depth = NULL,
-  max.depth = NULL
+  max.depth = NULL,
+  min_R_ratio = NULL
 )
 }
 \arguments{
@@ -77,6 +78,8 @@ standardize(
 \item{min.depth}{Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).}
 
 \item{max.depth}{Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).}
+
+\item{min_R_ratio}{Numeric in (0, 1) or NULL. Per-marker relative intensity filter. For each marker, the median R across all samples is computed; any sample whose R is below `min_R_ratio * median(R)` for that marker has its allele ratio, R, and genotype call set to missing. Because the threshold is expressed as a fraction of the marker-specific median, it adapts automatically to probes with different overall signal scales. Useful for array data where non-amplifying alleles produce near-background signal. Default is NULL (no filtering).}
 }
 \value{
 An object of class `qploidy_standardization` (list) with the following components:

@@ -59,6 +59,7 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##' @param filter_R Logical. If TRUE, calculates Z-scores only for markers that passed missing data filter (default: FALSE).
 ##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
 ##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
+##' @param min_R_ratio Numeric in (0, 1) or NULL. Per-marker relative intensity filter. For each marker, the median R across all samples is computed; any sample whose R is below `min_R_ratio * median(R)` for that marker has its allele ratio, R, and genotype call set to missing. Because the threshold is expressed as a fraction of the marker-specific median, it adapts automatically to probes with different overall signal scales. Useful for array data where non-amplifying alleles produce near-background signal. Default is NULL (no filtering).
 ##'
 ##' @return An object of class `qploidy_standardization` (list) with the following components:
 ##'   - info: Named vector of standardization parameters
@@ -104,7 +105,8 @@ standardize <- function(data = NULL,
                         cluster_median = TRUE,
                         filter_R = FALSE,
                         min.depth = NULL,
-                        max.depth = NULL){
+                        max.depth = NULL,
+                        min_R_ratio = NULL){
 
   missing_inputs <- c(
     if (is.null(data))                    "data",
@@ -175,6 +177,10 @@ standardize <- function(data = NULL,
     stop("'max.depth' must be a single non-negative numeric value or NULL.")
   if (!is.null(min.depth) && !is.null(max.depth) && min.depth >= max.depth)
     stop("'min.depth' must be strictly less than 'max.depth'.")
+
+  if (!is.null(min_R_ratio) && (!is.numeric(min_R_ratio) || length(min_R_ratio) != 1 ||
+      min_R_ratio <= 0 || min_R_ratio >= 1))
+    stop("'min_R_ratio' must be a single numeric value in (0, 1) or NULL.")
 
   if (!is.null(multidog_obj) && !inherits(multidog_obj, "multidog"))
     stop("'multidog_obj' must be an object of class 'multidog' (from the updog package) or NULL.")
@@ -247,6 +253,33 @@ standardize <- function(data = NULL,
       "Datapoints removed by depth filter (%s): %s (%.2f %%)",
       verbose = verbose, level = 2, type = ">>",
       depth_range_str, depth.rm, depth.rm / nrow(data) * 100
+    )
+  }
+
+  ## Per-marker relative intensity filter (min_R_ratio)
+  low_R.rm <- 0L
+  if (!is.null(min_R_ratio)) {
+    # compute per-marker median R, then flag samples below the relative threshold
+    mk_medians  <- tapply(data$R, data$MarkerName, median, na.rm = TRUE)
+    marker_med  <- mk_medians[data$MarkerName]
+    low_R_mask  <- !is.na(data$R) & (data$R < min_R_ratio * marker_med)
+    low_R.rm    <- sum(low_R_mask, na.rm = TRUE)
+    if (low_R.rm > 0) {
+      data$ratio[low_R_mask] <- NA
+      data$R[low_R_mask]     <- NA
+      mk_levels  <- unique(c(data$MarkerName, genos$MarkerName))
+      sa_levels  <- unique(c(data$SampleName, genos$SampleName))
+      n_sa       <- length(sa_levels)
+      low_R_hash <- match(data$MarkerName[low_R_mask], mk_levels) * n_sa +
+                    match(data$SampleName[low_R_mask], sa_levels)
+      genos_hash <- match(genos$MarkerName, mk_levels) * n_sa +
+                    match(genos$SampleName, sa_levels)
+      genos$geno[genos_hash %in% low_R_hash] <- NA
+    }
+    vmsg(
+      "Datapoints removed by per-marker low-R filter (min_R_ratio = %s): %s (%.2f %%)",
+      verbose = verbose, level = 2, type = ">>",
+      min_R_ratio, low_R.rm, low_R.rm / nrow(data) * 100
     )
   }
 
@@ -420,12 +453,14 @@ standardize <- function(data = NULL,
                                     threshold.n.clusters = threshold.n.clusters,
                                     min.depth = if (!is.null(min.depth)) min.depth else NA,
                                     max.depth = if (!is.null(max.depth)) max.depth else NA,
+                                    min_R_ratio = if (!is.null(min_R_ratio)) min_R_ratio else NA,
                                     samples.rm.ids = paste(samples.rm.ids, collapse = ","),
                                     out_filename = out_filename,
                                     type = if(!is.null(multidog_obj)) "updog" else type),
                            filters = c(n.markers.start = length(unique(data$MarkerName)),
                                        geno.prob.rm = prob.rm,
                                        depth.rm = depth.rm,
+                                       low_R.rm = low_R.rm,
                                        samples.rm = length(samples.rm.ids),
                                        miss.rm = mis.rm,
                                        clusters.rm= clusters.rm,

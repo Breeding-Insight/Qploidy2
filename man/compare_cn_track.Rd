@@ -41,6 +41,6 @@ A ggplot/ggarrange object (static), or a plotly figure when \code{interactive = 
 \description{
 Plots CNV windows as horizontal segments for multiple samples, faceted by chromosome.
 Segments are colored by copy number (CN_call) using a high-contrast palette:
-baseline CN (most frequent, weighted by window length) is black; losses are blue;
-gains are red. Transparency reflects posterior confidence (post_max).
+baseline CN (most frequent, weighted by window length) is shown in gray; losses are blue;
+gains are red. Transparency reflects CN reliability (CN_reliability; falls back to post_max).
 }
