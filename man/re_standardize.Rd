@@ -24,6 +24,7 @@ re_standardize(
   verbose = TRUE,
   min.depth = NULL,
   max.depth = NULL,
+  min_R_ratio = NULL,
   cn_grid = NULL,
   dists = NULL,
   bw_grid = NULL,
@@ -84,6 +85,8 @@ re_standardize(
 \item{min.depth}{Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value are set to missing before standardization. Default is NULL (no filtering).}
 
 \item{max.depth}{Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value are set to missing before standardization. Default is NULL (no filtering).}
+
+\item{min_R_ratio}{Numeric in (0, 1) or NULL. Per-marker relative intensity filter passed to `standardize()`. Default is NULL (no filtering).}
 
 \item{cn_grid}{Integer vector or \code{NULL}. Copy number states for per-sample BAF model selection. When \code{NULL} (default), the value stored in \code{hmm_CN_multi$params_samples} is used; falls back to \code{2:8} if absent.}
 

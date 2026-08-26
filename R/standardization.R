@@ -738,6 +738,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param verbose Logical. Print progress messages. Default is TRUE.
 ##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value are set to missing before standardization. Default is NULL (no filtering).
 ##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value are set to missing before standardization. Default is NULL (no filtering).
+##' @param min_R_ratio Numeric in (0, 1) or NULL. Per-marker relative intensity filter passed to `standardize()`. Default is NULL (no filtering).
 ##' @param cn_grid Integer vector or \code{NULL}. Copy number states for per-sample BAF model selection. When \code{NULL} (default), the value stored in \code{hmm_CN_multi$params_samples} is used; falls back to \code{2:8} if absent.
 ##' @param dists Character vector or \code{NULL}. Distribution families to test. When \code{NULL} (default), the distribution stored in the params is used; falls back to all four families if absent.
 ##' @param bw_grid Numeric vector or \code{NULL}. Bandwidth values to search. When \code{NULL} (default), the bandwidth from params is used; falls back to \code{c(0.02, 0.03, 0.04)} if absent.
@@ -796,6 +797,7 @@ re_standardize <- function(data = NULL,
                            verbose = TRUE,
                            min.depth = NULL,
                            max.depth = NULL,
+                           min_R_ratio = NULL,
                            cn_grid = NULL,
                            dists = NULL,
                            bw_grid = NULL,
@@ -904,7 +906,8 @@ re_standardize <- function(data = NULL,
     cluster_median = cluster_median,
     verbose = verbose,
     min.depth = min.depth,
-    max.depth = max.depth
+    max.depth = max.depth,
+    min_R_ratio = min_R_ratio
   )
 
   return(re_qploidy_standardization)
