@@ -264,6 +264,8 @@ standardize <- function(data = NULL,
     low_R_mask  <- !is.na(data$R) & (data$R < min_R_ratio * marker_med)
     low_R.rm    <- sum(low_R_mask, na.rm = TRUE)
     if (low_R.rm > 0) {
+      data$X[low_R_mask]     <- NA
+      data$Y[low_R_mask]     <- NA
       data$ratio[low_R_mask] <- NA
       data$R[low_R_mask]     <- NA
       mk_levels  <- unique(c(data$MarkerName, genos$MarkerName))
