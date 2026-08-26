@@ -1,3 +1,9 @@
+# Qploidy2 1.18.4
+
+* New parameter `min_R_ratio` in `standardize()`. For each marker, any sample whose R is below `min_R_ratio * median(R)` for that marker has its allele ratio, R, and genotype call set to missing, propagating NA to BAF and z-score. The threshold is marker-relative, so it adapts automatically to probes with different absolute signal scales — addressing array background intensity in markers that do not amplify for a given genome or sub-genome.
+
+
+
 # Qploidy2 1.18.3
 
 * Reverted the unconditional mu update in `em_hmm_cn` back to the conditional guard, as the unconditional change introduced downstream bugs.
