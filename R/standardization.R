@@ -257,16 +257,15 @@ standardize <- function(data = NULL,
   }
 
   ## Per-marker relative intensity filter (min_R_ratio)
-  ## R and ratio are kept intact; only baf and z are set to NA (applied post-merge)
-  low_R.rm    <- 0L
-  low_R_pairs <- NULL
+  low_R.rm <- 0L
   if (!is.null(min_R_ratio)) {
     mk_medians  <- tapply(data$R, data$MarkerName, median, na.rm = TRUE)
     marker_med  <- mk_medians[data$MarkerName]
     low_R_mask  <- !is.na(data$R) & (data$R < min_R_ratio * marker_med)
     low_R.rm    <- sum(low_R_mask, na.rm = TRUE)
     if (low_R.rm > 0) {
-      # null geno calls to exclude flagged entries from cluster centre estimation
+      data$ratio[low_R_mask] <- NA
+      data$R[low_R_mask]     <- NA
       mk_levels  <- unique(c(data$MarkerName, genos$MarkerName))
       sa_levels  <- unique(c(data$SampleName, genos$SampleName))
       n_sa       <- length(sa_levels)
@@ -275,12 +274,9 @@ standardize <- function(data = NULL,
       genos_hash <- match(genos$MarkerName, mk_levels) * n_sa +
                     match(genos$SampleName, sa_levels)
       genos$geno[genos_hash %in% low_R_hash] <- NA
-      # store (marker, sample) pairs; baf and z will be nulled after final merge
-      low_R_pairs <- paste(data$MarkerName[low_R_mask],
-                           data$SampleName[low_R_mask], sep = "|||")
     }
     vmsg(
-      "Datapoints with BAF/z set to NA by per-marker low-R filter (min_R_ratio = %s): %s (%.2f %%)",
+      "Datapoints set to NA by per-marker low-R filter (min_R_ratio = %s): %s (%.2f %%)",
       verbose = verbose, level = 2, type = ">>",
       min_R_ratio, low_R.rm, low_R.rm / nrow(data) * 100
     )
@@ -448,14 +444,6 @@ standardize <- function(data = NULL,
   marker_idx <- match(qploidy_data$MarkerName, geno.pos$MarkerName)
   qploidy_data$Chr <- geno.pos$Chromosome[marker_idx]
   qploidy_data$Position <- as.numeric(geno.pos$Position[marker_idx])
-
-  # Null baf and z for low-R flagged entries; R and ratio are preserved
-  if (!is.null(low_R_pairs)) {
-    qp_key <- paste(qploidy_data$MarkerName, qploidy_data$SampleName, sep = "|||")
-    low_R_idx <- qp_key %in% low_R_pairs
-    qploidy_data$baf[low_R_idx] <- NA
-    qploidy_data$z[low_R_idx]   <- NA
-  }
 
   result <- structure(list(info = c(threshold.missing.geno = threshold.missing.geno,
                                     threshold.missing.samples = threshold.missing.samples,
