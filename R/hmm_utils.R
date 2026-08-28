@@ -236,11 +236,16 @@ define_z_limits <- function(z, z_window, cn_grid, exp_ploidy, z_range = NULL, ve
   cmin <- min(cn_grid)
   cmax <- max(cn_grid)
 
-  step_lo <- if (exp_ploidy > cmin) (z_mean - z_lo) / (exp_ploidy - cmin) else 0
-  step_hi <- if (exp_ploidy < cmax) (z_hi  - z_mean) / (cmax - exp_ploidy) else 0
-  step    <- max(step_lo, step_hi, 1e-6)
+  step_lo <- if (exp_ploidy > cmin) max((z_mean - z_lo) / (exp_ploidy - cmin), 1e-6) else 1e-6
+  step_hi <- if (exp_ploidy < cmax) max((z_hi  - z_mean) / (cmax - exp_ploidy), 1e-6) else 1e-6
 
-  mu_vec <- z_mean + step * (as.numeric(cn_grid) - exp_ploidy)
+  # Use directional steps so that asymmetric z-deviations (e.g. loss stronger than
+  # gain in a homeologous exchange) do not misplace mu on the smaller-deviation side.
+  mu_vec <- z_mean + ifelse(
+    as.numeric(cn_grid) <= exp_ploidy,
+    step_lo * (as.numeric(cn_grid) - exp_ploidy),
+    step_hi * (as.numeric(cn_grid) - exp_ploidy)
+  )
   mu     <- setNames(mu_vec, as.character(cn_grid))
   mu <- mu[state_ids]
   return(mu)

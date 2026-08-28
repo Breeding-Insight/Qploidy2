@@ -3,6 +3,8 @@
 * Add function `split_mk_type` for segmental allopolyploid species analysis. It split sub-genome specific from not sub-genome specific markers
 using reference diploid samples.
 * Improved segmental aneuploidy detection in `hmm_estimate_CN`: the per-chromosome forward pass in `fb_smooth` is now initialised from a `pi0` derived by summing BAF log-likelihoods across all windows of the chromosome, rather than a uniform distribution. This prevents a high z-score in the first window from anchoring the forward pass in the wrong CN state and calling the whole chromosome at an incorrect ploidy when the BAF profile clearly supports a different CN.
+* Fixed asymmetric copy-number gain/loss detection in `define_z_limits`. Previously a single step shared by all CN states was set to the larger of the below- and above-`exp_ploidy` z-deviations, which misplaced the initial mean for the smaller-deviation side (e.g. a gain weaker than a co-occurring loss in a homeologous exchange). Now directional steps are used: `step_lo` initialises mu for CN states below `exp_ploidy` and `step_hi` for CN states above, so both sides are correctly calibrated from the start of the EM.
+* Added `cn0_background_frac` parameter to `hmm_estimate_CN` (default `0`). Array probes emit residual background signal even at CN=0, which elevates the observed z-score above the zero-signal linear extrapolation. When `0` is included in `cn_grid`, setting `cn0_background_frac` to the expected background fraction (e.g. `0.2` for 20% of per-copy signal) shifts the initial `mu[0]` upward by `cn0_background_frac * (mu[1] - mu[0])`, correctly placing the CN=0 emission template at the background-elevated z. CN=0 is now also allowed in `cn_grid` (previously restricted to values ≥ 1).
 
 # Qploidy2 1.18.3
 

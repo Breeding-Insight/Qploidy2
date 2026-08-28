@@ -22,7 +22,8 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param add_uniform Logical. If TRUE, add a uniform noise component to the
 #'   mixture before renormalization. Default FALSE.
 #' @param min_snps_per_window Integer. Minimum SNPs required to keep a window. If NULL, a dynamic value is chosen based on chromosome size (see code for details). Windows with fewer SNPs are dropped. Default: NULL (dynamic), or user-specified value.
-#' @param cn_grid Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 1-10. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.
+#' @param cn_grid Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 0-10. Include \code{0} to allow nullisomy calls; see also \code{cn0_background_frac}. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.
+#' @param cn0_background_frac Numeric in [0, 1]. Array probes emit residual background signal even at CN=0, which elevates the z-score above the linear extrapolation. This parameter shifts the initial \code{mu[0]} upward by \code{cn0_background_frac * (mu[1] - mu[0])}, placing it at the expected background-elevated z rather than the theoretical zero-signal floor. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0} (no background correction; suitable for sequencing data).
 #' @param M Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.
 #' @param max_iter Integer. Maximum EM iterations. Default \code{60}.
 #' @param het_quantile Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.
@@ -158,6 +159,7 @@ hmm_estimate_CN <- function(
   dosage_threshold = 0.6,
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
+  cn0_background_frac = 0,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 ) {
@@ -171,7 +173,7 @@ hmm_estimate_CN <- function(
   } else {
     vmsg("Preparing inputs and applying initial filters", verbose = verbose, level = 0, type = ">>")
 
-    if(any(cn_grid < 1) | any(cn_grid > 10)) stop("All values in cn_grid must be between 1 and 10.")
+    if(any(cn_grid < 0) | any(cn_grid > 10)) stop("All values in cn_grid must be between 0 and 10.")
 
     if (!is.character(sample_id) || length(sample_id) != 1 || nchar(sample_id) == 0) {
       stop("sample_id must be a non-empty character scalar.")
@@ -279,7 +281,7 @@ hmm_estimate_CN <- function(
     selected_model <- select_best_baf_model(
       baf_vec = bafs_overall,
       sample = sample_id,
-      cn_grid = cn_grid,
+      cn_grid = cn_grid[cn_grid >= 1L],  # BAF is undefined at CN=0
       dists = dists,
       M = M,
       reflect = reflect,
@@ -638,6 +640,9 @@ hmm_estimate_CN <- function(
     z = d[[z_col]], z_window = z, cn_grid = cn_grid,
     exp_ploidy = exp_ploidy, z_range = z_range, verbose = verbose
   )
+  # Array background raises CN=0 z above the zero-signal floor; shift mu[0] accordingly.
+  if (0 %in% cn_grid && cn0_background_frac > 0 && "0" %in% names(mu) && "1" %in% names(mu))
+    mu["0"] <- mu["0"] + cn0_background_frac * (mu["1"] - mu["0"])
 
   # sig is the (shared) standard deviation of the z emission across states.
   # It starts at the sample SD of z, with a safety floor of 0.1 to avoid zero/near-zero variance that would blow up log-likelihoods.
@@ -720,6 +725,8 @@ hmm_estimate_CN <- function(
       z = d[[z_col]], z_window = z, cn_grid = cn_grid,
       exp_ploidy = exp_ploidy, z_range_out = FALSE, verbose = verbose
     ) # redefine mu with the new cn_grid, but without z_range to avoid changing the limits too much and keep the same order of the ploidies, which is already checked in the previous steps
+    if (0 %in% cn_grid && cn0_background_frac > 0 && "0" %in% names(mu) && "1" %in% names(mu))
+      mu["0"] <- mu["0"] + cn0_background_frac * (mu["1"] - mu["0"])
     K <- length(cn_grid)
     ll_baf_matrix <- ll_baf_matrix[, valid_idx]
     ll_baf_em     <- ll_baf_matrix[em_perm, , drop = FALSE]
@@ -790,8 +797,11 @@ hmm_estimate_CN <- function(
     }
     gamma_dec[idx, ] <- fb_smooth(ll_em[idx, , drop = FALSE], log(A_dec), logpi0_chr)
   }
-  cn_call <- cn_grid[apply(gamma_dec, 1, which.max)]
+  cn_call  <- cn_grid[apply(gamma_dec, 1, which.max)]
   post_max <- apply(gamma_dec, 1, max)
+  # CN=0 windows carry only background array signal; treat as missing like sequencing gaps.
+  cn_call[cn_call == 0] <- NA_integer_
+  post_max[is.na(cn_call)] <- NA_real_
 
   # Post-processing: for chromosomes where every window has w_baf == 0, override
   # all windows to the sample-mode CN when the chromosome mean z is within
@@ -870,7 +880,8 @@ hmm_estimate_CN <- function(
     snps_per_window = snps_per_window,
     min_snps_per_window = min_snps_per_window,
     add_uniform = add_uniform,
-    uniform_weight = selected_model$best$uniform_weight
+    uniform_weight = selected_model$best$uniform_weight,
+    cn0_background_frac = cn0_background_frac
   )
 
   if (!is.null(result) && !is.null(d)) {
@@ -925,6 +936,7 @@ hmm_estimate_CN <- function(
       dosage_threshold = dosage_threshold,
       z_no_baf_scale = z_no_baf_scale,
       hom_z_sigma_inflate = hom_z_sigma_inflate,
+      cn0_background_frac = cn0_background_frac,
       rerun_overall_ploidy = FALSE,
       recycled_obj_rerun_overall_ploidy = list(rm_mks = rm_markers,
                                                recycled_d = keep_d,
