@@ -65,6 +65,97 @@ viterbi <- function(ll_em, logA, logpi0) {
   path
 }
 
+#' Smoothed posteriors via forward-backward
+#'
+#' Runs one forward-backward pass on the converged emission matrix.  If
+#' \code{logpi0} is supplied the forward pass is initialised from that
+#' distribution; otherwise a uniform distribution is used.  Passing a
+#' BAF-derived \code{logpi0} prevents a noisy first-window z-score from
+#' anchoring the forward pass in the wrong CN state for the whole chromosome.
+#'
+#' @param ll_em  Numeric matrix (W x K). Final emission log-likelihoods from EM.
+#' @param logA   Numeric matrix (K x K). Converged log transition probabilities.
+#' @param logpi0 Numeric vector of length K, or NULL for uniform. Log initial
+#'   state probabilities for the forward pass.
+#'
+#' @return Numeric matrix (W x K). Row-normalised posterior probabilities.
+#'
+#' @keywords internal
+#' @noRd
+fb_smooth <- function(ll_em, logA, logpi0 = NULL) {
+  W <- nrow(ll_em); K <- ncol(ll_em)
+  if (is.null(logpi0)) logpi0 <- rep(-log(K), K)
+
+  if (W == 1L) {
+    log_e1 <- logpi0 + ll_em[1, ]
+    log_gamma <- matrix(log_e1 - logsumexp(log_e1), nrow = 1)
+    return(exp(log_gamma))
+  }
+
+  log_alpha <- matrix(-Inf, W, K)
+  log_alpha[1, ] <- logpi0 + ll_em[1, ]
+  for (i in 2:W) {
+    for (k in 1:K) {
+      log_alpha[i, k] <- ll_em[i, k] + logsumexp(log_alpha[i - 1, ] + logA[, k])
+    }
+  }
+
+  log_beta <- matrix(0, W, K)
+  for (i in (W - 1):1) {
+    for (k in 1:K) {
+      log_beta[i, k] <- logsumexp(logA[k, ] + ll_em[i + 1, ] + log_beta[i + 1, ])
+    }
+  }
+
+  log_gamma <- log_alpha + log_beta
+  log_gamma <- sweep(log_gamma, 1, apply(log_gamma, 1, logsumexp), "-")
+  exp(log_gamma)
+}
+
+#' Bidirectional Viterbi decoding (max-product forward-backward)
+#'
+#' Combines a standard forward max-pass (delta) with a backward max-pass (beta)
+#' so that every window, including the first, is scored using evidence from the
+#' full observation chain.  At each position the state is chosen as
+#' \code{argmax_k delta[t,k] + beta[t,k]}.  The forward pass uses a uniform
+#' initial distribution so window 1 is treated symmetrically with all others
+#' (the backward pass already starts uniformly at window W).  logpi0 is accepted
+#' but intentionally not used in the forward initialisation.
+#'
+#' @param ll_em Numeric matrix (W x K). Emission log-likelihoods.
+#' @param logA  Numeric matrix (K x K). Log transition probabilities (row = from, col = to).
+#' @param logpi0 Numeric vector of length K. Accepted for interface compatibility; not used.
+#'
+#' @return Integer vector of length W. 1-based state indices.
+#'
+#' @keywords internal
+#' @noRd
+viterbi_bidi <- function(ll_em, logA, logpi0) {
+  W <- nrow(ll_em); K <- ncol(ll_em)
+
+  if (W == 1L) return(which.max(ll_em[1, ]))
+
+  # Forward max pass — uniform init so window 1 is not biased by pi0
+  delta <- matrix(-Inf, W, K)
+  delta[1, ] <- ll_em[1, ]
+  for (i in 2:W) {
+    for (k in 1:K) {
+      delta[i, k] <- ll_em[i, k] + max(delta[i - 1, ] + logA[, k])
+    }
+  }
+
+  # Backward max pass: beta[t,k] = max log-prob of obs t+1..W given state k at t
+  beta <- matrix(0, W, K)          # beta[W, ] = log(1) = 0
+  for (i in (W - 1):1) {
+    for (k in 1:K) {
+      beta[i, k] <- max(logA[k, ] + ll_em[i + 1, ] + beta[i + 1, ])
+    }
+  }
+
+  # Decode: each position independently picks the globally best-supported state
+  apply(delta + beta, 1, which.max)
+}
+
 #' Internal worker for parallel HMM CN estimation
 #'
 #' Runs hmm_estimate_CN for a single sample within a parallel loop, forwarding arguments.

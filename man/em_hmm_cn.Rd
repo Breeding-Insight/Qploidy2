@@ -20,7 +20,8 @@ em_hmm_cn(
   pi0,
   W,
   max_iter,
-  verbose
+  verbose,
+  update_pi0 = FALSE
 )
 }
 \arguments{
@@ -55,6 +56,8 @@ em_hmm_cn(
 \item{max_iter}{Maximum EM iterations}
 
 \item{verbose}{Logical, print progress}
+
+\item{update_pi0}{Logical. If \code{TRUE}, update the initial state distribution \code{pi0} at each M-step using the first-window posterior. Default \code{FALSE}: \code{pi0} is kept fixed to prevent a feedback loop where \code{pi0 <- gamma[1,] <- pi0} can converge to a wrong state driven by whichever CN happens to dominate the first window.}
 }
 \value{
 List with updated parameters: mu, cn_grid, K, state_ids, sig, gamma, ll_em, pi0, A, ll_hist

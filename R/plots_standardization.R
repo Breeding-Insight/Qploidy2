@@ -269,7 +269,7 @@ plot_baf_hist <- function(data_sample,
   col_bar      <- "#0072B2"   # blue          – default bar fill
   col_expected <- "#D55E00"   # vermillion    – expected peak
   col_estimated <- "#56B4E9"  # sky blue      – estimated peak
-  x_label <- if (ratio) "Ratio" else "BAF"
+  x_label <- if (ratio) expression(theta) else "BAF"
 
   if (!BAF_hist_overall) {
     p_hist <- data_sample2 %>% ggplot(aes(x = sample)) +
@@ -742,6 +742,7 @@ plot_qploidy_standardization <- function(x,
       geom_point(alpha = 0.7, size = dot.size) +
       facet_grid(. ~ Chr, scales = "free") +
       theme_bw() +
+      ylab(expression(theta)) +
       theme(
         axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
         text = element_text(size = font_size)
@@ -1547,7 +1548,8 @@ plot_geno_by_marker <- function(df, ploidy = NULL, marker = NULL, alpha = 0.6) {
       values_to = "value"
     ) %>%
     mutate(
-      metric = factor(metric, levels = c("ratio", "baf"))  # ratio on top
+      metric = factor(metric, levels = c("ratio", "baf"),
+                       labels = c("theta", "BAF"))  # ratio on top
     )
 
   # Build factor levels: numeric dosages first, then "unknown" only when NAs exist
@@ -1608,7 +1610,8 @@ plot_geno_by_marker <- function(df, ploidy = NULL, marker = NULL, alpha = 0.6) {
     facet_grid(
       rows = vars(metric),
       cols = vars(MarkerName),
-      scales = "free_y"
+      scales = "free_y",
+      labeller = label_parsed
     ) +
     scale_color_manual(
       name = NULL,

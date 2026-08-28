@@ -1,3 +1,5 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c("CN_mode"))
+
 #' Summarize copy number mode and posterior probability
 #'
 #' Summarizes the mode of copy number calls and the mean maximum posterior probability per sample,

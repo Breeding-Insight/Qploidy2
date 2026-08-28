@@ -1,3 +1,76 @@
+# Qploidy2 1.19.0
+
+* Add function `split_mk_type` for segmental allopolyploid species analysis. It split sub-genome specific from not sub-genome specific markers
+using reference diploid samples.
+* Improved segmental aneuploidy detection in `hmm_estimate_CN`: the per-chromosome forward pass in `fb_smooth` is now initialised from a `pi0` derived by summing BAF log-likelihoods across all windows of the chromosome, rather than a uniform distribution. This prevents a high z-score in the first window from anchoring the forward pass in the wrong CN state and calling the whole chromosome at an incorrect ploidy when the BAF profile clearly supports a different CN.
+
+# Qploidy2 1.18.3
+
+* Reverted the unconditional mu update in `em_hmm_cn` back to the conditional guard, as the unconditional change introduced downstream bugs.
+* Changed default `min_het_frac` from `0.05` to `0.01` and default `het_range` from `c(0.2, 0.8)` to `c(0.05, 0.95)` in `compute_baf_likelihoods`, `select_best_baf_model`, `hmm_estimate_CN`, `call_hmm_dosages`, `select_best_raw_model`, and `re_standardize`. The wider interval and lower threshold are more appropriate for high-ploidy species where inner heterozygous peaks sit close to the boundaries, and produce fewer spurious CN=1 exclusions.
+* Allelic ratio plots now use the symbol `θ` (rendered via `expression(theta)`) instead of "Ratio" as the y-axis / x-axis label in `plot_raw` and `plot_standardization`, with facet strip labels parsed via `label_parsed`.
+* Bugfix in `re_standardize`: when `ploidy.standardization` is provided but differs from the mode CN call in `hmm_CN_multi`, a warning is issued and `ploidy.standardization` is overridden to the mode CN to avoid unexpected standardization results.
+* Fixed R CMD check NOTEs: added `CN_mode` to `globalVariables` in `export_results.R` and `CN_call_filled` to `globalVariables` in `karyotype_notation.R`.
+
+
+# Qploidy2 1.18.2
+
+* Revert mu stability guard introduced in 1.18.0: `em_hmm_cn` now always updates mu unconditionally (standard EM update with `pmax` denominator guard). The while-loop in `hmm_estimate_CN` already handles non-monotonic mu.
+* Add `hom_z_sigma_inflate` parameter to `hmm_estimate_CN` (default `1.5`). Applies two corrections for all-homozygous windows (`w_baf == 0`): (1) sigma is inflated by this factor during decoding to reduce z-emission discriminability; (2) post-decoding, chromosomes where every window has `w_baf == 0` are overridden to the sample-mode CN if their mean z-score is within `hom_z_sigma_inflate * sigma` of the baseline — suppressing false positive CNV calls driven by reference-homozygous depth bias while preserving genuine CN changes with larger z-deviations.
+* CN=1 samples are now labelled "1x or inbred" instead of "1x" in `compare_cn_track_summary` right-side block annotations, `count_types` printed summary, and `print.count_types` per-type rows.
+* Bugfix on `re_standardize` - when `use_estimated_dosages = TRUE` and majority of CN estimated doesn't match `ploidy.standardization` defined, replace the value by the majority estimated and warn the user with message
+
+# Qploidy2 1.18.1
+
+* Bugfix on `fb_smooth` when there is only one window at the chromosome
+* Adapt `plot_karyotype` to objects coming from `filter_hmm_cn`. Now, a gray bar is plotted on filtered regions
+* Add color option by `CN_reliability` on `plot_karyotype`
+* Add `CN_reliability` to results by window 
+* Add generalized Rmd document to reproduce alfalfa tutorial with any `qploidy_standardized` initial file
+* Update alfalfa tutorial adding new functions
+
+# Qploidy2 1.18.0
+
+## HMM stability improvements
+
+### Issue 1 – First window of the first chromosome had higher CN variation
+
+**Changes that remained in the EM (`em_hmm_cn.R`)**:
+
+* `update_pi0 = FALSE` (default)
+* Mu stability guard
+
+**Changes in the decoder (`hmm_main.R`)**:
+
+* Per-chromosome forward-backward decoding(`fb_smooth`)
+* Prior transition matrix for decoding (`A_dec`)
+
+### Issue 2 – Higher variation in all-homozygous chromosomes
+
+* New output metric (`CN_reliability`): `hmm_estimate_CN` now returns a `CN_reliability` column in `by_window`
+* hmm results plots updated with this new metric
+
+### Issue 3 – CN estimation results differed based on chromosome ordering / naming
+
+**Changes in `hmm_main.R`**:
+
+* Sort windows by chromosome z-deviation before the EM
+* Recompute `ll_em` in original window order after the EM
+
+## New functions
+
+* `compare_cn_track_summary` — karyotype-style matrix (samples × chromosomes),
+  ordered by sample-level CN and ploidy category (euploid / aneuploid /
+  segmental), with colour-coded tiles, separating lines, and right-side labels.
+  Accepts `filter_type` and `filter_cn` arguments.
+* `filter_hmm_CN` — masks CN calls (sets to `NA`) in windows that fail one or
+  more quality thresholds: `min_CN_reliability`, `min_post_max`, `min_w_baf`,
+  `min_n_snps`, `min_n_het`, `min_window_size`, `max_CN_call`.
+* `count_types` — classifies every sample as euploid, aneuploid, or segmental
+  aneuploidy; returns a `count_types` object (a named list of sample-ID vectors
+  plus a `$by_cn` breakdown by sample-level CN) and auto-prints a summary table
+  via `print.count_types`.  
+
 # Qploidy2 1.17.0
 
 * Change `plot_cn_track` labels from `Est overall ploidy` to `Mean total depth/Z CN` and y-axis label `Copy Number` to `HMM-based CN`
