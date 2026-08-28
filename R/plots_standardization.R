@@ -589,6 +589,8 @@ plot_qploidy_standardization <- function(x,
   )
 
   colnames(baf_sample)[ncol(baf_sample)] <- "sample"
+  # coerce to numeric: all-NA columns from pivot_wider default to logical and break geom_histogram
+  baf_sample$sample <- as.numeric(baf_sample$sample)
 
   baf_point <- baf_hist <- ratio_hist <- p_z <- raw_ratio <- het_rate <- baf_hist_overall <-
     ratio_hist_overall <- NULL
@@ -707,6 +709,7 @@ plot_qploidy_standardization <- function(x,
 
   if (any(type == "all" | type == "zscore")) {
     colnames(zscore_sample)[ncol(zscore_sample)] <- "z"
+    zscore_sample$z <- as.numeric(zscore_sample$z)
     p_z <- zscore_sample %>%
       ggplot(aes(x = Position, y = z)) +
       facet_grid(. ~ Chr, scales = "free") +
@@ -723,6 +726,7 @@ plot_qploidy_standardization <- function(x,
   if (any(type == "all" | type == "R")) {
     R_sample <- data_sample %>% pivot_wider(names_from = SampleName, values_from = R)
     colnames(R_sample)[ncol(R_sample)] <- "R"
+    R_sample$R <- as.numeric(R_sample$R)
     p_R <- R_sample %>%
       ggplot(aes(x = Position, y = R)) +
       facet_grid(. ~ Chr, scales = "free") +

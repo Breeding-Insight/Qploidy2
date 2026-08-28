@@ -171,7 +171,7 @@ hmm_estimate_CN <- function(
   } else {
     vmsg("Preparing inputs and applying initial filters", verbose = verbose, level = 0, type = ">>")
 
-    if(any(cn_grid < 1) | any(cn_grid > 10)) stop("All values in cn_grid must be between 1 and 10.")
+    if(any(cn_grid < 0) || any(cn_grid > 10)) stop("All values in cn_grid must be between 0 and 10.")
 
     if (!is.character(sample_id) || length(sample_id) != 1 || nchar(sample_id) == 0) {
       stop("sample_id must be a non-empty character scalar.")
@@ -674,7 +674,7 @@ hmm_estimate_CN <- function(
   # If z mean is not from the lowest to the highest follow lower ploidy to higher ploidy
   # It means that user tested unlikely ploidies, in this case, modify cn_grid and run again
   idx <- 0
-  while (any(mu != sort(mu)) & idx < 10) {
+  while (any(mu != sort(mu)) && idx < 10) {
     # Avoid infinite loop
     idx <- idx + 1
     # Identify valid ploidies - for lower ploidies than the expected should have lower mu, higher ploidies than expect should have higher mu

@@ -185,6 +185,7 @@ compute_baf_likelihoods <- function(baf_vec, cn_grid, M = 100, bw = 0.03,
   usable_baf <- baf_vec[!is.na(baf_vec) & baf_vec >= 0 & baf_vec <= 1]
   no_one <- FALSE
   het_frac <- NA_real_
+  original_cn_grid <- cn_grid
   if (length(usable_baf) > 0) {
     het_frac <- mean(usable_baf >= het_range[1] & usable_baf <= het_range[2])
     if (het_frac > min_het_frac) {
@@ -260,9 +261,11 @@ compute_baf_likelihoods <- function(baf_vec, cn_grid, M = 100, bw = 0.03,
       )
   }
   if(no_one){
+    # insert CN=1 placeholder at its correct position in the original sorted grid
+    one_pos <- which(original_cn_grid == 1L)
     out <- list(
-      ll_vec = c(min(ll_vec),ll_vec),
-      prob_vec = c(0, prob_vec)
+      ll_vec   = append(ll_vec,   min(ll_vec), after = one_pos - 1L),
+      prob_vec = append(prob_vec, 0,           after = one_pos - 1L)
     )
   } else {
     out <- list(
@@ -373,8 +376,8 @@ select_best_baf_model <- function(
 
   stopifnot(is.numeric(cn_grid) || is.integer(cn_grid))
   cn_grid <- as.integer(cn_grid)
-  if (length(cn_grid) < 1 || any(cn_grid < 1L))
-    stop("'cn_grid' must be a non-empty integer vector with all values >= 1.")
+  if (length(cn_grid) < 1 || any(cn_grid < 0L))
+    stop("'cn_grid' must be a non-empty integer vector with all values >= 0.")
 
   stopifnot(is.numeric(het_range), length(het_range) == 2, all(is.finite(het_range)))
   if (het_range[1] >= het_range[2])
@@ -619,13 +622,20 @@ generate_baf_template <- function(cn, M = 101, bw = 0.03, floor_eps = 1e-8,
                          uniform_weight = 0.05) {
 
   dist <- match.arg(dist)
-  stopifnot(length(cn) == 1, is.finite(cn), cn >= 1)
+  stopifnot(length(cn) == 1, is.finite(cn), cn >= 0)
   cn <- as.integer(cn)
   stopifnot(length(M) == 1, M >= 2)
   M <- as.integer(M)
 
   if (isTRUE(add_uniform)) {
     stopifnot(is.finite(uniform_weight), uniform_weight >= 0, uniform_weight <= 1)
+  }
+
+  # CN=0 has no alleles; BAF is undefined (noise) so use a uniform template
+  if (cn == 0L) {
+    dens <- rep(1 / M, M)
+    dens <- pmax(dens, floor_eps)
+    return(dens / sum(dens))
   }
 
   x <- seq(0, 1, length.out = M)

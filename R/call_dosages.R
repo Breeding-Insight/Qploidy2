@@ -188,6 +188,17 @@ call_BAF_dosages <- function(baf_vec, selected_model = NULL, bw = NULL, dist = N
     add_uniform = add_uniform,
     uniform_weight = uniform_weight
   )
+  # CN=0: no alleles present, dosage is always 0; skip probability matrix entirely
+  if (cn == 0L) {
+    out <- data.frame(BAF = baf_vec, dosage = 0L, max_prob = NA_real_, dosage_0 = NA_real_)
+    if (!is.null(max_cn) && max_cn > 0L) {
+      extra_cols <- data.frame(matrix(NA_real_, nrow = nrow(out), ncol = max_cn))
+      names(extra_cols) <- paste0("dosage_", seq_len(max_cn))
+      out <- cbind(out, extra_cols)
+    }
+    return(out)
+  }
+
   peak_pos <- seq(0, 1, length.out = cn + 1)
   prob_mat <- sapply(baf_vec, function(baf) {
     probs <- numeric(length = cn + 1)

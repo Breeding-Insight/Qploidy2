@@ -3,6 +3,119 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
                   "snp", "centers_theta", "pnorm"))
 
 
+#' Remove per-marker background noise using known reference samples
+#'
+#' Uses samples whose signal for specific markers is known to be background only
+#' (e.g., sub-genome-specific probes in allopolyploids) to estimate per-marker
+#' background intensity. Any sample whose R is below
+#' \code{multiplier * median(background R)} for a marker is set to NA for
+#' X, Y, R, and ratio. Apply this to the \code{data} object before passing it
+#' to \code{standardize()}.
+#'
+#' @param data A data.frame with columns MarkerName, SampleName, X, Y, R, ratio.
+#' @param background_samples Character vector of sample IDs whose signal for the
+#'   target markers is known to be background noise.
+#' @param background_markers Optional character vector of marker names for which
+#'   \code{background_samples} are background. If NULL, all markers present for
+#'   those samples are used — only appropriate when those samples are background
+#'   for the entire array.
+#' @param multiplier Numeric >= 1. Retain a sample only if its R exceeds
+#'   the effective threshold for that marker. Default \code{2}.
+#' @param target_background_fraction Numeric in (0, 1]. Expected background
+#'   intensity of non-reference samples as a fraction of the reference
+#'   background median. When non-reference samples have lower background than
+#'   the reference (e.g., sub-genome probes returning half the noise level),
+#'   set this to that fraction (e.g., \code{0.5}). The filtering threshold for
+#'   non-reference samples becomes
+#'   \code{multiplier * target_background_fraction * background_median}.
+#'   Reference (background) samples always use \code{multiplier * background_median}.
+#'   Default \code{1} (same threshold for all samples).
+#' @param verbose Logical. Print a filtering summary. Default \code{TRUE}.
+#'
+#' @return The input \code{data} with X, Y, R, and ratio set to \code{NA} for
+#'   background-level entries. Returned invisibly.
+#'
+#' @export
+remove_background_noise <- function(data,
+                                    background_samples,
+                                    background_markers = NULL,
+                                    multiplier = 2,
+                                    target_background_fraction = 1,
+                                    verbose = TRUE) {
+  if (!is.data.frame(data))
+    stop("'data' must be a data.frame.")
+  required_cols <- c("MarkerName", "SampleName", "X", "Y", "R", "ratio")
+  if (!all(required_cols %in% colnames(data)))
+    stop("'data' must contain columns: ", paste(required_cols, collapse = ", "))
+  if (!is.character(background_samples) || length(background_samples) == 0)
+    stop("'background_samples' must be a non-empty character vector.")
+  miss_samp <- setdiff(background_samples, unique(data$SampleName))
+  if (length(miss_samp) > 0)
+    warning(sprintf("%d/%d background_samples not found in data (e.g., %s).",
+                    length(miss_samp), length(background_samples),
+                    paste(head(miss_samp, 3L), collapse = ", ")))
+  if (!is.null(background_markers)) {
+    if (!is.character(background_markers) || length(background_markers) == 0)
+      stop("'background_markers' must be a non-empty character vector or NULL.")
+    miss_mk <- setdiff(background_markers, unique(data$MarkerName))
+    if (length(miss_mk) > 0)
+      warning(sprintf("%d/%d background_markers not found in data (e.g., %s).",
+                      length(miss_mk), length(background_markers),
+                      paste(head(miss_mk, 3L), collapse = ", ")))
+  }
+  if (!is.numeric(multiplier) || length(multiplier) != 1 || multiplier < 1)
+    stop("'multiplier' must be a single numeric value >= 1.")
+  if (!is.numeric(target_background_fraction) || length(target_background_fraction) != 1 ||
+      target_background_fraction <= 0 || target_background_fraction > 1)
+    stop("'target_background_fraction' must be a single numeric value in (0, 1].")
+
+  bg <- data[data$SampleName %in% background_samples, , drop = FALSE]
+  if (!is.null(background_markers))
+    bg <- bg[bg$MarkerName %in% background_markers, , drop = FALSE]
+
+  if (nrow(bg) == 0) {
+    warning("No background data found after filtering. Nothing removed.")
+    return(invisible(data))
+  }
+
+  bg_medians <- tapply(bg$R, as.character(bg$MarkerName), median, na.rm = TRUE)
+  bg_medians <- bg_medians[is.finite(bg_medians)]
+
+  if (length(bg_medians) == 0) {
+    warning("All background R values are NA. Nothing removed.")
+    return(invisible(data))
+  }
+
+  # NA for markers without a background estimate → those rows are not flagged
+  threshold <- bg_medians[as.character(data$MarkerName)]
+  # non-reference samples may have lower background; scale their threshold down
+  if (target_background_fraction != 1) {
+    is_bg_sample <- data$SampleName %in% background_samples
+    threshold[!is_bg_sample] <- threshold[!is_bg_sample] * target_background_fraction
+  }
+  mask <- !is.na(threshold) & !is.na(data$R) & (data$R < multiplier * threshold)
+
+  n_flagged <- sum(mask)
+  if (n_flagged > 0) {
+    data$X[mask]     <- NA
+    data$Y[mask]     <- NA
+    data$R[mask]     <- NA
+    data$ratio[mask] <- NA
+  }
+
+  if (verbose)
+    message(sprintf(
+      "remove_background_noise: %d / %d entries set to NA (%.2f %%) across %d markers (%d/%d background samples matched).",
+      n_flagged, nrow(data), 100 * n_flagged / nrow(data),
+      length(bg_medians),
+      length(intersect(background_samples, unique(data$SampleName))),
+      length(background_samples)
+    ))
+
+  invisible(data)
+}
+
+
 ##' Standardize allelic ratio data and compute BAF and Z-scores
 ##'
 ##' Performs signal standardization of genotype data by aligning `theta` values (allelic ratios or normalized intensities)
