@@ -1,3 +1,9 @@
+# Qploidy2 1.19.0
+
+* Add function `split_mk_type` for segmental allopolyploid species analysis. It split sub-genome specific from not sub-genome specific markers
+using reference diploid samples.
+* Improved segmental aneuploidy detection in `hmm_estimate_CN`: the per-chromosome forward pass in `fb_smooth` is now initialised from a `pi0` derived by summing BAF log-likelihoods across all windows of the chromosome, rather than a uniform distribution. This prevents a high z-score in the first window from anchoring the forward pass in the wrong CN state and calling the whole chromosome at an incorrect ploidy when the BAF profile clearly supports a different CN.
+
 # Qploidy2 1.18.3
 
 * Reverted the unconditional mu update in `em_hmm_cn` back to the conditional guard, as the unconditional change introduced downstream bugs.

@@ -773,13 +773,22 @@ hmm_estimate_CN <- function(
   A_dec <- matrix(1e-3, K, K)
   diag(A_dec) <- transition_jump
   A_dec <- A_dec / rowSums(A_dec)
-  # Decode per chromosome: each chromosome gets a fresh uniform init so no
-  # chromosome is disadvantaged by its position in the chain.  EM parameters
-  # (mu, sig) are still global so z-scores remain comparable across chromosomes.
+  # Decode per chromosome. EM parameters (mu, sig) are global so z-scores are
+  # comparable across chromosomes. pi0 per chromosome is derived from the sum of
+  # BAF log-likelihoods across all windows of that chromosome: this anchors the
+  # forward pass to the ploidy the BAF data supports and prevents a high z-score
+  # in the first window from locking the whole chromosome into the wrong CN state.
   gamma_dec <- matrix(0, W, K, dimnames = list(NULL, colnames(ll_em)))
   for (chr in unique(win_df$Chr)) {
     idx <- which(win_df$Chr == chr)
-    gamma_dec[idx, ] <- fb_smooth(ll_em[idx, , drop = FALSE], log(A_dec))
+    logpi0_chr <- NULL  # default: uniform
+    if (!z_only) {
+      chr_baf_sum <- colSums(ll_baf_matrix[idx, , drop = FALSE], na.rm = TRUE)
+      chr_baf_sum <- chr_baf_sum - max(chr_baf_sum)  # numeric stability
+      lse <- logsumexp(chr_baf_sum)
+      if (is.finite(lse)) logpi0_chr <- chr_baf_sum - lse
+    }
+    gamma_dec[idx, ] <- fb_smooth(ll_em[idx, , drop = FALSE], log(A_dec), logpi0_chr)
   }
   cn_call <- cn_grid[apply(gamma_dec, 1, which.max)]
   post_max <- apply(gamma_dec, 1, max)

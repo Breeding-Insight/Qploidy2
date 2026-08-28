@@ -65,33 +65,35 @@ viterbi <- function(ll_em, logA, logpi0) {
   path
 }
 
-#' Smoothed posteriors via forward-backward with uniform initial distribution
+#' Smoothed posteriors via forward-backward
 #'
-#' Runs one forward-backward pass on the converged emission matrix using a
-#' uniform initial state distribution.  Avoids the pi0 edge-bias that affects
-#' window 1 in the EM's own gamma (where pi0 is updated by the M-step and can
-#' collapse to 0 for states not visited, making window 1 degenerate).  Also
-#' more robust than max-product (viterbi_bidi) when degenerate states cause
-#' uniform A rows after EM convergence.
+#' Runs one forward-backward pass on the converged emission matrix.  If
+#' \code{logpi0} is supplied the forward pass is initialised from that
+#' distribution; otherwise a uniform distribution is used.  Passing a
+#' BAF-derived \code{logpi0} prevents a noisy first-window z-score from
+#' anchoring the forward pass in the wrong CN state for the whole chromosome.
 #'
-#' @param ll_em Numeric matrix (W x K). Final emission log-likelihoods from EM.
-#' @param logA  Numeric matrix (K x K). Converged log transition probabilities.
+#' @param ll_em  Numeric matrix (W x K). Final emission log-likelihoods from EM.
+#' @param logA   Numeric matrix (K x K). Converged log transition probabilities.
+#' @param logpi0 Numeric vector of length K, or NULL for uniform. Log initial
+#'   state probabilities for the forward pass.
 #'
 #' @return Numeric matrix (W x K). Row-normalised posterior probabilities.
 #'
 #' @keywords internal
 #' @noRd
-fb_smooth <- function(ll_em, logA) {
+fb_smooth <- function(ll_em, logA, logpi0 = NULL) {
   W <- nrow(ll_em); K <- ncol(ll_em)
-  logpi0_unif <- rep(-log(K), K)
+  if (is.null(logpi0)) logpi0 <- rep(-log(K), K)
 
   if (W == 1L) {
-    log_gamma <- matrix(ll_em[1, ] - logsumexp(ll_em[1, ]), nrow = 1)
+    log_e1 <- logpi0 + ll_em[1, ]
+    log_gamma <- matrix(log_e1 - logsumexp(log_e1), nrow = 1)
     return(exp(log_gamma))
   }
 
   log_alpha <- matrix(-Inf, W, K)
-  log_alpha[1, ] <- logpi0_unif + ll_em[1, ]
+  log_alpha[1, ] <- logpi0 + ll_em[1, ]
   for (i in 2:W) {
     for (k in 1:K) {
       log_alpha[i, k] <- ll_em[i, k] + logsumexp(log_alpha[i - 1, ] + logA[, k])

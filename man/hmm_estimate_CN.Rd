@@ -85,7 +85,7 @@ mixture before renormalization. Default FALSE.}
 
 \item{transition_jump}{Numeric. Diagonal value for transition matrix (probability to stay in same CN state). Default \code{0.995}.}
 
-\item{initial_prob}{Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.95}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.}
+\item{initial_prob}{Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.5}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.}
 
 \item{z_only}{Logical. If \code{TRUE}, fit the HMM using the z-emission only (ignores BAF). Default \code{FALSE}.}
 
