@@ -814,7 +814,7 @@ re_standardize <- function(data = NULL,
       if(verbose) cat("Using ploidy.standardization:", ploidy.standardization, "\n")
     }
 
-    dosages[which(dosages$CN_call != ploidy.standardization), "dosage"] <- NA
+    dosages[which(is.na(dosages$CN_call) | dosages$CN_call != ploidy.standardization), "dosage"] <- NA
 
     if (all(is.na(dosages$dosage))) {
       stop(sprintf(
@@ -834,7 +834,7 @@ re_standardize <- function(data = NULL,
     }
 
     genos <- hmm_CN_multi$by_marker[, c("MarkerName", "SampleName", "geno")]
-    genos$geno[hmm_CN_multi$by_marker$CN_call != ploidy.standardization] <- NA
+    genos$geno[is.na(hmm_CN_multi$by_marker$CN_call) | hmm_CN_multi$by_marker$CN_call != ploidy.standardization] <- NA
 
     if (all(is.na(genos$geno))) {
       stop(sprintf(

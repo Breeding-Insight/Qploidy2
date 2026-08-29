@@ -802,7 +802,7 @@ hmm_estimate_CN <- function(
   # CN=0 windows carry only background array signal; treat as missing like sequencing gaps.
   cn_call[cn_call == 0] <- NA_integer_
   post_max[is.na(cn_call)] <- NA_real_
-
+  
   # Post-processing: for chromosomes where every window has w_baf == 0, override
   # all windows to the sample-mode CN when the chromosome mean z is within
   # hom_z_sigma_inflate * sig of the baseline mu (reference bias).
