@@ -494,7 +494,7 @@ hmm_estimate_CN <- function(
   # Uses parameters from selected_model
   if (!z_only) {
     vmsg("Generating BAF likelihoods by window", verbose = verbose, level = 0, type = ">>")
-    grid1 <- unique(c(1, cn_grid)) # always test 1 for LOH loci
+    grid1 <- unique(c(1L, cn_grid[cn_grid >= 1L])) # BAF undefined at CN=0; always test CN=1 for LOH
 
     baf_results <- lapply(baf_list, function(baf_vec) {
       compute_baf_likelihoods(baf_vec,
@@ -518,6 +518,14 @@ hmm_estimate_CN <- function(
     colnames(ll_baf_matrix) <- paste0("CN", grid1)
     if (!any(cn_grid == 1)) {
       ll_baf_matrix <- ll_baf_matrix[, -which(colnames(ll_baf_matrix) == "CN1"), drop = FALSE]
+    }
+    # Pad zero-likelihood for cn_grid states excluded from BAF (e.g. CN=0) and align columns to cn_grid order
+    cur_cns <- as.integer(sub("CN", "", colnames(ll_baf_matrix)))
+    missing_cns <- setdiff(cn_grid, cur_cns)
+    if (length(missing_cns) > 0) {
+      zero_cols <- matrix(0, nrow = nrow(ll_baf_matrix), ncol = length(missing_cns),
+                          dimnames = list(NULL, paste0("CN", missing_cns)))
+      ll_baf_matrix <- cbind(ll_baf_matrix, zero_cols)[, paste0("CN", cn_grid), drop = FALSE]
     }
     vmsg("BAF likelihoods generated", verbose = verbose, level = 1, type = ">>")
 
@@ -802,7 +810,7 @@ hmm_estimate_CN <- function(
   # CN=0 windows carry only background array signal; treat as missing like sequencing gaps.
   cn_call[cn_call == 0] <- NA_integer_
   post_max[is.na(cn_call)] <- NA_real_
-  
+
   # Post-processing: for chromosomes where every window has w_baf == 0, override
   # all windows to the sample-mode CN when the chromosome mean z is within
   # hom_z_sigma_inflate * sig of the baseline mu (reference bias).

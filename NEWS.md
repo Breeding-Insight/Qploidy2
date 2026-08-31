@@ -1,5 +1,7 @@
 # Qploidy2 1.19.0
 
+* Added `min_samples_by_cluster` parameter to `standardize`, `re_standardize`, and `get_centers` (default `1`, no filtering). Sets the minimum number of non-NA samples required within a dosage cluster for it to contribute a center estimate; clusters below this count are dropped before center computation, which can prevent poorly supported clusters from anchoring BAF standardization.
+
 * Add function `split_mk_type` for segmental allopolyploid species analysis. It split sub-genome specific from not sub-genome specific markers
 using reference diploid samples.
 * Improved segmental aneuploidy detection in `hmm_estimate_CN`: the per-chromosome forward pass in `fb_smooth` is now initialised from a `pi0` derived by summing BAF log-likelihoods across all windows of the chromosome, rather than a uniform distribution. This prevents a high z-score in the first window from anchoring the forward pass in the wrong CN state and calling the whole chromosome at an incorrect ploidy when the BAF profile clearly supports a different CN.

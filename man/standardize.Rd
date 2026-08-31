@@ -13,6 +13,7 @@ standardize(
   threshold.geno.prob = 0.8,
   ploidy.standardization = NULL,
   threshold.n.clusters = NULL,
+  min_samples_by_cluster = 1L,
   n.cores = 1,
   out_filename = NULL,
   type = "intensities",
@@ -55,6 +56,8 @@ standardize(
 \item{ploidy.standardization}{Integer. The ploidy level of the reference panel used for standardization.}
 
 \item{threshold.n.clusters}{Integer. Minimum number of expected dosage clusters per marker. For diploid data, this is typically 3 (corresponding to dosages 0, 1, and 2). Cannot exceed `ploidy.standardization + 1`.}
+
+\item{min_samples_by_cluster}{Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Clusters below this count are dropped before center computation. Default is `1` (no filtering).}
 
 \item{n.cores}{Integer. Number of cores to use in parallel computations (e.g., for cluster center estimation and BAF generation).}
 

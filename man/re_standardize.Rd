@@ -11,6 +11,7 @@ re_standardize(
   use_estimated_dosages = FALSE,
   ploidy.standardization = NULL,
   threshold.n.clusters = NULL,
+  min_samples_by_cluster = 1L,
   n.cores = 1,
   threshold.geno.prob = 0.5,
   threshold.missing.geno = 0.9,
@@ -58,6 +59,8 @@ re_standardize(
 \item{ploidy.standardization}{Integer. Ploidy level to use for standardization. If NULL, uses the mode of CN_call in dosages.}
 
 \item{threshold.n.clusters}{Integer. Minimum number of expected dosage clusters per marker. Defaults to ploidy + 1.}
+
+\item{min_samples_by_cluster}{Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Default is `1` (no filtering).}
 
 \item{n.cores}{Integer. Number of cores for parallel computation. Default is 1.}
 

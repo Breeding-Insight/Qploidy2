@@ -10,7 +10,8 @@ get_centers(
   n.clusters.thr = NULL,
   type = c("intensities", "counts"),
   rm_outlier = TRUE,
-  cluster_median = TRUE
+  cluster_median = TRUE,
+  min_samples_by_cluster = 1L
 )
 }
 \arguments{
@@ -37,6 +38,10 @@ will be identified and removed prior to center calculation (default: `TRUE`).}
 
 \item{cluster_median}{Logical; if `TRUE`, cluster centers are calculated using
 the median of `theta` values. If `FALSE`, the mean is used (default: `TRUE`).}
+
+\item{min_samples_by_cluster}{Integer. Minimum number of non-NA samples required
+within a dosage cluster for it to be used as a center. Clusters with fewer
+samples are dropped before center computation. Default is `1` (no filtering).}
 }
 \value{
 A named list with the following elements:

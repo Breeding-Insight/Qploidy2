@@ -48,6 +48,7 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##' @param threshold.geno.prob Numeric (0–1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.
 ##' @param ploidy.standardization Integer. The ploidy level of the reference panel used for standardization.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. For diploid data, this is typically 3 (corresponding to dosages 0, 1, and 2). Cannot exceed `ploidy.standardization + 1`.
+##' @param min_samples_by_cluster Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Clusters below this count are dropped before center computation. Default is `1` (no filtering).
 ##' @param n.cores Integer. Number of cores to use in parallel computations (e.g., for cluster center estimation and BAF generation).
 ##' @param out_filename Optional. Path to save the final standardized dataset to disk as a CSV file (suitable for Qploidy).
 ##' @param type Character. Type of data used for clustering: "intensities" (array-based), "counts" (sequencing), or "updog" (set automatically if `multidog_obj` is provided).
@@ -94,6 +95,7 @@ standardize <- function(data = NULL,
                         threshold.geno.prob=0.8,
                         ploidy.standardization = NULL,
                         threshold.n.clusters = NULL,
+                        min_samples_by_cluster = 1L,
                         n.cores =1,
                         out_filename = NULL,
                         type = "intensities",
@@ -168,6 +170,10 @@ standardize <- function(data = NULL,
   if (!is.logical(rm_outlier)    || length(rm_outlier) != 1)    stop("'rm_outlier' must be a single logical value.")
   if (!is.logical(cluster_median)|| length(cluster_median) != 1) stop("'cluster_median' must be a single logical value.")
   if (!is.logical(filter_R)      || length(filter_R) != 1)      stop("'filter_R' must be a single logical value.")
+
+  if (!is.numeric(min_samples_by_cluster) || length(min_samples_by_cluster) != 1 ||
+      min_samples_by_cluster < 1 || min_samples_by_cluster != as.integer(min_samples_by_cluster))
+    stop("'min_samples_by_cluster' must be a single positive integer.")
 
   if (!is.null(min.depth) && (!is.numeric(min.depth) || length(min.depth) != 1 || min.depth < 0))
     stop("'min.depth' must be a single non-negative numeric value or NULL.")
@@ -315,7 +321,8 @@ standardize <- function(data = NULL,
                           n.clusters.thr = threshold.n.clusters,
                           type = type,
                           rm_outlier = rm_outlier,
-                          cluster_median = cluster_median)
+                          cluster_median = cluster_median,
+                          min_samples_by_cluster = min_samples_by_cluster)
 
     stopCluster(clust)
 
@@ -690,6 +697,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param use_estimated_dosages Logical. If \code{FALSE} (default), uses the original dosage calls stored in \code{hmm_CN_multi$by_marker$geno} (from fitpoly/updog, based on raw theta values), setting dosages to \code{NA} for markers whose \code{CN_call} differs from \code{ploidy.standardization}. This is the recommended approach for re-standardization because it avoids circularity: the original dosages are independent of the BAF signal. If \code{TRUE}, calls \code{call_hmm_dosages} to re-estimate per-marker dosages from the BAF model; note that these dosages are derived from the BAF values themselves, which may propagate imperfections from the original standardization.
 ##' @param ploidy.standardization Integer. Ploidy level to use for standardization. If NULL, uses the mode of CN_call in dosages.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. Defaults to ploidy + 1.
+##' @param min_samples_by_cluster Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Default is `1` (no filtering).
 ##' @param n.cores Integer. Number of cores for parallel computation. Default is 1.
 ##' @param threshold.geno.prob Numeric (0–1). Minimum genotype call probability. Default is 0.5.
 ##' @param threshold.missing.geno Numeric (0–1). Maximum fraction of missing datapoints per marker. Default is 0.90.
@@ -748,6 +756,7 @@ re_standardize <- function(data = NULL,
                            use_estimated_dosages = FALSE,
                            ploidy.standardization = NULL,
                            threshold.n.clusters = NULL,
+                           min_samples_by_cluster = 1L,
                            n.cores = 1,
                            threshold.geno.prob = 0.5,
                            threshold.missing.geno = 0.90,
@@ -857,6 +866,7 @@ re_standardize <- function(data = NULL,
     geno.pos = geno.pos,
     ploidy.standardization = ploidy.standardization,
     threshold.n.clusters = threshold.n.clusters,
+    min_samples_by_cluster = min_samples_by_cluster,
     n.cores = n.cores,
     threshold.geno.prob = threshold.geno.prob,
     threshold.missing.geno = threshold.missing.geno,
