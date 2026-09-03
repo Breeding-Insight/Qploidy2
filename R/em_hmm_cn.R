@@ -10,6 +10,7 @@
 #' @param sig Initial shared standard deviation
 #' @param z Numeric vector of z-scores
 #' @param z_only Logical, use z emission only
+#' @param baf_only Logical, use BAF emission only (ignores z-score)
 #' @param ll_baf_matrix BAF log-likelihood matrix
 #' @param n_baf Numeric vector, BAF normalization
 #' @param w_baf Numeric, BAF weight
@@ -22,17 +23,24 @@
 #' @param update_pi0 Logical. If \code{TRUE}, update the initial state distribution \code{pi0} at each M-step using the first-window posterior. Default \code{FALSE}: \code{pi0} is kept fixed to prevent a feedback loop where \code{pi0 <- gamma[1,] <- pi0} can converge to a wrong state driven by whichever CN happens to dominate the first window.
 #'
 #' @return List with updated parameters: mu, cn_grid, K, state_ids, sig, gamma, ll_em, pi0, A, ll_hist
-em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, n_baf, w_baf, correct_scale, A, pi0, W, max_iter, verbose, update_pi0 = FALSE) {
+em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, n_baf, w_baf, correct_scale, A, pi0, W, max_iter, verbose, update_pi0 = FALSE, baf_only = FALSE) {
   ll_hist <- numeric(max_iter)
   for (iter in 1:max_iter) {
     # Emissions
     ll_em <- matrix(NA_real_, nrow=W, ncol=K, dimnames=list(NULL, state_ids))
     for (k in seq_len(K)) {
       c <- cn_grid[k]
-      llz <- dnorm(z, mean=mu[as.character(c)], sd=sig, log=TRUE)
-      if(any(is.nan(llz))) llz[which(is.nan(llz))] <- 0
+      if (z_only || !baf_only) {
+        llz <- dnorm(z, mean=mu[as.character(c)], sd=sig, log=TRUE)
+        if(any(is.nan(llz))) llz[which(is.nan(llz))] <- 0
+      }
       if (z_only) {
         ll_em[,k] <- llz
+      } else if (baf_only) {
+        llb <- ll_baf_matrix[,k]
+        if(correct_scale) llb <- llb / n_baf
+        if(any(is.nan(llb))) llb[which(is.nan(llb))] <- 0
+        ll_em[, k] <- llb
       } else {
         llb <- ll_baf_matrix[,k]
         if(correct_scale) {
@@ -84,25 +92,20 @@ em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, 
     A[!is.finite(A)] <- 0
     A <- sweep(A, 1, pmax(rowSums(A), 1e-12), "/")
     A <- pmax(A, 1e-12); A <- sweep(A, 1, rowSums(A), "/")
-    # update mu and sigma
-    # Only update mu[k] when the state has meaningful total posterior weight. 
-    # States with near-zero weight (never visited) have mu driven by the 1e-12 
-    # guard denominator, collapsing to mean(z) and making the emission flat — 
-    # which prevents the decoder from discriminating (e.g. for all-homozygous 
-    # chromosomes where only z-score is available). Keeping mu at its previous 
-    # (physically motivated) value avoids this collapse.
-    mu_new <- as.numeric(mu)
-    for (k in 1:K) {
-      w <- gamma[,k]
-      total_w <- sum(w)
-      if (total_w > 0.5) mu_new[k] <- sum(w * z) / total_w
+    # update mu and sigma; skipped for baf_only since z-scores are not part of the emission
+    if (!baf_only) {
+      mu_new <- as.numeric(mu)
+      for (k in 1:K) {
+        w <- gamma[,k]
+        total_w <- sum(w)
+        if (total_w > 0.5) mu_new[k] <- sum(w * z) / total_w
+      }
+      mu <- setNames(mu_new, as.character(cn_grid))
+      mu <- mu[state_ids]
+      sig <- sqrt(sum(gamma * (matrix(z, W, K) - rep(mu, each=W))^2) /
+                    pmax(sum(gamma), 1e-12))
+      sig <- max(sig, 1e-3)
     }
-    mu <- setNames(mu_new, as.character(cn_grid))
-    mu <- mu[state_ids]
-    # update shared sigma
-    sig <- sqrt(sum(gamma * (matrix(z, W, K) - rep(mu, each=W))^2) /
-                  pmax(sum(gamma), 1e-12))
-    sig <- max(sig, 1e-3)
     # Convergence check
     if (iter > 4 && is.finite(ll_hist[iter]) && is.finite(ll_hist[iter-1]) &&
         abs(ll_hist[iter] - ll_hist[iter-1]) < 1e-4) break
