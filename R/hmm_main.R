@@ -140,7 +140,7 @@ hmm_estimate_CN <- function(
   het_quantile = 0.8, # increase this value to reduce the weight of baf when few hets
   baf_weight = 0.5,
   z_range = NULL,
-  transition_jump = 0.995, # decrease this value if you think there changes in CN is likely
+  transition_jump = 0.9, # decrease this value if you think there changes in CN is likely
   initial_prob = 0.5, # Initial probability for the best CN state in the initial state distribution (pi0). Default 0.5. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
   z_only = FALSE,
   baf_only = FALSE,
@@ -223,8 +223,18 @@ hmm_estimate_CN <- function(
 
     # subset to chromosomes
     if (!is.null(chr)) {
-      chrs <- if (is.numeric(chr)) unique(d$Chr)[chr] else chr
-      d <- filter(d, Chr %in% chrs)
+      if (is.numeric(chr)) {
+        # index into the observed (non-NA) chromosome labels, not raw positions,
+        # so an out-of-range/NA entry in unique(d$Chr) can't leak into chrs
+        uniq_chr <- unique(d$Chr)
+        uniq_chr <- uniq_chr[!is.na(uniq_chr)]
+        chrs <- uniq_chr[chr]
+      } else {
+        chrs <- chr
+      }
+      chrs <- chrs[!is.na(chrs)]
+      if (length(chrs) == 0) stop("No valid chromosomes found for specified 'chr'.")
+      d <- filter(d, !is.na(Chr) & Chr %in% chrs)
       if (nrow(d) == 0) stop("No data found for specified chromosomes after filtering.")
     }
 
@@ -327,9 +337,16 @@ hmm_estimate_CN <- function(
   # Segmented z-score
   if (segment_zscore) {
     vmsg("Using z-scores changepoint detection to define windows", verbose = verbose, level = 1, type = ">>")
-    if (z_col != "z") names(d)[names(d) == z_col] <- "z"
+    if (z_col != "z") {
+      # Stash any existing "z" column to avoid creating a duplicate when renaming z_col -> "z"
+      if ("z" %in% names(d)) names(d)[names(d) == "z"] <- ".__z_stash__."
+      names(d)[names(d) == z_col] <- "z"
+    }
     d <- add_changepoint_windows(dat = d, minseglen = min_snps_per_window)
-    if (z_col != "z") names(d)[names(d) == "z"] <- z_col
+    if (z_col != "z") {
+      names(d)[names(d) == "z"] <- z_col
+      if (".__z_stash__." %in% names(d)) names(d)[names(d) == ".__z_stash__."] <- "z"
+    }
   } else {
     # simple fixed-size windows
     vmsg("Using user-defined fixed-size intervals to define windows", verbose = verbose, level = 1, type = ">>")
@@ -411,9 +428,10 @@ hmm_estimate_CN <- function(
   # Handle single-window case: assign CN by BAF likelihood only, skip HMM/EM
   if (sum(keep) == 1) {
     vmsg("Only one window remains after filtering. Assigning CN by BAF likelihood only", verbose = verbose, level = 1, type = ">>")
-    # Use BAF likelihoods to assign CN
+    # BAF is undefined at CN=0, so it must be excluded from the grid used here
+    cn_grid_baf <- cn_grid[cn_grid >= 1L]
     ll_baf_matrix <- compute_baf_likelihoods(baf_list[keep][[1]],
-      cn_grid,
+      cn_grid_baf,
       M = M,
       bw = selected_model$best$bw,
       plot = FALSE,
@@ -425,11 +443,11 @@ hmm_estimate_CN <- function(
       het_range = het_range
     )
 
-    cn_call <- cn_grid[which.max(ll_baf_matrix$ll_vec)]
+    cn_call <- cn_grid_baf[which.max(ll_baf_matrix$ll_vec)]
     post_max <- rep(1, 1)
     post_df <- as.data.frame(matrix(0, nrow = 1, ncol = length(cn_grid)))
     names(post_df) <- paste0("post_CN", cn_grid)
-    post_df[1, which.max(ll_baf_matrix$prob_vec)] <- 1
+    post_df[1, paste0("post_CN", cn_grid_baf[which.max(ll_baf_matrix$prob_vec)])] <- 1
     # n_het is now calculated using dosages
     dosages <- mapply(function(x, y) {
       call_BAF_dosages(x,
