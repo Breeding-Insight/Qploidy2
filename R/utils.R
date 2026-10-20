@@ -199,3 +199,4 @@ vmsg <- function(text, verbose = FALSE, level = 1, type = ">>", ...) {
   formatted_msg <- sprintf("%s %s%s%s", timestamp, type_label, indent, msg_text)
   message(formatted_msg)
 }
+

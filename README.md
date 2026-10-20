@@ -42,6 +42,37 @@ for more information.
 
 ![GenoBrew Demo](inst/app/www/GenoBrew_demo.gif)
 
+## AI Assistant (Claude Code)
+
+`Qploidy2` ships with two built-in skills for [Claude Code](https://claude.ai/claude-code) that guide you interactively through the analysis workflow:
+
+- **`qploidy2-input-prep`** — preparing `data`, `genos`, and `genos.pos` from VCF, Axiom, or Illumina files, including dosage calling with `updog` or `fitPoly`.
+- **`qploidy2-analysis`** — the full pipeline: batch-effect checking, standardization, BAF model selection, HMM copy number estimation, filtering, visualization, and export.
+
+### Install the skills (one command in R)
+
+Run this in R to download the skill files into your working project:
+
+```r
+Qploidy2::install_claude_skills()
+```
+
+This creates a `.claude/agents/` folder in your current working directory with both skill files. Open that directory in Claude Code and the skills are available automatically.
+
+### Use manually in claude.ai
+
+If you prefer the claude.ai web or desktop interface, you can import the skills directly from their raw GitHub URLs — open each link, copy the content, and paste it into your Claude skill manager:
+
+- [qploidy2-input-prep.md](https://raw.githubusercontent.com/Breeding-Insight/Qploidy2/main/.claude/agents/qploidy2-input-prep.md)
+- [qploidy2-analysis.md](https://raw.githubusercontent.com/Breeding-Insight/Qploidy2/main/.claude/agents/qploidy2-analysis.md)
+
+### Example prompts
+
+```
+Follow the qploidy2-input-prep skill to prepare my input files
+Follow the qploidy2-analysis skill to run HMM on my samples
+```
+
 ## Contributing
 
 Contributions are welcome! If you'd like to contribute, please fork the repository and submit a pull request to the development branch. For major changes, open an issue first to discuss your ideas.
