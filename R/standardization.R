@@ -506,8 +506,11 @@ print.qploidy_standardization <- function(x, ...){
   # n.markers.zscore.end (may be absent in older objects)
   has_zscore_end <- "n.markers.zscore.end" %in% names(x$filters)
 
+  n.individuals <- length(unique(x$data$SampleName))
+
   format.df <- data.frame(
     c1 = c("# markers at raw data:",
+           "# individuals in standardized data:",
            "% datapoints filtered by low probability:",
            if (has_depth_rm) "# datapoints filtered by depth (min/max):",
            if (has_samples_rm) "# samples filtered by missing data:",
@@ -517,6 +520,7 @@ print.qploidy_standardization <- function(x, ...){
            "# markers remaining with estimated BAF:",
            if (has_zscore_end) "# markers remaining with estimated z-score:"),
     c2 = c(x$filters["n.markers.start"],
+           n.individuals,
            "-",
            if (has_depth_rm) n_total_dp,
            if (has_samples_rm) as.numeric(x$filters["samples.rm"]),
@@ -526,6 +530,7 @@ print.qploidy_standardization <- function(x, ...){
            x$filters["n.markers.end"],
            if (has_zscore_end) x$filters["n.markers.zscore.end"]),
     c3 = c("(100%)",
+           "-",
            paste0("(", x$filters["geno.prob.rm"], " %)"),
            if (has_depth_rm) "-",
            if (has_samples_rm) "-",

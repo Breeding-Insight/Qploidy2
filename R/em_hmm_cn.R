@@ -38,16 +38,17 @@ em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, 
         ll_em[,k] <- llz
       } else if (baf_only) {
         llb <- ll_baf_matrix[,k]
-        if(correct_scale) llb <- llb / n_baf
-        if(any(is.nan(llb))) llb[which(is.nan(llb))] <- 0
+        if(correct_scale) llb <- ifelse(n_baf > 0, llb / n_baf, 0) # n_baf == 0 would otherwise divide to NaN/Inf
+        llb[!is.finite(llb)] <- 0
         ll_em[, k] <- llb
       } else {
         llb <- ll_baf_matrix[,k]
         if(correct_scale) {
-          llb <- llb/ n_baf
+          llb <- ifelse(n_baf > 0, llb / n_baf, 0) # n_baf == 0 would otherwise divide to NaN/Inf
         }
-        if(any(is.nan(llb))) llb[which(is.nan(llb))] <- 0 # If not BAF is present in the window, only z-score is considered
-        ll_em[, k] <- (1-w_baf) * llz + w_baf * llb
+        llb[!is.finite(llb)] <- 0 # If not BAF is present in the window, only z-score is considered
+        # Tempered log-product: z always contributes fully, BAF contributes a fraction of its evidence.
+        ll_em[, k] <- llz + w_baf * llb
       }
     }
     if (!all(is.finite(ll_em))) {

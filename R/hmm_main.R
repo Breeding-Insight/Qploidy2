@@ -92,7 +92,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @details
 #' \strong{Windowing.} If \code{chr} is specified, only those chromosomes are analyzed. Windows are formed within each chromosome by grouping every \code{snps_per_window} consecutive SNPs. Windows with fewer than \code{min_snps_per_window} SNPs are removed.
 #'
-#' \strong{Emissions.} For state \code{c} (copy number), the z-emission is \eqn{\mathcal{N}(\mu_c, \sigma^2)}. The BAF emission is a multinomial log-likelihood comparing the observed BAF histogram to a state-specific template (a “comb” with peaks at \eqn{d/c}). Windows with few heterozygotes are down-weighted via \code{w_baf} (derived from \code{n_het}).
+#' \strong{Emissions.} For state \code{c} (copy number), the z-emission is \eqn{\mathcal{N}(\mu_c, \sigma^2)}, where \eqn{\sigma} is a single standard deviation shared across all CN states (it is not scaled per state, even though depth variance is in reality expected to increase with copy number). The BAF emission is a multinomial log-likelihood comparing the observed BAF histogram to a state-specific template (a “comb” with peaks at \eqn{d/c}). Windows with few heterozygotes are down-weighted via \code{w_baf} (derived from \code{n_het}). The combined per-window, per-state log-likelihood is a tempered log-product, \code{llz + w_baf * llb}: the z emission always contributes fully, assuming conditional independence of z and BAF given the CN state, while the BAF emission's evidence is scaled down (tempered) by \code{w_baf} when fewer heterozygotes support it.
 #'
 #' \strong{Numerical safety.} The implementation guards against non-finite emissions, enforces stochastic \code{A} rows, and lower-bounds \code{sigma}.
 #'
@@ -378,20 +378,17 @@ hmm_estimate_CN <- function(
   # summarize per window
   vmsg("Summarizing data by window", verbose = verbose, level = 1, type = ">>")
 
-  win_df <- do.call(rbind, by(d, list(d[["Chr"]], d[[win_col]]), function(x) {
-    if (is.null(x) || nrow(x) == 0) {
-      return(NULL)
-    }
-    data.frame(
-      Chr        = x[1, "Chr"],
-      WindowID   = x[1, win_col],
-      Start      = min(x[["Position"]]),
-      End        = max(x[["Position"]]),
-      n_snps     = nrow(x),
-      z_mean     = mean(x[[z_col]], na.rm = TRUE)
-    )
-  }))
-  rownames(win_df) <- NULL
+  # Grouped summarise (hash-based grouping) instead of by()+do.call(rbind), which is quadratic in the number of groups.
+  win_df <- d %>%
+    group_by(Chr, WindowID = .data[[win_col]]) %>%
+    summarize(
+      Start  = min(Position),
+      End    = max(Position),
+      n_snps = n(),
+      z_mean = mean(.data[[z_col]], na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    as.data.frame()
   if (any(is.nan(win_df$z_mean))) {
     warning("Some windows have no z-score values.")
   }
@@ -400,16 +397,17 @@ hmm_estimate_CN <- function(
   # order windows first by chr then start
   o <- order(win_df$Chr, win_df$Start)
   win_df <- win_df[o, ]
+  rownames(win_df) <- NULL
   W <- nrow(win_df) # W = number of windows
 
   # extract BAF vectors per window (list) and z vector
-  baf_list <- vector("list", W)
+  # Split once by (Chr, WindowID) instead of rescanning all of 'd' per window (O(N) instead of O(W x N)).
+  d_key     <- paste(d[["Chr"]], d[[win_col]], sep = "\r")
+  win_key   <- paste(win_df$Chr, win_df$WindowID, sep = "\r")
+  baf_split <- split(d[[baf_col]], d_key)
+  baf_list  <- baf_split[match(win_key, names(baf_split))]
+  baf_list  <- lapply(baf_list, function(x) if (is.null(x)) numeric(0) else x)
   for (i in seq_len(W)) {
-    wrows <- d[["Chr"]] == win_df$Chr[i] &
-      d[[win_col]] == win_df$WindowID[i] &
-      d[["Position"]] >= win_df$Start[i] &
-      d[["Position"]] <= win_df$End[i]
-    baf_list[[i]] <- d[[baf_col]][wrows]
     if (length(baf_list[[i]]) == 0 || all(is.na(baf_list[[i]]))) {
       warning(sprintf(
         "Window %d (Chr %s, WindowID %s) has no valid BAF values. Only z-score likelihood will considered for those",
@@ -612,12 +610,12 @@ hmm_estimate_CN <- function(
     # chromosome uses a bandwidth optimised for its own BAF pattern.
     if (baf_only) {
       vmsg("baf_only: refitting per-chromosome BAF models", verbose = verbose, level = 1, type = ">>")
-      for (chr in unique(win_df$Chr)) {
-        chr_idx  <- which(win_df$Chr == chr)
+      for (chr_i in unique(win_df$Chr)) {
+        chr_idx  <- which(win_df$Chr == chr_i)
         chr_baf  <- Filter(Negate(is.na), unlist(baf_list[chr_idx]))
         if (length(chr_baf) < 10) next
         chr_mod  <- select_best_baf_model(
-          baf_vec = chr_baf, sample = chr,
+          baf_vec = chr_baf, sample = chr_i,
           cn_grid = cn_grid[cn_grid >= 1L],
           dists = dists, M = M, reflect = reflect,
           bw_grid = bw_grid, add_uniform_grid = add_uniform_grid,
@@ -694,7 +692,7 @@ hmm_estimate_CN <- function(
     }
 
     # Count number of markers with BAF values in each window
-    n_baf <- sapply(baf_list, function(x) if (any(is.na(x))) length(x[-which(is.na(x))]) else length(x))
+    n_baf <- sapply(baf_list, function(x) sum(!is.na(x)))
 
     # BAF weights from heterozygote counts
     # Lower the number of heterozygotes in the window, lower the weight of the BAF emission
@@ -740,7 +738,7 @@ hmm_estimate_CN <- function(
   # To consider: If is possible to change this matrix to favor specific small jumps, like if changing from 2->4 is more likely than 2->6
   # pi0 is the initial state distribution at the first window; here it’s uniform (no prior preference for any CN at the start).
   # Set pi0 to favor exp_ploidy (if provided) or best CN from BAF model
-  pi0 <- rep((1 - initial_prob) / (K - 1), K)
+  pi0 <- if (K > 1) rep((1 - initial_prob) / (K - 1), K) else 1
   if (!is.null(exp_ploidy) && !is.na(exp_ploidy)) {
     best_cn <- as.numeric(exp_ploidy)
   } else {
@@ -767,6 +765,8 @@ hmm_estimate_CN <- function(
 
   # sig is the (shared) standard deviation of the z emission across states.
   # It starts at the sample SD of z, with a safety floor of 0.1 to avoid zero/near-zero variance that would blow up log-likelihoods.
+  # Assumption: a single sigma is used for every CN state (not state-specific), even though depth
+  # variance is in reality expected to scale with copy number; em_hmm_cn() re-floors sig to 1e-3 each M-step.
   sig <- sd(z, na.rm = TRUE)
   if (!is.finite(sig) || sig <= 1e-6) sig <- 0.1
   W <- length(z)
@@ -800,7 +800,8 @@ hmm_estimate_CN <- function(
   # If z mean is not from the lowest to the highest follow lower ploidy to higher ploidy
   # It means that user tested unlikely ploidies, in this case, modify cn_grid and run again
   idx <- 0
-  while (any(mu != sort(mu)) & idx < 10) {
+  mu_tol <- 1e-6  # tolerance to avoid floating-point noise falsely triggering non-monotonicity
+  while (any(abs(mu - sort(mu)) > mu_tol) && idx < 10) {
     # Avoid infinite loop
     idx <- idx + 1
     # Identify valid ploidies - for lower ploidies than the expected should have lower mu, higher ploidies than expect should have higher mu
@@ -884,6 +885,10 @@ hmm_estimate_CN <- function(
   sig_dec <- rep(sig, W)
   if (!z_only && !baf_only && hom_z_sigma_inflate > 1)
     sig_dec <- ifelse(w_baf_dec == 0, sig * hom_z_sigma_inflate, sig)
+  # Windows with no valid BAF values carry no BAF information and must be excluded
+  # from BAF scoring rather than treated as a log-likelihood of 0 (i.e. probability 1).
+  no_baf <- !z_only & (n_baf == 0)
+  if (!z_only && any(no_baf)) w_baf_dec[no_baf] <- 0
   ll_em <- matrix(NA_real_, W, K, dimnames = list(NULL, state_ids))
   for (k in seq_len(K)) {
     c_k  <- cn_grid[k]
@@ -894,13 +899,14 @@ hmm_estimate_CN <- function(
     } else if (baf_only) {
       llb <- ll_baf_matrix[, k]
       if (correct_scale) llb <- llb / n_baf
-      llb[is.nan(llb)] <- 0
+      llb[no_baf] <- 0  # excluded: neutral emission, equal across all states
       ll_em[, k] <- llb
     } else {
       llb <- ll_baf_matrix[, k]
       if (correct_scale) llb <- llb / n_baf
-      llb[is.nan(llb)] <- 0
-      ll_em[, k] <- (1 - w_baf_dec) * llz + w_baf_dec * llb
+      llb[no_baf] <- 0  # excluded: BAF term dropped, w_baf_dec forced to 0 above
+      # Tempered log-product: z always contributes fully, BAF contributes a fraction of its evidence.
+      ll_em[, k] <- llz + w_baf_dec * llb
     }
   }
 
@@ -920,8 +926,8 @@ hmm_estimate_CN <- function(
   # forward pass to the ploidy the BAF data supports and prevents a high z-score
   # in the first window from locking the whole chromosome into the wrong CN state.
   gamma_dec <- matrix(0, W, K, dimnames = list(NULL, colnames(ll_em)))
-  for (chr in unique(win_df$Chr)) {
-    idx <- which(win_df$Chr == chr)
+  for (chr_i in unique(win_df$Chr)) {
+    idx <- which(win_df$Chr == chr_i)
     logpi0_chr <- NULL  # default: uniform
     if (!z_only) {
       chr_baf_sum <- colSums(ll_baf_matrix[idx, , drop = FALSE], na.rm = TRUE)

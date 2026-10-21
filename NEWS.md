@@ -1,3 +1,17 @@
+# Qploidy2 1.20.0
+
+* Add Claude AI Qploidy2 skills 
+* Display number of individuals for print standardization object
+* Fixed `hmm_estimate_CN()`: windows with no valid BAF values were assigned a BAF log-likelihood of `0` (i.e. likelihood of 1.0) via `is.nan()` replacement, which could mask non-finite values. These windows are now explicitly excluded from BAF scoring (`w_baf` forced to `0`) instead of relying on incidental cancellation.
+* Fixed a bug in `hmm_estimate_CN()` where the `for (chr in unique(win_df$Chr))` loop variable used in the `baf_only` per-chromosome refit and in per-chromosome decoding silently overwrote the `chr` function argument (used for chromosome subsetting), causing the `rerun_overall_ploidy` recursive call to receive the wrong chromosome(s). Loop variables renamed to `chr_i`.
+* Fixed `pi0 <- rep((1 - initial_prob) / (K - 1), K)` in `hmm_estimate_CN()` producing `NaN` when only one CN state (`K == 1`) is tested; `pi0` is now set to `1` in that case.
+* Fixed the non-monotonic z-mean check in `hmm_estimate_CN()` (`while (any(mu != sort(mu)) ...)`), which used exact floating-point comparison and could spuriously trigger on near-equal `mu` values; it now uses a `1e-6` tolerance.
+* Fixed `em_hmm_cn()`: dividing the BAF log-likelihood by `n_baf` could produce `Inf`/`-Inf` for windows with zero valid BAF markers, which the previous `is.nan()` guard did not catch. Now guarded with `ifelse(n_baf > 0, llb / n_baf, 0)` and `!is.finite()`.
+* Changed the combined z/BAF emission in `hmm_estimate_CN()` and `em_hmm_cn()` from the heuristic weighted average `(1 - w_baf) * llz + w_baf * llb` to a tempered log-product `llz + w_baf * llb`, so the z-emission always contributes fully and BAF evidence is scaled by `w_baf` rather than both terms being down-weighted together. This changes some CN posterior probabilities relative to previous versions.
+* Documented in `hmm_estimate_CN()` that a single `sigma` is shared across all CN states (not state-specific), and that the combined emission is a tempered log-product rather than a statistically derived mixture.
+* Improved performance of `hmm_estimate_CN()`: window-level summary statistics are now computed with `dplyr::group_by()`/`summarize()` instead of `by()` + `do.call(rbind, ...)`, and per-window BAF values are extracted via a single `split()` keyed lookup instead of rescanning the full marker table for every window (O(N) instead of O(W x N)). Also simplified the `n_baf` computation.
+
+
 # Qploidy2 1.19.0
 
 * Added `min_samples_by_cluster` to `standardize()`, `re_standardize()`, and `get_centers()`. Default `1` keeps all clusters. When set higher, clusters with fewer non-NA samples are dropped before center estimation, preventing weak clusters from anchoring BAF standardization.
