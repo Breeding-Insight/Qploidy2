@@ -868,6 +868,52 @@ hmm_estimate_CN <- function(
     vmsg("Updated z-score SD: %s", verbose = verbose, level = 2, type = ">>", sprintf("%.3f", sig))
   }
 
+  # Post-EM collapsed-state pruning (single pass, no re-run).
+  # After EM convergence, adjacent CN means that differ by less than
+  # collapse_frac * sigma are functionally indistinguishable to the HMM decoder
+  # and will cause arbitrary state flipping.  Remove the higher CN state in each
+  # such pair (it is less likely to be the true signal in a predominantly diploid
+  # sample).  This only fires on collapsed states; a normal diploid sample with a
+  # genuine z_range will never trigger it.
+  # Collapsed-state threshold: only drop states whose means are virtually identical
+  # (< 0.10 * sigma apart). This catches the degenerate case where EM collapses
+  # two means to the same value (gap ~ 0.02sigma) without touching states that are
+  # genuinely close due to low z_range (gap ~ 0.3sigma is real signal).
+  # The exp_ploidy state is never dropped regardless of gap.
+  collapse_frac <- 0.10  # min gap as fraction of sigma; only truly degenerate pairs
+  if (K > 1) {
+    mu_sorted   <- sort(mu)  # ascending: CN1 < CN2 < ...
+    gaps        <- diff(mu_sorted)  # gap[i] = mu[i+1] - mu[i]
+    keep_names  <- names(mu_sorted)
+    drop_mask   <- rep(FALSE, K)
+    exp_name    <- as.character(round(exp_ploidy))
+    for (gi in seq_along(gaps)) {
+      if (!drop_mask[gi] && abs(gaps[gi]) < collapse_frac * sig) {
+        # Never drop the exp_ploidy state
+        candidate <- keep_names[gi + 1]
+        if (candidate == exp_name) next
+        drop_mask[gi + 1] <- TRUE
+        vmsg("Collapsed CN state dropped: CN%s (|mu_gap|=%.4f < %.4f*sigma=%.4f)",
+          verbose = verbose, level = 2, type = ">>",
+          candidate, abs(gaps[gi]), collapse_frac, sig)
+      }
+    }
+    if (any(drop_mask)) {
+      keep_state_names <- keep_names[!drop_mask]
+      keep_state_idx   <- which(names(mu) %in% keep_state_names)
+      mu         <- mu[keep_state_idx]
+      cn_grid    <- cn_grid[keep_state_idx]
+      K          <- length(cn_grid)
+      state_ids  <- state_ids[keep_state_idx]
+      pi0        <- pi0[keep_state_idx]
+      pi0        <- pi0 / sum(pi0)
+      A          <- A[keep_state_idx, keep_state_idx]
+      ll_baf_matrix <- ll_baf_matrix[, keep_state_idx, drop = FALSE]
+      vmsg("Updated cn_grid after collapse pruning: %s", verbose = verbose, level = 2, type = ">>",
+        paste(sprintf("CN%d: %.3f", cn_grid, mu), collapse = "; "))
+    }
+  }
+
   vmsg("EM loop complete", verbose = verbose, level = 1, type = ">>")
 
   # Recompute ll_em in ORIGINAL window order from converged mu/sig.
@@ -910,6 +956,63 @@ hmm_estimate_CN <- function(
     }
   }
 
+  # Per-window z and BAF log-likelihood matrices (used for gating and pi0 blending below)
+  llz_mat <- matrix(NA_real_, W, K)
+  llb_mat <- matrix(NA_real_, W, K)
+  if (!z_only && K > 1) {
+    for (k in seq_len(K)) {
+      c_k <- cn_grid[k]
+      llz_mat[, k] <- dnorm(z, mean = mu[as.character(c_k)], sd = sig_dec, log = TRUE)
+      llb_k <- ll_baf_matrix[, k]
+      if (correct_scale) llb_k <- llb_k / n_baf
+      llb_k[no_baf] <- 0
+      llb_mat[, k] <- llb_k
+    }
+  }
+
+  # Two-signal consistency gating (chromosome level)
+  # Compare the chromosome-level z consensus vs BAF consensus for each chromosome.
+  # Per-window z-scores are too noisy to gate individually (especially with wide CN grids),
+  # so we aggregate across all windows on each chromosome before deciding.
+  #
+  # - If the chromosome-level mean BAF weight is low (< 0.1): BAF is sparse/absent,
+  #   z already dominates; no change.
+  # - If BAF weight is meaningful AND chromosome z and BAF agree on the best CN state:
+  #   reinforce with a log(3) * mean_w_baf bonus on the agreed state for all windows.
+  # - If BAF weight is meaningful AND they disagree: BAF is contradicting the depth
+  #   signal at the chromosome level. Suppress BAF for all windows on that chromosome
+  #   (replace ll_em with z-only emission).
+  if (!z_only && !baf_only && K > 1) {
+    baf_gate <- 0.1  # minimum mean BAF weight for a chromosome to be gated
+    gate_log <- character(0)
+
+    for (chr_i in unique(win_df$Chr)) {
+      idx         <- which(win_df$Chr == chr_i)
+      mean_w_baf  <- mean(w_baf_dec[idx], na.rm = TRUE)
+
+      if (mean_w_baf < baf_gate) next  # BAF sparse: z already dominates, no change
+
+      # Chromosome-level consensus: sum log-likelihoods across windows
+      chr_z_sum   <- colSums(llz_mat[idx, , drop = FALSE], na.rm = TRUE)
+      chr_baf_sum <- colSums(llb_mat[idx, , drop = FALSE], na.rm = TRUE)
+      best_z_chr  <- which.max(chr_z_sum)
+      best_baf_chr <- which.max(chr_baf_sum)
+
+      if (best_z_chr == best_baf_chr) {
+        # Signals agree at chromosome level: reinforce the agreed state
+        ll_em[idx, best_z_chr] <- ll_em[idx, best_z_chr] + log(3) * mean_w_baf
+        gate_log <- c(gate_log, sprintf("%s:agree(CN%d)", chr_i, cn_grid[best_z_chr]))
+      } else {
+        # Signals disagree at chromosome level: suppress BAF, use z-only emission
+        ll_em[idx, ] <- llz_mat[idx, , drop = FALSE]
+        gate_log <- c(gate_log, sprintf("%s:disagree(z=CN%d,baf=CN%d)",
+          chr_i, cn_grid[best_z_chr], cn_grid[best_baf_chr]))
+      }
+    }
+    message(sprintf("[GATE] W=%d K=%d baf_gate=%.2f | %s",
+      W, K, baf_gate, if (length(gate_log)) paste(gate_log, collapse = " ") else "none"))
+  }
+
   vmsg("Decoding CN path", verbose = verbose, level = 0, type = ">>")
   # EM-learned A can have degenerate uniform rows for states never visited:
   # a missing-state can "jump for free" to the best future window, giving it a
@@ -930,10 +1033,30 @@ hmm_estimate_CN <- function(
     idx <- which(win_df$Chr == chr_i)
     logpi0_chr <- NULL  # default: uniform
     if (!z_only) {
+      # pi0 is blended between z-score consensus and BAF consensus based on mean
+      # BAF weight for this chromosome. When BAF weight is low (sparse heterozygous
+      # markers), the BAF log-likelihoods are unreliable as a prior, and the z-score
+      # sum across windows is a better anchor for the starting state distribution.
+      mean_w_baf_chr <- mean(w_baf_dec[idx], na.rm = TRUE)
+
+      # z-score based pi0: sum of z log-likelihoods across chromosome windows
+      chr_z_sum <- colSums(llz_mat[idx, , drop = FALSE], na.rm = TRUE)
+      chr_z_sum <- chr_z_sum - max(chr_z_sum)
+      lse_z     <- logsumexp(chr_z_sum)
+      logpi0_z  <- if (is.finite(lse_z)) chr_z_sum - lse_z else log(pi0 / sum(pi0))
+
+      # BAF-based pi0: sum of raw BAF log-likelihoods (original behaviour)
       chr_baf_sum <- colSums(ll_baf_matrix[idx, , drop = FALSE], na.rm = TRUE)
-      chr_baf_sum <- chr_baf_sum - max(chr_baf_sum)  # numeric stability
-      lse <- logsumexp(chr_baf_sum)
-      if (is.finite(lse)) logpi0_chr <- chr_baf_sum - lse
+      chr_baf_sum <- chr_baf_sum - max(chr_baf_sum)
+      lse_baf     <- logsumexp(chr_baf_sum)
+      logpi0_baf  <- if (is.finite(lse_baf)) chr_baf_sum - lse_baf else log(pi0 / sum(pi0))
+
+      # Blend: weight BAF pi0 by mean_w_baf_chr, z pi0 by (1 - mean_w_baf_chr)
+      # so chromosomes with little BAF data are anchored by depth, not BAF noise.
+      logpi0_chr <- log(
+        (1 - mean_w_baf_chr) * exp(logpi0_z) + mean_w_baf_chr * exp(logpi0_baf)
+      )
+      logpi0_chr <- logpi0_chr - max(logpi0_chr)  # numeric stability
     } else {
       # z_only: fix per-chromosome pi0 at the exp_ploidy prior; deviates only if
       # within-chromosome evidence is strong enough to overcome it.
@@ -950,28 +1073,43 @@ hmm_estimate_CN <- function(
   z[cn0_idx]        <- NA_real_
   if (!z_only) w_baf[cn0_idx] <- NA_real_
 
-  # Post-processing: for chromosomes where every window has w_baf == 0, override
-  # all windows to the sample-mode CN when the chromosome mean z is within
-  # hom_z_sigma_inflate * sig of the baseline mu (reference bias).
-  # Chromosomes with larger mean z-deviation keep their decoded CN (genuine change).
+  # Post-processing: override mis-called chromosomes when BAF is absent/sparse
+  # and the z evidence is too weak to support a call different from the expected ploidy.
+  #
+  # Two tiers:
+  #   Tier 1 (all-hom): every window has w_baf == 0; apply original threshold.
+  #   Tier 2 (sparse BAF): mean_w_baf < baf_gate AND called CN != mode_CN AND
+  #           |chr_z_mean - mu[mode_CN]| < hom_z_sigma_inflate * sig.
+  #           These are chromosomes where a slight z fluctuation drove a CN call
+  #           that has no BAF support; override back to the sample-mode CN.
   if (!z_only && !baf_only && hom_z_sigma_inflate > 1) {
-    chr_all_hom  <- tapply(w_baf == 0, win_df$Chr, all, na.rm = TRUE)
-    all_hom_chrs <- names(chr_all_hom)[as.logical(chr_all_hom)]
-    if (length(all_hom_chrs) > 0) {
-      het_idx         <- w_baf > 0
-      mode_cn         <- as.integer(if (any(het_idx)) mode(cn_call[het_idx]) else round(exp_ploidy))
-      mode_col        <- which(cn_grid == mode_cn)
-      baseline_mu_val <- if (length(mode_col) == 1) mu[mode_col] else mu[which.min(abs(cn_grid - mode_cn))]
-      threshold       <- sig * hom_z_sigma_inflate
-      for (ch in all_hom_chrs) {
-        idx        <- win_df$Chr == ch
-        chr_z_mean <- mean(z[idx], na.rm = TRUE)
-        if (is.finite(chr_z_mean) && abs(chr_z_mean - baseline_mu_val) < threshold) {
-          cn_call[idx] <- mode_cn
-          if (length(mode_col) == 1)
-            post_max[idx] <- gamma_dec[idx, mode_col]
-        }
-      }
+    baf_gate_post   <- 0.1  # same gate as in gating block above
+    het_idx         <- w_baf > 0
+    mode_cn         <- as.integer(if (any(het_idx)) mode(cn_call[het_idx]) else round(exp_ploidy))
+    mode_col        <- which(cn_grid == mode_cn)
+    baseline_mu_val <- if (length(mode_col) == 1) mu[mode_col] else mu[which.min(abs(cn_grid - mode_cn))]
+    threshold       <- sig * hom_z_sigma_inflate
+
+    for (chr_i in unique(win_df$Chr)) {
+      idx            <- which(win_df$Chr == chr_i)
+      mean_w_baf_chr <- mean(w_baf[idx], na.rm = TRUE)
+      chr_z_mean     <- mean(z[idx], na.rm = TRUE)
+      chr_cn_mode    <- as.integer(mode(cn_call[idx]))
+
+      # Only act when chromosome CN differs from sample mode and z is within threshold
+      if (!is.finite(chr_z_mean)) next
+      if (chr_cn_mode == mode_cn) next
+      if (abs(chr_z_mean - baseline_mu_val) >= threshold) next  # genuine z deviation
+
+      # Override regardless of BAF weight: the z deviation is within noise of the
+      # sample mode, so the call is not supported by depth signal. When BAF is also
+      # present and was not strong enough to prevent this call, it too is within noise.
+      cn_call[idx] <- mode_cn
+      if (length(mode_col) == 1)
+        post_max[idx] <- gamma_dec[idx, mode_col]
+      message(sprintf("[POST-GATE] %s: CN%d→CN%d (mean_w_baf=%.3f, z_dev=%.3f < %.3f*sig)",
+        chr_i, chr_cn_mode, mode_cn, mean_w_baf_chr,
+        abs(chr_z_mean - baseline_mu_val), hom_z_sigma_inflate))
     }
   }
 

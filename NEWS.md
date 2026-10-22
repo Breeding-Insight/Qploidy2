@@ -1,3 +1,11 @@
+# Qploidy2 1.21.0
+
+* Added two-signal consistency gating to `hmm_estimate_CN()`: for each chromosome, the chromosome-level z-score consensus (sum of per-window z log-likelihoods) is compared to the chromosome-level BAF consensus. Gating operates at the chromosome level — not per window — because individual window z-scores are too noisy to reliably indicate disagreement, especially with wide CN grids. When the chromosome mean BAF weight is meaningful (>= 0.1) and the two signals disagree on the best CN state, the BAF contribution is suppressed for all windows on that chromosome and emissions are set to z-score only. When they agree, a reinforcement bonus (`log(3) × mean_w_baf`) is added to the agreed state. Chromosomes with sparse BAF (mean weight < 0.1) are unaffected.
+
+* Added post-EM collapsed-state pruning to `hmm_estimate_CN()`: after EM convergence, adjacent CN states whose means differ by less than 10% of sigma are removed before decoding. This prevents arbitrary HMM state-flipping when the data spread is small relative to the CN grid spacing (e.g. a diploid sample tested with `cn_grid=1:6`), where EM can collapse two CN means to virtually identical values. The `exp_ploidy` state is never dropped regardless of gap. Only truly degenerate pairs (gap < 0.10σ) are removed; genuine low-z_range separations are preserved.
+
+* Added post-decoding z-weakness override to `hmm_estimate_CN()`: after HMM decoding, chromosomes whose called CN differs from the sample-mode CN are overridden back to the sample mode when the chromosome mean z is within `hom_z_sigma_inflate × sigma` of the expected-ploidy z mean. This fires regardless of BAF weight — when the depth signal is too weak to support a non-modal CN call, a marginal BAF signal is also insufficient to sustain it. Prevents small z fluctuations (with or without low-weight BAF) from driving spurious aneuploid calls.
+
 # Qploidy2 1.20.0
 
 * Add Claude AI Qploidy2 skills 
