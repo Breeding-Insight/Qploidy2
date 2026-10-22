@@ -1113,12 +1113,58 @@ hmm_estimate_CN <- function(
     }
   }
 
-  # CN_reliability: joint confidence in both the HMM call and BAF support.
-  # Low whenever post_max is low OR BAF evidence is absent; high only when both
-  # the HMM is confident AND BAF data corroborates the call.
+  # CN_reliability: joint confidence combining four components:
+  #   post_max   - HMM posterior certainty for the called state
+  #   baf_info   - BAF informativeness: 1 - normalised Shannon entropy of a
+  #                10-bin BAF histogram on [0,1] per window.  Values are clipped
+  #                to [0,1] before binning so ratio columns are handled safely.
+  #                Uniform/dispersed BAF -> 0; peaks at heterozygous positions -> 1.
+  #                Windows with no BAF data use z_no_baf_scale as the floor.
+  #   zbaf_agree - per-window z vs BAF agreement: 1 - total variation distance
+  #                between the softmax of llz_mat and softmax of llb_mat for that
+  #                window (both available from the gating block). 1 = identical
+  #                distributions; 0 = completely opposite. Windows with w_baf==0
+  #                or when gating is skipped (z_only/baf_only/K==1) default to 1.
+  #   w_baf_norm - existing BAF-weight scaling (unchanged)
   w_baf_use <- if (z_only) rep(0, W) else w_baf
   w_baf_norm <- pmax(z_no_baf_scale, pmin(1, w_baf_use / baf_weight))
-  CN_reliability <- post_max * w_baf_norm
+
+  # --- baf_info: normalised BAF entropy per window ---
+  baf_entropy_bins <- 10L
+  baf_breaks <- seq(0, 1, length.out = baf_entropy_bins + 1L)
+  baf_info <- vapply(seq_len(W), function(i) {
+    if (isTRUE(is.na(w_baf_use[i])) || isTRUE(w_baf_use[i] == 0)) return(z_no_baf_scale)
+    bv <- baf_list[[i]]
+    bv <- pmax(0, pmin(1, bv[is.finite(bv)]))  # clip to [0,1]; handles ratio columns
+    if (length(bv) == 0L) return(z_no_baf_scale)
+    counts <- tabulate(findInterval(bv, baf_breaks, rightmost.closed = TRUE),
+                       nbins = baf_entropy_bins)
+    s <- sum(counts)
+    if (s == 0L) return(z_no_baf_scale)
+    p <- counts[counts > 0L] / s
+    H <- -sum(p * log(p))           # Shannon entropy (nats)
+    H_max <- log(baf_entropy_bins)  # entropy of uniform distribution
+    max(0, min(1, 1 - H / H_max))  # 0 = uniform/dispersed, 1 = perfectly peaked
+  }, numeric(1L))
+
+  # --- zbaf_agree: per-window z vs BAF posterior agreement ---
+  # Uses llz_mat and llb_mat computed in the gating block above.
+  # Softmax each row independently, then take 1 - total variation distance.
+  if (!z_only && !baf_only && K > 1 && exists("llz_mat") && exists("llb_mat")) {
+    softmax_row <- function(x) { x <- x - max(x); e <- exp(x); e / sum(e) }
+    zbaf_agree <- vapply(seq_len(W), function(i) {
+      if (isTRUE(is.na(w_baf_use[i])) || isTRUE(w_baf_use[i] == 0)) return(1)
+      pz <- softmax_row(llz_mat[i, ])
+      pb <- softmax_row(llb_mat[i, ])
+      if (!all(is.finite(pz)) || !all(is.finite(pb))) return(1)
+      1 - 0.5 * sum(abs(pz - pb))  # 1 - total variation distance; in [0,1]
+    }, numeric(1L))
+  } else {
+    zbaf_agree <- rep(1, W)
+  }
+
+  CN_reliability <- post_max * baf_info * zbaf_agree * w_baf_norm
+  CN_reliability[!is.finite(CN_reliability)] <- NA_real_
 
   vmsg("CN path decoded", verbose = verbose, level = 1, type = ">>")
 
