@@ -108,7 +108,15 @@ fb_smooth <- function(ll_em, logA, logpi0 = NULL) {
   }
 
   log_gamma <- log_alpha + log_beta
-  log_gamma <- sweep(log_gamma, 1, apply(log_gamma, 1, logsumexp), "-")
+  row_lse <- apply(log_gamma, 1, logsumexp)
+  # If a row's logsumexp is non-finite (all -Inf or NaN), the posteriors for that
+  # window are undefined.  Fall back to uniform so the matrix stays numeric.
+  degenerate <- !is.finite(row_lse)
+  if (any(degenerate)) row_lse[degenerate] <- 0  # exp(0)=1 -> uniform after subtraction
+  log_gamma <- sweep(log_gamma, 1, row_lse, "-")
+  # Force degenerate rows to uniform (all -Inf -> -log(K) after sweep is still -Inf;
+  # handle by writing log(1/K) directly).
+  if (any(degenerate)) log_gamma[degenerate, ] <- -log(K)
   exp(log_gamma)
 }
 

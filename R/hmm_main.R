@@ -50,6 +50,28 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param dosage_threshold Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.
 #' @param z_no_baf_scale Numeric in [0,1]. Floor weight applied to \code{w_baf} when computing \code{CN_reliability} for windows with no BAF support (\code{w_baf == 0}). A value of 0 means z-only calls have \code{CN_reliability = 0}; 0.25 (default) allows z-only calls to reach at most 25\% of \code{post_max}. Does not affect the HMM emission or CN calling. Applies only when \code{z_only = FALSE}.
 #' @param hom_z_sigma_inflate Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.
+#' @param nQuack_EM Logical. If \code{TRUE}, use the \pkg{nQuack} package to estimate \code{exp_ploidy} from
+#'   whole-sample read-coverage data (total depth and one randomly chosen allele count per heterozygous site).
+#'   The three mixture-model distributions shipped with nQuack (\code{quackNormal}, \code{quackBeta},
+#'   \code{quackBetaBinom}) are each fitted and the winner by BIC is used to determine the ploidal level, which
+#'   becomes \code{exp_ploidy} for the HMM run. Per-window BAF likelihoods are still computed with the existing
+#'   template method. Requires nQuack to be installed (\code{remotes::install_github("mgaynor1/nQuack")}) and
+#'   the input data to contain columns \code{R} (total depth), \code{X} (ref allele count), \code{Y} (alt
+#'   allele count), \code{ratio}, and \code{geno}. Only takes effect when \code{selected_model} is \code{NULL}
+#'   and \code{exp_ploidy} is \code{NA}/\code{NULL}. Default \code{FALSE}.
+#'@param nQuack_dists Character vector or \code{NULL}. Restricts which nQuack mixture-model
+#'  families are evaluated when \code{nQuack_EM = TRUE}. Valid values are \code{"normal"},
+#'  \code{"beta"}, and \code{"beta-binomial"}. Both the base family and its
+#'  \code{+uniform} variant are automatically tested for each entry. If \code{NULL} (default),
+#'  all three families are evaluated and the best by BIC is selected. Example:
+#'  \code{nQuack_dists = "normal"} tests only Normal and Normal+Uniform.
+#' @param nQuack_exp_ploidy Logical. If \code{TRUE}, use the \pkg{nQuack} package to
+#'   estimate \code{exp_ploidy} only (same as \code{nQuack_EM}), but then use the
+#'   template BAF model (\code{select_best_baf_model}) for per-window BAF likelihoods
+#'   and dosage assignment. This is a middle-ground option: nQuack provides a more
+#'   robust ploidy estimate while the template method handles the window-level inference.
+#'   Requires the same input columns as \code{nQuack_EM}. Ignored when \code{nQuack_EM
+#'   = TRUE}. Default \code{FALSE}.
 #' @param rerun_overall_ploidy Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.
 #' @param recycled_obj_rerun_overall_ploidy Named list for internal use during the recursive call triggered by
 #'   \code{rerun_overall_ploidy = TRUE}. Contains two elements:
@@ -150,7 +172,7 @@ hmm_estimate_CN <- function(
   outlier_alpha = 0.05,
   selected_model = NULL,
   dists = c("gaussian", "beta_binomial", "negative_binomial"),
-  bw_grid = c(0.02, 0.04, 0.06, 0.08, 0.1),
+  bw_grid = c(0.01, 0.02, 0.03, 0.04, 0.05),
   add_uniform_grid = FALSE,
   uniform_weight_grid = c(0.01, 0.03, 0.05, 0.10, 0.15),
   param_count = NULL,
@@ -162,6 +184,10 @@ hmm_estimate_CN <- function(
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
   cn0_background_frac = 0,
+  nQuack_EM = FALSE,
+  nQuack_cores = 1L,
+  nQuack_dists = NULL,
+  nQuack_exp_ploidy = FALSE,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 ) {
@@ -291,29 +317,140 @@ hmm_estimate_CN <- function(
       bafs_overall <- d[[baf_col]]
     }
 
-    selected_model <- select_best_baf_model(
-      baf_vec = bafs_overall,
-      sample = sample_id,
-      cn_grid = cn_grid[cn_grid >= 1L],  # BAF is undefined at CN=0
-      dists = dists,
-      M = M,
-      reflect = reflect,
-      bw_grid = bw_grid,
-      add_uniform_grid = add_uniform_grid,
-      uniform_weight_grid = uniform_weight_grid,
-      param_count = param_count,
-      count_grid_as_params = count_grid_as_params,
-      min_het_frac = min_het_frac,
-      het_range = het_range
-    )
+    if (isTRUE(nQuack_EM) && !z_only) {
+      # nQuack_EM = TRUE (full nQuack path): skip template BAF model fitting.
+      # A synthetic selected_model will be built from nQuack results below.
+      # nQuack_exp_ploidy is irrelevant here: nQuack_EM takes full precedence.
+      selected_model <- NULL
+    } else {
+      selected_model <- select_best_baf_model(
+        baf_vec = bafs_overall,
+        sample = sample_id,
+        cn_grid = cn_grid[cn_grid >= 1L],  # BAF is undefined at CN=0
+        dists = dists,
+        M = M,
+        reflect = reflect,
+        bw_grid = bw_grid,
+        add_uniform_grid = add_uniform_grid,
+        uniform_weight_grid = uniform_weight_grid,
+        param_count = param_count,
+        count_grid_as_params = count_grid_as_params,
+        min_het_frac = min_het_frac,
+        het_range = het_range
+      )
+    }
   }
+
+  # Initialise nQuack outputs to NULL so downstream exists() guards are safe
+  # even when the user supplies exp_ploidy directly (skipping the nQuack block).
+  if (!exists("nq_dist"))           nq_dist           <- NULL
+  if (!exists("nq_ploidy"))         nq_ploidy         <- NULL
+  if (!exists("nq_winner"))         nq_winner         <- NULL
+  if (!exists("nq_uniform_weight")) nq_uniform_weight <- NULL
 
   # Use exp_ploidy argument if provided, otherwise use selected_model$best$best_cn
   if (is.null(exp_ploidy) || (length(exp_ploidy) == 1 && is.na(exp_ploidy))) {
-    exp_ploidy <- selected_model$best$best_cn
-    vmsg("exp_ploidy not provided, using best CN from BAF model: %s", verbose = verbose, level = 1, type = ">>", exp_ploidy)
+    # --- nQuack EM alternative: use nQuack to determine exp_ploidy ---
+    if ((isTRUE(nQuack_EM) || isTRUE(nQuack_exp_ploidy)) && !z_only) {
+      # On second pass (rerun_overall_ploidy), reuse the winning distribution from the first
+      # pass so only that one distribution is re-fit on the cleaner data (faster, consistent).
+      nq_cached_dist <- recycled_obj_rerun_overall_ploidy$recycled_nq_dist
+      if (!is.null(nq_cached_dist)) {
+        vmsg("nQuack: re-estimating exp_ploidy with winning distribution (%s) only",
+             verbose = verbose, level = 1, type = ">>", nq_cached_dist)
+      } else {
+        vmsg("nQuack: estimating exp_ploidy via nQuack EM mixture model", verbose = verbose, level = 1, type = ">>")
+      }
+      nq_result <- .nquack_estimate_ploidy(
+        d                = d,
+        sample_id        = sample_id,
+        cn_grid          = cn_grid,
+        baf_col          = baf_col,
+        selected_model   = selected_model,
+        nQuack_cores     = nQuack_cores,
+        het_range        = het_range,
+        dosage_threshold = dosage_threshold,
+        fixed_dist       = nq_cached_dist,
+        allowed_dists    = nQuack_dists,
+        verbose          = verbose
+      )
+      nq_ploidy <- nq_result$cn
+      nq_winner <- nq_result$winner
+      nq_dist   <- nq_result$dist
+      if (!is.null(nq_ploidy) && is.numeric(nq_ploidy) && is.finite(nq_ploidy)) {
+        exp_ploidy <- nq_ploidy
+        vmsg("nQuack estimated exp_ploidy: %s", verbose = verbose, level = 1, type = ">>", exp_ploidy)
+      } else {
+        stop(sprintf(
+          paste0("nQuack: nQuack could not determine exp_ploidy for sample '%s'. ",
+                 "nQuack returned: cn=%s, dist=%s, winner=%s. ",
+                 "Check that the BAF data has sufficient heterozygous markers. ",
+                 "Set nQuack_EM = FALSE and nQuack_exp_ploidy = FALSE to use the template BAF model instead."),
+          sample_id,
+          if (is.null(nq_ploidy)) "NULL" else as.character(nq_ploidy),
+          if (is.null(nq_dist))   "NULL" else as.character(nq_dist),
+          if (is.null(nq_winner)) "NULL" else as.character(nq_winner)
+        ))
+      }
+
+      # On the nQuack_exp_ploidy path the template selected_model was already built
+      # above by select_best_baf_model; only override it on the full nQuack_EM path.
+      if (isTRUE(nQuack_EM)) {
+      # Build a synthetic selected_BAF_model-like object from nQuack results so
+      # that all downstream code that reads selected_model$best$* continues to work.
+      nq_add_uniform     <- grepl("-uniform$", tolower(nq_dist))
+      nq_dist_base       <- sub("-uniform$", "", tolower(nq_dist))
+      nq_dist_qploidy    <- switch(nq_dist_base,
+        "normal"       = "gaussian",
+        "beta"         = "beta",
+        "beta-binomial"= "beta_binomial",
+        nq_dist_base          # fallback: keep as-is
+      )
+      # Default uniform_weight if uniform component is present (nQuack does not report it)
+      nq_uniform_weight  <- if (nq_add_uniform) 0.05 else 0
+      # bw is NA on the nQuack path; dosage assignment uses call_BAF_nQuack_dosages instead.
+      selected_model <- structure(
+        list(
+          best = list(
+            dist           = nq_dist_qploidy,
+            bw             = NA_real_,
+            add_uniform    = nq_add_uniform,
+            uniform_weight = nq_uniform_weight,
+            best_cn        = exp_ploidy
+          )
+        ),
+        class = "selected_BAF_model"
+      )
+      vmsg("Synthetic selected_BAF_model built from nQuack results (dist=%s, add_uniform=%s, best_cn=%s)",
+           verbose = verbose, level = 1, type = ">>",
+           nq_dist_qploidy, nq_add_uniform, exp_ploidy)
+      } # end if (isTRUE(nQuack_EM))
+    } else {
+      exp_ploidy <- selected_model$best$best_cn
+      vmsg("exp_ploidy not provided, using best CN from BAF model: %s", verbose = verbose, level = 1, type = ">>", exp_ploidy)
+    }
   } else {
     vmsg("exp_ploidy provided by user: %s", verbose = verbose, level = 1, type = ">>", exp_ploidy)
+    # When nQuack_EM = TRUE but exp_ploidy was supplied by the user, nQuack is not
+    # run and selected_model is still NULL (select_best_baf_model was skipped).
+    # Build a minimal synthetic selected_BAF_model so downstream code that reads
+    # selected_model$best$* does not crash.  bw = NA because dosage assignment will
+    # use call_BAF_nQuack_dosages (nq_dist will be set on first nQuack window call)
+    # or, if nQuack_EM = FALSE, this branch is unreachable without a model.
+    if (isTRUE(nQuack_EM) && is.null(selected_model)) {
+      selected_model <- structure(
+        list(best = list(
+          dist           = "gaussian",
+          bw             = NA_real_,
+          add_uniform    = FALSE,
+          uniform_weight = 0,
+          best_cn        = exp_ploidy
+        )),
+        class = "selected_BAF_model"
+      )
+      vmsg("nQuack_EM = TRUE with user-supplied exp_ploidy: synthetic selected_BAF_model built",
+           verbose = verbose, level = 1, type = ">>")
+    }
   }
 
   vmsg("Parameters ready", verbose = verbose, level = 1, type = ">>")
@@ -428,18 +565,33 @@ hmm_estimate_CN <- function(
     vmsg("Only one window remains after filtering. Assigning CN by BAF likelihood only", verbose = verbose, level = 1, type = ">>")
     # BAF is undefined at CN=0, so it must be excluded from the grid used here
     cn_grid_baf <- cn_grid[cn_grid >= 1L]
-    ll_baf_matrix <- compute_baf_likelihoods(baf_list[keep][[1]],
-      cn_grid_baf,
-      M = M,
-      bw = selected_model$best$bw,
-      plot = FALSE,
-      dist = selected_model$best$dist,
-      reflect = reflect,
-      add_uniform = selected_model$best$add_uniform,
-      uniform_weight = selected_model$best$uniform_weight,
-      min_het_frac = min_het_frac,
-      het_range = het_range
-    )
+    win_idx <- which(keep)
+    use_nq_single <- isTRUE(nQuack_EM) &&
+      !is.null(nq_dist) && !is.na(nq_dist)
+    if (use_nq_single) {
+      ll_baf_matrix <- .nquack_baf_likelihoods_by_window(
+        win_df    = win_df[win_idx[1], , drop = FALSE],
+        d_all     = d,
+        baf_col   = baf_col,
+        cn_grid   = cn_grid_baf,
+        nq_dist   = nq_dist,
+        het_range = het_range,
+        min_het_frac = min_het_frac
+      )
+    } else {
+      ll_baf_matrix <- compute_baf_likelihoods(baf_list[keep][[1]],
+        cn_grid_baf,
+        M = M,
+        bw = selected_model$best$bw,
+        plot = FALSE,
+        dist = selected_model$best$dist,
+        reflect = reflect,
+        add_uniform = selected_model$best$add_uniform,
+        uniform_weight = selected_model$best$uniform_weight,
+        min_het_frac = min_het_frac,
+        het_range = het_range
+      )
+    }
 
     cn_call <- cn_grid_baf[which.max(ll_baf_matrix$ll_vec)]
     post_max <- rep(1, 1)
@@ -447,17 +599,36 @@ hmm_estimate_CN <- function(
     names(post_df) <- paste0("post_CN", cn_grid)
     post_df[1, paste0("post_CN", cn_grid_baf[which.max(ll_baf_matrix$prob_vec)])] <- 1
     # n_het is now calculated using dosages
-    dosages <- mapply(function(x, y) {
-      call_BAF_dosages(x,
-        cn = y,
-        bw = selected_model$best$bw,
-        plot = FALSE,
-        dist = selected_model$best$dist,
-        add_uniform = selected_model$best$add_uniform,
-        uniform_weight = selected_model$best$uniform_weight
-      )
-    }, baf_list[keep], cn_call, SIMPLIFY = FALSE)
-    n_het <- sum(dosages[[1]]$dosage != 0 & dosages[[1]]$dosage != cn_call[1], na.rm = TRUE)
+    if (use_nq_single) {
+      # nQuack path: use pir-based dosage assignment
+      win_chr_s   <- win_df$Chr[win_idx[1]]
+      win_start_s <- win_df$Start[win_idx[1]]
+      win_end_s   <- win_df$End[win_idx[1]]
+      d_win_s <- d[!is.na(d$Chr) & d$Chr == win_chr_s &
+                   !is.na(d$Position) &
+                   d$Position >= win_start_s & d$Position <= win_end_s, , drop = FALSE]
+      bc_s <- if (baf_col %in% colnames(d_win_s)) baf_col else if ("ratio" %in% colnames(d_win_s)) "ratio" else NA_character_
+      dosages <- list(call_BAF_nQuack_dosages(
+        baf_vec   = if (!is.na(bc_s)) d_win_s[[bc_s]] else baf_list[keep][[1]],
+        cn        = max(2L, cn_call),  # nQuack requires cn >= 2; CN=1 windows use cn=2
+        nq_dist   = nq_dist,
+        het_range = het_range,
+        R_vec     = if ("R" %in% colnames(d_win_s)) d_win_s$R else NULL,
+        Y_vec     = if ("Y" %in% colnames(d_win_s)) d_win_s$Y else NULL
+      ))
+    } else {
+      dosages <- mapply(function(x, y) {
+        call_BAF_dosages(x,
+          cn = y,
+          bw = selected_model$best$bw,
+          plot = FALSE,
+          dist = selected_model$best$dist,
+          add_uniform = selected_model$best$add_uniform,
+          uniform_weight = selected_model$best$uniform_weight
+        )
+      }, baf_list[keep], cn_call, SIMPLIFY = FALSE)
+    }
+    n_het <- sum(dosages[[1]]$data$dosage != 0 & dosages[[1]]$data$dosage != cn_call[1], na.rm = TRUE)
     result <- cbind(
       data.frame(
         Sample = sample_id,
@@ -484,7 +655,7 @@ hmm_estimate_CN <- function(
       A = NA,
       pi0 = NA,
       bins = M,
-      bw = selected_model$best$bw,
+      bw = if (isTRUE(nQuack_EM)) NA_real_ else selected_model$best$bw,
       loglik = NA,
       z_range = z_range,
       het_quantile = het_quantile,
@@ -547,6 +718,7 @@ hmm_estimate_CN <- function(
       dosage_threshold = dosage_threshold,
       z_no_baf_scale  = z_no_baf_scale,
       hom_z_sigma_inflate = hom_z_sigma_inflate,
+      nQuack_EM       = FALSE,   # z_only pre-pass: never use nQuack
       rerun_overall_ploidy = FALSE
     )
     cn0_key <- with(pre_z$by_window[is.na(pre_z$by_window$CN_call), ],
@@ -568,25 +740,45 @@ hmm_estimate_CN <- function(
   }
 
   # Generate BAF likelihoods and probabilities per window
-  # Uses parameters from selected_model
+  # Uses parameters from selected_model (template) or nQuack EM per-window
   if (!z_only) {
     vmsg("Generating BAF likelihoods by window", verbose = verbose, level = 0, type = ">>")
     grid1 <- unique(c(1L, cn_grid[cn_grid >= 1L])) # BAF undefined at CN=0; always test CN=1 for LOH
 
-    baf_results <- lapply(baf_list, function(baf_vec) {
-      compute_baf_likelihoods(baf_vec,
-        grid1,
-        M = M,
-        bw = selected_model$best$bw,
-        plot = FALSE,
-        dist = selected_model$best$dist,
-        reflect = reflect,
-        add_uniform = selected_model$best$add_uniform,
-        uniform_weight = selected_model$best$uniform_weight,
-        het_range = het_range,
-        min_het_frac = min_het_frac
-      )
-    })
+    # Determine which window-level BAF likelihood method to use
+    use_nquack_windows <- isTRUE(nQuack_EM) &&
+      !is.null(nq_dist) && !is.na(nq_dist)
+
+    if (use_nquack_windows) {
+      vmsg("nQuack_EM: computing per-window BAF likelihoods via nQuack EM (%s)",
+           verbose = verbose, level = 1, type = ">>", nq_dist)
+      baf_results <- lapply(seq_along(baf_list), function(i) {
+        .nquack_baf_likelihoods_by_window(
+          win_df    = win_df[i, , drop = FALSE],
+          d_all     = d,
+          baf_col   = baf_col,
+          cn_grid   = grid1,
+          nq_dist   = nq_dist,
+          het_range = het_range,
+          min_het_frac = min_het_frac
+        )
+      })
+    } else {
+      baf_results <- lapply(baf_list, function(baf_vec) {
+        compute_baf_likelihoods(baf_vec,
+          grid1,
+          M = M,
+          bw = selected_model$best$bw,
+          plot = FALSE,
+          dist = selected_model$best$dist,
+          reflect = reflect,
+          add_uniform = selected_model$best$add_uniform,
+          uniform_weight = selected_model$best$uniform_weight,
+          het_range = het_range,
+          min_het_frac = min_het_frac
+        )
+      })
+    }
 
     ll_baf_matrix <- do.call(rbind, lapply(baf_results, function(res) res$ll_vec))
     ploidies_temp <- apply(ll_baf_matrix, 1, which.max)
@@ -608,7 +800,9 @@ hmm_estimate_CN <- function(
 
     # baf_only: replace global likelihoods with per-chromosome fits so each
     # chromosome uses a bandwidth optimised for its own BAF pattern.
-    if (baf_only) {
+    # When nQuack_EM = TRUE the per-window likelihoods above already come from
+    # nQuack; re-fitting with the template here would use bw = NA and fail.
+    if (baf_only && !isTRUE(nQuack_EM)) {
       vmsg("baf_only: refitting per-chromosome BAF models", verbose = verbose, level = 1, type = ">>")
       for (chr_i in unique(win_df$Chr)) {
         chr_idx  <- which(win_df$Chr == chr_i)
@@ -643,20 +837,47 @@ hmm_estimate_CN <- function(
     vmsg("Generating BAF weights by window", verbose = verbose, level = 0, type = ">>")
 
     vmsg("Calling dosages", verbose = verbose, level = 1, type = ">>")
-    dosages <- mapply(
-      function(x, y) {
-        call_BAF_dosages(x,
-          cn = y,
-          bw = selected_model$best$bw,
-          plot = FALSE,
-          dist = selected_model$best$dist,
-          add_uniform = selected_model$best$add_uniform,
-          uniform_weight = selected_model$best$uniform_weight
+    use_nquack_dosages <- isTRUE(nQuack_EM) &&
+      !is.null(nq_dist) && !is.na(nq_dist)
+    if (use_nquack_dosages) {
+      # nQuack path: use pir-based dosage assignment per window
+      # Build per-window data frames (BAF + depth) from d for call_BAF_nQuack_dosages
+      bc_main <- if (baf_col %in% colnames(d)) baf_col else if ("ratio" %in% colnames(d)) "ratio" else NA_character_
+      has_R   <- "R" %in% colnames(d)
+      has_Y   <- "Y" %in% colnames(d)
+      dosages <- lapply(seq_along(baf_list), function(i) {
+        chr_i   <- win_df$Chr[i]
+        start_i <- win_df$Start[i]
+        end_i   <- win_df$End[i]
+        d_wi <- d[!is.na(d$Chr) & d$Chr == chr_i &
+                  !is.na(d$Position) &
+                  d$Position >= start_i & d$Position <= end_i, , drop = FALSE]
+        baf_i <- if (!is.na(bc_main) && nrow(d_wi) > 0) d_wi[[bc_main]] else baf_list[[i]]
+        call_BAF_nQuack_dosages(
+          baf_vec   = baf_i,
+          cn        = max(2L, ploidies_temp[i]),  # nQuack requires cn >= 2; CN=1 windows use cn=2
+          nq_dist   = nq_dist,
+          het_range = het_range,
+          R_vec     = if (has_R && nrow(d_wi) > 0) d_wi$R else NULL,
+          Y_vec     = if (has_Y && nrow(d_wi) > 0) d_wi$Y else NULL
         )
-      },
-      baf_list, ploidies_temp,
-      SIMPLIFY = FALSE
-    )
+      })
+    } else {
+      dosages <- mapply(
+        function(x, y) {
+          call_BAF_dosages(x,
+            cn = y,
+            bw = selected_model$best$bw,
+            plot = FALSE,
+            dist = selected_model$best$dist,
+            add_uniform = selected_model$best$add_uniform,
+            uniform_weight = selected_model$best$uniform_weight
+          )
+        },
+        baf_list, ploidies_temp,
+        SIMPLIFY = FALSE
+      )
+    }
 
     # For each window, count heterozygotes: dosage != 0 & dosage != ploidies_temp & dosage_prob > dosage_threshold
     vmsg("Counting heterozygotes per window", verbose = verbose, level = 1, type = ">>")
@@ -1038,6 +1259,9 @@ hmm_estimate_CN <- function(
       # markers), the BAF log-likelihoods are unreliable as a prior, and the z-score
       # sum across windows is a better anchor for the starting state distribution.
       mean_w_baf_chr <- mean(w_baf_dec[idx], na.rm = TRUE)
+      # Guard: mean(na.rm=TRUE) of an all-NA vector returns NaN, not 0.
+      # Treat NaN mean as 0 (no BAF data) so the blend below doesn't propagate NaN.
+      if (is.nan(mean_w_baf_chr)) mean_w_baf_chr <- 0
 
       # z-score based pi0: sum of z log-likelihoods across chromosome windows
       chr_z_sum <- colSums(llz_mat[idx, , drop = FALSE], na.rm = TRUE)
@@ -1056,7 +1280,11 @@ hmm_estimate_CN <- function(
       logpi0_chr <- log(
         (1 - mean_w_baf_chr) * exp(logpi0_z) + mean_w_baf_chr * exp(logpi0_baf)
       )
-      logpi0_chr <- logpi0_chr - max(logpi0_chr)  # numeric stability
+      # Numeric stability: subtract max.  If all entries are -Inf or NaN (can
+      # happen when both logpi0_z and logpi0_baf are degenerate), fall back to
+      # the uniform/exp_ploidy prior rather than propagating NaN into fb_smooth.
+      max_lp <- max(logpi0_chr)
+      logpi0_chr <- if (is.finite(max_lp)) logpi0_chr - max_lp else log(pi0 / sum(pi0))
     } else {
       # z_only: fix per-chromosome pi0 at the exp_ploidy prior; deviates only if
       # within-chromosome evidence is strong enough to overcome it.
@@ -1064,7 +1292,13 @@ hmm_estimate_CN <- function(
     }
     gamma_dec[idx, ] <- fb_smooth(ll_em[idx, , drop = FALSE], log(A_dec), logpi0_chr)
   }
-  cn_call  <- cn_grid[apply(gamma_dec, 1, which.max)]
+  if (!is.matrix(gamma_dec) || ncol(gamma_dec) == 0L)
+    stop(sprintf("Internal error: gamma_dec is not a valid matrix after fb_smooth (dim=%s, K=%d). Please report this.", paste(dim(gamma_dec), collapse="x"), K))
+  # which.max on a row of all-NaN returns integer(0), and apply() then returns a
+  # list (mixed lengths).  Use a safe wrapper that falls back to state 1 (exp_ploidy)
+  # when all posterior values are non-finite, so the result is always an integer vector.
+  safe_which_max <- function(x) { idx <- which.max(x); if (length(idx) == 0L) 1L else idx }
+  cn_call  <- cn_grid[vapply(seq_len(nrow(gamma_dec)), function(i) safe_which_max(gamma_dec[i, ]), integer(1L))]
   post_max <- apply(gamma_dec, 1, max)
   # CN=0 windows carry only background array signal; treat as missing like sequencing gaps.
   cn0_idx <- cn_call == 0
@@ -1209,13 +1443,24 @@ hmm_estimate_CN <- function(
   }
   params <- list(
     cn_grid = cn_grid,
-    distribution = selected_model$best$dist,
+    distribution = if ((isTRUE(nQuack_EM) || isTRUE(nQuack_exp_ploidy)) && !is.null(nq_dist) && !is.na(nq_dist)) {
+                     nq_pretty <- c(
+                       "normal"                = "Normal",
+                       "normal-uniform"        = "Normal + Uniform",
+                       "beta"                  = "Beta",
+                       "beta-uniform"          = "Beta + Uniform",
+                       "beta-binomial"         = "Beta-Binomial",
+                       "beta-binomial-uniform" = "Beta-Binomial + Uniform"
+                     )
+                     pretty <- unname(nq_pretty[tolower(nq_dist)])
+                     if (is.na(pretty)) paste0("nQuack - ", nq_dist) else paste0("nQuack - ", pretty)
+                   } else selected_model$best$dist,
     mu = if (baf_only) NA else mu,
     sigma = if (baf_only) NA else sig,
     A = A,
     pi0 = pi0,
     bins = M,
-    bw = selected_model$best$bw,
+    bw = if (isTRUE(nQuack_EM)) NA_real_ else selected_model$best$bw,
     loglik = ll_hist[length(ll_hist)],
     z_range = z_range,
     het_quantile = het_quantile,
@@ -1230,7 +1475,7 @@ hmm_estimate_CN <- function(
     snps_per_window = snps_per_window,
     min_snps_per_window = min_snps_per_window,
     add_uniform = add_uniform,
-    uniform_weight = selected_model$best$uniform_weight,
+    uniform_weight = if (isTRUE(nQuack_EM) && !is.null(nq_uniform_weight)) nq_uniform_weight else selected_model$best$uniform_weight,
     cn0_background_frac = cn0_background_frac
   )
 
@@ -1288,12 +1533,19 @@ hmm_estimate_CN <- function(
       z_no_baf_scale = z_no_baf_scale,
       hom_z_sigma_inflate = hom_z_sigma_inflate,
       cn0_background_frac = cn0_background_frac,
+      nQuack_EM       = nQuack_EM,
+      nQuack_cores    = nQuack_cores,
+      nQuack_dists      = nQuack_dists,
+      nQuack_exp_ploidy = nQuack_exp_ploidy,
       rerun_overall_ploidy = FALSE,
       recycled_obj_rerun_overall_ploidy = list(rm_mks = rm_markers,
                                                recycled_d = keep_d,
                                                recycled_baf_col = keep_baf_col,
                                                recycled_z_col = keep_z_col,
-                                               recycled_cn_grid = keep_cn_grid)
+                                               recycled_cn_grid = keep_cn_grid,
+                                               recycled_nq_exp_ploidy = if (isTRUE(nQuack_EM) && !is.null(nq_ploidy)) nq_ploidy else NULL,
+                                               recycled_nq_winner     = if (isTRUE(nQuack_EM) && !is.null(nq_winner)) nq_winner else NULL,
+                                               recycled_nq_dist       = if (isTRUE(nQuack_EM) && !is.null(nq_dist))   nq_dist   else NULL)
     )
 
     # The rerun has its own pre-pass, but apply the outer call's cn0_win_df as

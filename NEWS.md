@@ -1,5 +1,8 @@
 # Qploidy2 1.22.0
 
+* Added `nQuack_EM`, `nQuack_mixtures`, and `nQuack_cores` parameters to `hmm_estimate_CN()`. When `nQuack_EM = TRUE`, the three nQuack mixture-model distributions (`quackNormal`, `quackBeta`, `quackBetaBinom`) are fitted to whole-sample heterozygous-site coverage data and the BIC winner is used to set `exp_ploidy` — the expected ploidy that initialises the HMM state distribution and z-scale — instead of relying on the template BAF model. Per-window BAF likelihoods continue to use the existing template/histogram method. `nQuack_mixtures` controls which ploidal-level names are passed to `quackit()` (default: derived from `cn_grid` over 2:6); `nQuack_cores` passes the core count to the nQuack fitting functions. Requires `nQuack` installed via `remotes::install_github("mgaynor1/nQuack")`.
+
+
 * Redesigned `CN_reliability` in `hmm_estimate_CN()` as a product of four independent evidence components: (1) `post_max` — HMM posterior certainty for the called state; (2) `baf_info` — BAF informativeness computed as 1 minus the normalised Shannon entropy of a 10-bin BAF histogram on [0,1] per window. Measures how structured/peaked the BAF distribution is within a window — a dispersed or uniform BAF (high background noise, impossible to assign to copy-number peaks) yields a low score even when many heterozygous SNPs are present, while BAF clearly clustered at expected heterozygous positions (e.g. 0, 1/3, 1/2, 2/3, 1) yields a high score. BAF values are clipped to [0,1] before binning so `ratio` input columns are handled safely. No-BAF windows use `z_no_baf_scale` as the floor; (3) `zbaf_agree` — per-window z vs BAF agreement computed as 1 minus the total variation distance between the softmax of the per-window z log-likelihood vector and the softmax of the per-window BAF log-likelihood vector. 1 = z and BAF posterior distributions are identical; 0 = completely opposite. Windows with no BAF data default to 1 (no penalty). Degrades gracefully to 1 when gating is skipped (`z_only`, `baf_only`, or `K==1`); (4) `w_baf_norm` — existing BAF-weight scaling (unchanged). `CN_reliability` is now low for calls where BAF is dispersed/uninformative (even when `post_max` is high) and for calls where z and BAF favour different CN states.
 
 # Qploidy2 1.21.0
@@ -102,6 +105,11 @@
   aneuploidy; returns a `count_types` object (a named list of sample-ID vectors
   plus a `$by_cn` breakdown by sample-level CN) and auto-prints a summary table
   via `print.count_types`.  
+
+## New tutorial template
+ * QuickStart_template.Rmd was created to allow reprodutibility of the alfalfa tutorial
+ with any initial standardized file input.
+
 
 # Qploidy2 1.17.0
 
