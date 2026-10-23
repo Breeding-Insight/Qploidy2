@@ -117,6 +117,7 @@ fb_smooth <- function(ll_em, logA, logpi0 = NULL) {
   # Force degenerate rows to uniform (all -Inf -> -log(K) after sweep is still -Inf;
   # handle by writing log(1/K) directly).
   if (any(degenerate)) log_gamma[degenerate, ] <- -log(K)
+
   exp(log_gamma)
 }
 

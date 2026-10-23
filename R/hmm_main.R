@@ -462,7 +462,7 @@ hmm_estimate_CN <- function(
   if (is.null(min_snps_per_window)) {
     # If min_snp_per_window is not defined, the minimum will be set based on the smaller chromosome number
     floor <- 5 # hard default
-    frac <- 0.15 # hard default
+    frac <- 0.20 # hard default
     mk_by_chrom <- d %>%
       group_by(Chr) %>%
       summarize(n = n())
