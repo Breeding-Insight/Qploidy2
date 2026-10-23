@@ -150,7 +150,7 @@ hmm_estimate_CN <- function(
   outlier_alpha = 0.05,
   selected_model = NULL,
   dists = c("gaussian", "beta_binomial", "negative_binomial"),
-  bw_grid = c(0.02, 0.04, 0.06, 0.08, 0.1),
+  bw_grid = c(0.01,0.02, 0.04),
   add_uniform_grid = FALSE,
   uniform_weight_grid = c(0.01, 0.03, 0.05, 0.10, 0.15),
   param_count = NULL,
@@ -325,7 +325,7 @@ hmm_estimate_CN <- function(
   if (is.null(min_snps_per_window)) {
     # If min_snp_per_window is not defined, the minimum will be set based on the smaller chromosome number
     floor <- 5 # hard default
-    frac <- 0.15 # hard default
+    frac <- 0.20 # hard default
     mk_by_chrom <- d %>%
       group_by(Chr) %>%
       summarize(n = n())
