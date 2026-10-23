@@ -6,7 +6,6 @@
 
 * Added the `Qploidy2_nQuack_tutorial.Rmd` vignette, covering the nQuack EM-based BAF model selection route (`nQuack_EM`/`nQuack_exp_ploidy`) and exporting standardized BAF data to nQuack's input format via `convert2nQuack()`.
 
-
 # Qploidy2 1.21.0
 
 * Added two-signal consistency gating to `hmm_estimate_CN()`: for each chromosome, the chromosome-level z-score consensus (sum of per-window z log-likelihoods) is compared to the chromosome-level BAF consensus. Gating operates at the chromosome level — not per window — because individual window z-scores are too noisy to reliably indicate disagreement, especially with wide CN grids. When the chromosome mean BAF weight is meaningful (>= 0.1) and the two signals disagree on the best CN state, the BAF contribution is suppressed for all windows on that chromosome and emissions are set to z-score only. When they agree, a reinforcement bonus (`log(3) × mean_w_baf`) is added to the agreed state. Chromosomes with sparse BAF (mean weight < 0.1) are unaffected.
