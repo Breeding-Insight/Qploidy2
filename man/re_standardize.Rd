@@ -11,6 +11,7 @@ re_standardize(
   use_estimated_dosages = FALSE,
   ploidy.standardization = NULL,
   threshold.n.clusters = NULL,
+  min_samples_by_cluster = 1L,
   n.cores = 1,
   threshold.geno.prob = 0.5,
   threshold.missing.geno = 0.9,
@@ -33,8 +34,8 @@ re_standardize(
   reflect = TRUE,
   param_count = NULL,
   count_grid_as_params = TRUE,
-  min_het_frac = 0.05,
-  het_range = c(0.2, 0.8)
+  min_het_frac = 0.01,
+  het_range = c(0.05, 0.95)
 )
 }
 \arguments{
@@ -58,6 +59,8 @@ re_standardize(
 \item{ploidy.standardization}{Integer. Ploidy level to use for standardization. If NULL, uses the mode of CN_call in dosages.}
 
 \item{threshold.n.clusters}{Integer. Minimum number of expected dosage clusters per marker. Defaults to ploidy + 1.}
+
+\item{min_samples_by_cluster}{Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Default is `1` (no filtering).}
 
 \item{n.cores}{Integer. Number of cores for parallel computation. Default is 1.}
 
@@ -103,9 +106,9 @@ re_standardize(
 
 \item{count_grid_as_params}{Logical. Add +1 BIC penalty per tuned hyperparameter. Default: \code{TRUE}.}
 
-\item{min_het_frac}{Numeric. Minimum heterozygous fraction required to exclude CN=1 from \code{cn_grid}. Default: \code{0.05}.}
+\item{min_het_frac}{Numeric. Minimum heterozygous fraction required to exclude CN=1 from \code{cn_grid}. Default: \code{0.01}.}
 
-\item{het_range}{Numeric vector of length 2. BAF interval defining heterozygous loci. Default: \code{c(0.2, 0.8)}.}
+\item{het_range}{Numeric vector of length 2. BAF interval defining heterozygous loci. Default: \code{c(0.05, 0.95)}.}
 }
 \value{
 An object of class `qploidy_standardization` (list) with elements:

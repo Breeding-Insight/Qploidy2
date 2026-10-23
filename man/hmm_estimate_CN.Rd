@@ -23,7 +23,7 @@ hmm_estimate_CN(
   baf_weight = 0.5,
   z_range = NULL,
   transition_jump = 0.995,
-  initial_prob = 0.95,
+  initial_prob = 0.5,
   z_only = FALSE,
   verbose = TRUE,
   exp_ploidy = NA,
@@ -37,9 +37,12 @@ hmm_estimate_CN(
   param_count = NULL,
   count_grid_as_params = TRUE,
   correct_scale = TRUE,
-  min_het_frac = 0.05,
-  het_range = c(0.2, 0.8),
+  min_het_frac = 0.01,
+  het_range = c(0.05, 0.95),
   dosage_threshold = 0.6,
+  z_no_baf_scale = 0.25,
+  hom_z_sigma_inflate = 1.5,
+  cn0_background_frac = 0,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 )
@@ -69,7 +72,7 @@ mixture before renormalization. Default FALSE.}
 
 \item{min_snps_per_window}{Integer. Minimum SNPs required to keep a window. If NULL, a dynamic value is chosen based on chromosome size (see code for details). Windows with fewer SNPs are dropped. Default: NULL (dynamic), or user-specified value.}
 
-\item{cn_grid}{Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 1-10. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.}
+\item{cn_grid}{Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 0-10. Include \code{0} to allow nullisomy calls; see also \code{cn0_background_frac}. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.}
 
 \item{M}{Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.}
 
@@ -83,7 +86,7 @@ mixture before renormalization. Default FALSE.}
 
 \item{transition_jump}{Numeric. Diagonal value for transition matrix (probability to stay in same CN state). Default \code{0.995}.}
 
-\item{initial_prob}{Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.95}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.}
+\item{initial_prob}{Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.5}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.}
 
 \item{z_only}{Logical. If \code{TRUE}, fit the HMM using the z-emission only (ignores BAF). Default \code{FALSE}.}
 
@@ -111,11 +114,17 @@ mixture before renormalization. Default FALSE.}
 
 \item{correct_scale}{Logical. If TRUE (default), the BAF log-likelihood is corrected by the number of markers with valid BAF values in each window, so that windows with different numbers of markers contribute equally to the combined emission. Prevents windows with many markers from dominating the HMM via the BAF term alone.}
 
-\item{min_het_frac}{Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded from \code{cn_grid} during BAF model selection and per-window likelihood computation, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default \code{0.05}.}
+\item{min_het_frac}{Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded from \code{cn_grid} during BAF model selection and per-window likelihood computation, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default \code{0.01}.}
 
-\item{het_range}{Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.2, 0.8)}). Used by the \code{min_het_frac} filter and by \code{plot_heterozygosity}.}
+\item{het_range}{Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.05, 0.95)}). Used by the \code{min_het_frac} filter and by \code{plot_heterozygosity}.}
 
 \item{dosage_threshold}{Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.}
+
+\item{z_no_baf_scale}{Numeric in [0,1]. Floor weight applied to \code{w_baf} when computing \code{CN_reliability} for windows with no BAF support (\code{w_baf == 0}). A value of 0 means z-only calls have \code{CN_reliability = 0}; 0.25 (default) allows z-only calls to reach at most 25\% of \code{post_max}. Does not affect the HMM emission or CN calling. Applies only when \code{z_only = FALSE}.}
+
+\item{hom_z_sigma_inflate}{Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.}
+
+\item{cn0_background_frac}{Numeric in [0, 1]. Array probes emit residual background signal even at CN=0, which elevates the z-score above the linear extrapolation. This parameter shifts the initial \code{mu[0]} upward by \code{cn0_background_frac * (mu[1] - mu[0])}, placing it at the expected background-elevated z rather than the theoretical zero-signal floor. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0} (no background correction; suitable for sequencing data).}
 
 \item{rerun_overall_ploidy}{Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.}
 
@@ -175,7 +184,7 @@ chromosomes/batches.
 }
 \section{Required helpers}{
 
-This function calls \code{\link{generate_baf_template}}, \code{\link{baf_log_likelihood}}, \code{\link{logsumexp}}, and \code{\link{viterbi}} which must be available in your package/namespace.
+This function calls \code{\link{generate_baf_template}}, \code{\link{baf_log_likelihood}}, \code{\link{logsumexp}}, and \code{\link{em_hmm_cn}} which must be available in your package/namespace.
 }
 
 \examples{

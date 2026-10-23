@@ -48,6 +48,7 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##' @param threshold.geno.prob Numeric (0–1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.
 ##' @param ploidy.standardization Integer. The ploidy level of the reference panel used for standardization.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. For diploid data, this is typically 3 (corresponding to dosages 0, 1, and 2). Cannot exceed `ploidy.standardization + 1`.
+##' @param min_samples_by_cluster Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Clusters below this count are dropped before center computation. Default is `1` (no filtering).
 ##' @param n.cores Integer. Number of cores to use in parallel computations (e.g., for cluster center estimation and BAF generation).
 ##' @param out_filename Optional. Path to save the final standardized dataset to disk as a CSV file (suitable for Qploidy).
 ##' @param type Character. Type of data used for clustering: "intensities" (array-based), "counts" (sequencing), or "updog" (set automatically if `multidog_obj` is provided).
@@ -94,6 +95,7 @@ standardize <- function(data = NULL,
                         threshold.geno.prob=0.8,
                         ploidy.standardization = NULL,
                         threshold.n.clusters = NULL,
+                        min_samples_by_cluster = 1L,
                         n.cores =1,
                         out_filename = NULL,
                         type = "intensities",
@@ -168,6 +170,10 @@ standardize <- function(data = NULL,
   if (!is.logical(rm_outlier)    || length(rm_outlier) != 1)    stop("'rm_outlier' must be a single logical value.")
   if (!is.logical(cluster_median)|| length(cluster_median) != 1) stop("'cluster_median' must be a single logical value.")
   if (!is.logical(filter_R)      || length(filter_R) != 1)      stop("'filter_R' must be a single logical value.")
+
+  if (!is.numeric(min_samples_by_cluster) || length(min_samples_by_cluster) != 1 ||
+      min_samples_by_cluster < 1 || min_samples_by_cluster != as.integer(min_samples_by_cluster))
+    stop("'min_samples_by_cluster' must be a single positive integer.")
 
   if (!is.null(min.depth) && (!is.numeric(min.depth) || length(min.depth) != 1 || min.depth < 0))
     stop("'min.depth' must be a single non-negative numeric value or NULL.")
@@ -315,7 +321,8 @@ standardize <- function(data = NULL,
                           n.clusters.thr = threshold.n.clusters,
                           type = type,
                           rm_outlier = rm_outlier,
-                          cluster_median = cluster_median)
+                          cluster_median = cluster_median,
+                          min_samples_by_cluster = min_samples_by_cluster)
 
     stopCluster(clust)
 
@@ -499,8 +506,11 @@ print.qploidy_standardization <- function(x, ...){
   # n.markers.zscore.end (may be absent in older objects)
   has_zscore_end <- "n.markers.zscore.end" %in% names(x$filters)
 
+  n.individuals <- length(unique(x$data$SampleName))
+
   format.df <- data.frame(
     c1 = c("# markers at raw data:",
+           "# individuals in standardized data:",
            "% datapoints filtered by low probability:",
            if (has_depth_rm) "# datapoints filtered by depth (min/max):",
            if (has_samples_rm) "# samples filtered by missing data:",
@@ -510,6 +520,7 @@ print.qploidy_standardization <- function(x, ...){
            "# markers remaining with estimated BAF:",
            if (has_zscore_end) "# markers remaining with estimated z-score:"),
     c2 = c(x$filters["n.markers.start"],
+           n.individuals,
            "-",
            if (has_depth_rm) n_total_dp,
            if (has_samples_rm) as.numeric(x$filters["samples.rm"]),
@@ -519,6 +530,7 @@ print.qploidy_standardization <- function(x, ...){
            x$filters["n.markers.end"],
            if (has_zscore_end) x$filters["n.markers.zscore.end"]),
     c3 = c("(100%)",
+           "-",
            paste0("(", x$filters["geno.prob.rm"], " %)"),
            if (has_depth_rm) "-",
            if (has_samples_rm) "-",
@@ -690,6 +702,7 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param use_estimated_dosages Logical. If \code{FALSE} (default), uses the original dosage calls stored in \code{hmm_CN_multi$by_marker$geno} (from fitpoly/updog, based on raw theta values), setting dosages to \code{NA} for markers whose \code{CN_call} differs from \code{ploidy.standardization}. This is the recommended approach for re-standardization because it avoids circularity: the original dosages are independent of the BAF signal. If \code{TRUE}, calls \code{call_hmm_dosages} to re-estimate per-marker dosages from the BAF model; note that these dosages are derived from the BAF values themselves, which may propagate imperfections from the original standardization.
 ##' @param ploidy.standardization Integer. Ploidy level to use for standardization. If NULL, uses the mode of CN_call in dosages.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. Defaults to ploidy + 1.
+##' @param min_samples_by_cluster Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Default is `1` (no filtering).
 ##' @param n.cores Integer. Number of cores for parallel computation. Default is 1.
 ##' @param threshold.geno.prob Numeric (0–1). Minimum genotype call probability. Default is 0.5.
 ##' @param threshold.missing.geno Numeric (0–1). Maximum fraction of missing datapoints per marker. Default is 0.90.
@@ -712,8 +725,8 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param reflect Logical. Reflect BAF values for symmetric templates. Default: \code{TRUE}.
 ##' @param param_count Optional named integer vector. Number of free parameters per distribution for BIC penalisation. Default: \code{NULL}.
 ##' @param count_grid_as_params Logical. Add +1 BIC penalty per tuned hyperparameter. Default: \code{TRUE}.
-##' @param min_het_frac Numeric. Minimum heterozygous fraction required to exclude CN=1 from \code{cn_grid}. Default: \code{0.05}.
-##' @param het_range Numeric vector of length 2. BAF interval defining heterozygous loci. Default: \code{c(0.2, 0.8)}.
+##' @param min_het_frac Numeric. Minimum heterozygous fraction required to exclude CN=1 from \code{cn_grid}. Default: \code{0.01}.
+##' @param het_range Numeric vector of length 2. BAF interval defining heterozygous loci. Default: \code{c(0.05, 0.95)}.
 ##'
 ##' @return An object of class `qploidy_standardization` (list) with elements:
 ##'   - info: Named vector of standardization parameters
@@ -748,6 +761,7 @@ re_standardize <- function(data = NULL,
                            use_estimated_dosages = FALSE,
                            ploidy.standardization = NULL,
                            threshold.n.clusters = NULL,
+                           min_samples_by_cluster = 1L,
                            n.cores = 1,
                            threshold.geno.prob = 0.5,
                            threshold.missing.geno = 0.90,
@@ -770,8 +784,8 @@ re_standardize <- function(data = NULL,
                            reflect = TRUE,
                            param_count = NULL,
                            count_grid_as_params = TRUE,
-                           min_het_frac = 0.05,
-                           het_range = c(0.2, 0.8)) {
+                           min_het_frac = 0.01,
+                           het_range = c(0.05, 0.95)) {
 
   # Check input object
   # check if hmm_CN_multi is hmm_CN class
@@ -805,9 +819,16 @@ re_standardize <- function(data = NULL,
     if (is.null(ploidy.standardization)) {
       ploidy.standardization <- mode(hmm_CN_multi$by_marker$CN_call)
       if (verbose) cat("ploidy.standardization not provided, using:", ploidy.standardization, "\n")
+    } else if (ploidy.standardization != mode(hmm_CN_multi$by_marker$CN_call)) {
+      warning(sprintf(
+        "ploidy.standardization (%d) differs from the mode of CN_call in dosages (%d). This may lead to unexpected results. ploidy.standardization is set to %d.",
+        ploidy.standardization, mode(hmm_CN_multi$by_marker$CN_call), mode(hmm_CN_multi$by_marker$CN_call)
+      ))
+      ploidy.standardization <- mode(hmm_CN_multi$by_marker$CN_call)
+      if(verbose) cat("Using ploidy.standardization:", ploidy.standardization, "\n")
     }
 
-    dosages[which(dosages$CN_call != ploidy.standardization), "dosage"] <- NA
+    dosages[which(is.na(dosages$CN_call) | dosages$CN_call != ploidy.standardization), "dosage"] <- NA
 
     if (all(is.na(dosages$dosage))) {
       stop(sprintf(
@@ -827,7 +848,7 @@ re_standardize <- function(data = NULL,
     }
 
     genos <- hmm_CN_multi$by_marker[, c("MarkerName", "SampleName", "geno")]
-    genos$geno[hmm_CN_multi$by_marker$CN_call != ploidy.standardization] <- NA
+    genos$geno[is.na(hmm_CN_multi$by_marker$CN_call) | hmm_CN_multi$by_marker$CN_call != ploidy.standardization] <- NA
 
     if (all(is.na(genos$geno))) {
       stop(sprintf(
@@ -850,6 +871,7 @@ re_standardize <- function(data = NULL,
     geno.pos = geno.pos,
     ploidy.standardization = ploidy.standardization,
     threshold.n.clusters = threshold.n.clusters,
+    min_samples_by_cluster = min_samples_by_cluster,
     n.cores = n.cores,
     threshold.geno.prob = threshold.geno.prob,
     threshold.missing.geno = threshold.missing.geno,

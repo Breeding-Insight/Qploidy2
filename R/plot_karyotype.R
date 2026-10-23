@@ -2,7 +2,7 @@ utils::globalVariables(c(
     "segment_id", "Position_Mb", "color_value", "copy_num",
     "x_pos", "width", "y_start", "y_end", "grey_type",
     "x", "x_start", "x_end", "CN_call",
-    "chr_max", "ghost_max"
+    "chr_max", "ghost_max", ".filtered"
 ))
 
 ##' Plot a karyotype for a single sample
@@ -34,6 +34,9 @@ utils::globalVariables(c(
 ##'     \item{\code{"post_max_dosage"}}{Posterior probability of the most likely dosage associated with the most likely
 ##'       copy-number state.}
 ##'     \item{\code{"w_baf"}}{B-allele frequency weight applied on the HMM according to the number of heterozygous markers in the window.}
+##'     \item{\code{"CN_reliability"}}{Joint confidence score combining HMM posterior probability and BAF support
+##'       (\code{post_max × normalized_w_baf}). Ranges 0–1; windows with no BAF evidence are capped at
+##'       \code{0.25 × post_max} by default.}
 ##'   }
 ##' @param nrow Integer. Number of rows passed to \code{\link[ggplot2]{facet_wrap}}
 ##'   when arranging chromosome panels. Default \code{1} places all chromosomes
@@ -88,7 +91,8 @@ plot_karyotype <- function(df, sample_name,
         color_by <- NULL
     } else {
         color_by <- match.arg(color_by,
-                              choices = c("dosage", "post_max_CN", "post_max_dosage", "w_baf"))
+                              choices = c("dosage", "post_max_CN", "post_max_dosage", "w_baf",
+                                          "CN_reliability"))
     }
 
     # --- 0. Input checks -----------------------------------------------------
@@ -151,7 +155,13 @@ plot_karyotype <- function(df, sample_name,
     df_sample <- df_sample %>%
         group_by(Chr) %>%
         mutate(
-            segment_id = cumsum(CN_call != lag(CN_call, default = first(CN_call)))
+            segment_id = {
+                prev    <- lag(CN_call, default = first(CN_call))
+                # NA counts as its own state: transition in/out of NA starts a new segment
+                changed <- xor(is.na(CN_call), is.na(prev)) |
+                           (!is.na(CN_call) & !is.na(prev) & CN_call != prev)
+                cumsum(changed)
+            }
         ) %>%
         ungroup()
 
@@ -165,13 +175,17 @@ plot_karyotype <- function(df, sample_name,
             color_value = first(color_value),
             .groups = "drop"
         ) %>%
-        mutate(copy_num = lapply(CN_call, seq_len)) %>%
+        mutate(
+            .filtered = is.na(CN_call),
+            copy_num  = lapply(CN_call, function(x) if (is.na(x)) 1L else seq_len(x))
+        ) %>%
         unnest(copy_num) %>%
         mutate(
-            x_pos      = copy_num,
-            width      = 0.8,
-            grey_type  = "Gap (no markers)"
-        )
+            x_pos     = copy_num,
+            width     = 0.8,
+            grey_type = if_else(.data$.filtered, "Filtered", "Gap (no markers)")
+        ) %>%
+        select(-".filtered")
 
     # --- 5. Ghost segments (expected-but-absent copies) --------------------
     # For each segment, extend to max(ploidy_mode, chr_max_CN) with dashed rects.
@@ -196,10 +210,12 @@ plot_karyotype <- function(df, sample_name,
     }
 
     # --- 6. Create marker positions for each copy ---------------------------
-    # Each marker appears on all copies of its CN segment
+    # Each marker appears on all copies of its CN segment; filtered markers are suppressed
     marker_segments <- df_sample %>%
+        filter(!is.na(CN_call)) %>%
         left_join(
             chr_segments %>%
+                filter(grey_type != "Filtered") %>%
                 select(Chr, segment_id, copy_num) %>%
                 distinct(),
             by = c("Chr", "segment_id")
@@ -216,11 +232,19 @@ plot_karyotype <- function(df, sample_name,
     else
         NULL
 
+    has_filtered <- any(is.na(df_sample$CN_call))
+
     # --- Fill scale (built after ghost and NA-color flags are both known) ---
     .fill_vals  <- c("Gap (no markers)" = "grey80")
     .key_fills  <- c("grey80")
     .key_colors <- c(NA_character_)
     .key_lty    <- c("solid")
+    if (has_filtered) {
+        .fill_vals  <- c(.fill_vals, "Filtered" = "grey60")
+        .key_fills  <- c(.key_fills, "grey60")
+        .key_colors <- c(.key_colors, NA_character_)
+        .key_lty    <- c(.key_lty, "solid")
+    }
     if (has_na_color) {
         .fill_vals  <- c(.fill_vals, "Color NA value" = "grey50")
         .key_fills  <- c(.key_fills, "grey50")
@@ -254,6 +278,7 @@ plot_karyotype <- function(df, sample_name,
                             post_max_CN      = "P(CN call)",
                             post_max_dosage  = "P(Dosage call)",
                             w_baf            = "BAF Weight",
+                            CN_reliability   = "CN Reliability",
                             dosage           = "Dosage"
       )
 

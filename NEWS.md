@@ -1,3 +1,106 @@
+# Qploidy2 1.21.0
+
+* Added two-signal consistency gating to `hmm_estimate_CN()`: for each chromosome, the chromosome-level z-score consensus (sum of per-window z log-likelihoods) is compared to the chromosome-level BAF consensus. Gating operates at the chromosome level — not per window — because individual window z-scores are too noisy to reliably indicate disagreement, especially with wide CN grids. When the chromosome mean BAF weight is meaningful (>= 0.1) and the two signals disagree on the best CN state, the BAF contribution is suppressed for all windows on that chromosome and emissions are set to z-score only. When they agree, a reinforcement bonus (`log(3) × mean_w_baf`) is added to the agreed state. Chromosomes with sparse BAF (mean weight < 0.1) are unaffected.
+
+* Added post-EM collapsed-state pruning to `hmm_estimate_CN()`: after EM convergence, adjacent CN states whose means differ by less than 10% of sigma are removed before decoding. This prevents arbitrary HMM state-flipping when the data spread is small relative to the CN grid spacing (e.g. a diploid sample tested with `cn_grid=1:6`), where EM can collapse two CN means to virtually identical values. The `exp_ploidy` state is never dropped regardless of gap. Only truly degenerate pairs (gap < 0.10σ) are removed; genuine low-z_range separations are preserved.
+
+* Added post-decoding z-weakness override to `hmm_estimate_CN()`: after HMM decoding, chromosomes whose called CN differs from the sample-mode CN are overridden back to the sample mode when the chromosome mean z is within `hom_z_sigma_inflate × sigma` of the expected-ploidy z mean. This fires regardless of BAF weight — when the depth signal is too weak to support a non-modal CN call, a marginal BAF signal is also insufficient to sustain it. Prevents small z fluctuations (with or without low-weight BAF) from driving spurious aneuploid calls.
+
+* Redesigned `CN_reliability` in `hmm_estimate_CN()` as a product of four independent evidence components: (1) `post_max` — HMM posterior certainty for the called state; (2) `baf_info` — BAF informativeness computed as 1 minus the normalised Shannon entropy of a 10-bin BAF histogram on [0,1] per window. Measures how structured/peaked the BAF distribution is within a window — a dispersed or uniform BAF (high background noise, impossible to assign to copy-number peaks) yields a low score even when many heterozygous SNPs are present, while BAF clearly clustered at expected heterozygous positions (e.g. 0, 1/3, 1/2, 2/3, 1) yields a high score. BAF values are clipped to [0,1] before binning so `ratio` input columns are handled safely. No-BAF windows use `z_no_baf_scale` as the floor; (3) `zbaf_agree` — per-window z vs BAF agreement computed as 1 minus the total variation distance between the softmax of the per-window z log-likelihood vector and the softmax of the per-window BAF log-likelihood vector. 1 = z and BAF posterior distributions are identical; 0 = completely opposite. Windows with no BAF data default to 1 (no penalty). Degrades gracefully to 1 when gating is skipped (`z_only`, `baf_only`, or `K==1`); (4) `w_baf_norm` — existing BAF-weight scaling (unchanged). `CN_reliability` is now low for calls where BAF is dispersed/uninformative (even when `post_max` is high) and for calls where z and BAF favour different CN states.
+
+# Qploidy2 1.20.0
+
+* Add Claude AI Qploidy2 skills 
+* Display number of individuals for print standardization object
+* Fixed `hmm_estimate_CN()`: windows with no valid BAF values were assigned a BAF log-likelihood of `0` (i.e. likelihood of 1.0) via `is.nan()` replacement, which could mask non-finite values. These windows are now explicitly excluded from BAF scoring (`w_baf` forced to `0`) instead of relying on incidental cancellation.
+* Fixed a bug in `hmm_estimate_CN()` where the `for (chr in unique(win_df$Chr))` loop variable used in the `baf_only` per-chromosome refit and in per-chromosome decoding silently overwrote the `chr` function argument (used for chromosome subsetting), causing the `rerun_overall_ploidy` recursive call to receive the wrong chromosome(s). Loop variables renamed to `chr_i`.
+* Fixed `pi0 <- rep((1 - initial_prob) / (K - 1), K)` in `hmm_estimate_CN()` producing `NaN` when only one CN state (`K == 1`) is tested; `pi0` is now set to `1` in that case.
+* Fixed the non-monotonic z-mean check in `hmm_estimate_CN()` (`while (any(mu != sort(mu)) ...)`), which used exact floating-point comparison and could spuriously trigger on near-equal `mu` values; it now uses a `1e-6` tolerance.
+* Fixed `em_hmm_cn()`: dividing the BAF log-likelihood by `n_baf` could produce `Inf`/`-Inf` for windows with zero valid BAF markers, which the previous `is.nan()` guard did not catch. Now guarded with `ifelse(n_baf > 0, llb / n_baf, 0)` and `!is.finite()`.
+* Changed the combined z/BAF emission in `hmm_estimate_CN()` and `em_hmm_cn()` from the heuristic weighted average `(1 - w_baf) * llz + w_baf * llb` to a tempered log-product `llz + w_baf * llb`, so the z-emission always contributes fully and BAF evidence is scaled by `w_baf` rather than both terms being down-weighted together. This changes some CN posterior probabilities relative to previous versions.
+* Documented in `hmm_estimate_CN()` that a single `sigma` is shared across all CN states (not state-specific), and that the combined emission is a tempered log-product rather than a statistically derived mixture.
+* Improved performance of `hmm_estimate_CN()`: window-level summary statistics are now computed with `dplyr::group_by()`/`summarize()` instead of `by()` + `do.call(rbind, ...)`, and per-window BAF values are extracted via a single `split()` keyed lookup instead of rescanning the full marker table for every window (O(N) instead of O(W x N)). Also simplified the `n_baf` computation.
+
+
+# Qploidy2 1.19.0
+
+* Added `min_samples_by_cluster` to `standardize()`, `re_standardize()`, and `get_centers()`. Default `1` keeps all clusters. When set higher, clusters with fewer non-NA samples are dropped before center estimation, preventing weak clusters from anchoring BAF standardization.
+* Added `split_mk_type()` for segmental allopolyploid species analysis to separate sub-genome-specific markers from markers not specific to a sub-genome using reference diploid samples.
+* Improved segmental aneuploidy detection in `hmm_estimate_CN()`: the per-chromosome forward pass in `fb_smooth()` is now initialized from a `pi0` derived from the summed BAF log-likelihoods across windows on the chromosome, rather than a uniform prior. This prevents a high z-score in the first window from anchoring the whole chromosome in the wrong CN state.
+* Fixed the raw-data input handling in `hmm_estimate_CN()`: when `qploidy_standarize_result = NULL`, the BAF/z signal columns are resolved from `use_values` using the correct `ratio`/`R` and `BAF`/`z` mappings, and the function now rejects invalid or missing column names with clearer checks.
+* Improved chromosome filtering and NA handling in `hmm_estimate_CN()`: explicit chromosome subsets now ignore missing/NA chromosome labels, invalid chromosome requests stop cleanly, and rows with `NA` chromosome values are dropped before analysis so uninformative markers cannot leak into downstream segmentation or HMM fitting.
+* Fixed asymmetric copy-number gain/loss detection in `define_z_limits()`. The initial directional steps now calibrate the mean for CN states below and above `exp_ploidy` separately, avoiding misplacement when gains and losses are unequal.
+* Added `cn0_background_frac` to `hmm_estimate_CN()` (default `0`). When `0` is included in `cn_grid`, this parameter shifts the CN=0 emission mean upward by the expected background fraction so array probes with residual signal at CN=0 are modeled correctly. `CN = 0` is also now allowed in `cn_grid`.
+* Fixed a bug in `re_standardize()`: markers in windows called as CN=0 were not being masked when `CN_call` was `NA`, because `NA != ploidy.standardization` evaluates to `NA` instead of `TRUE`. Both code paths now explicitly exclude `is.na(CN_call)` before cluster standardization.
+* Update `transition_jump` default value to 0.9 (before was 0.995)
+
+# Qploidy2 1.18.3
+
+* Reverted the unconditional mu update in `em_hmm_cn` back to the conditional guard, as the unconditional change introduced downstream bugs.
+* Changed default `min_het_frac` from `0.05` to `0.01` and default `het_range` from `c(0.2, 0.8)` to `c(0.05, 0.95)` in `compute_baf_likelihoods`, `select_best_baf_model`, `hmm_estimate_CN`, `call_hmm_dosages`, `select_best_raw_model`, and `re_standardize`. The wider interval and lower threshold are more appropriate for high-ploidy species where inner heterozygous peaks sit close to the boundaries, and produce fewer spurious CN=1 exclusions.
+* Allelic ratio plots now use the symbol `θ` (rendered via `expression(theta)`) instead of "Ratio" as the y-axis / x-axis label in `plot_raw` and `plot_standardization`, with facet strip labels parsed via `label_parsed`.
+* Bugfix in `re_standardize`: when `ploidy.standardization` is provided but differs from the mode CN call in `hmm_CN_multi`, a warning is issued and `ploidy.standardization` is overridden to the mode CN to avoid unexpected standardization results.
+* Fixed R CMD check NOTEs: added `CN_mode` to `globalVariables` in `export_results.R` and `CN_call_filled` to `globalVariables` in `karyotype_notation.R`.
+
+
+# Qploidy2 1.18.2
+
+* Revert mu stability guard introduced in 1.18.0: `em_hmm_cn` now always updates mu unconditionally (standard EM update with `pmax` denominator guard). The while-loop in `hmm_estimate_CN` already handles non-monotonic mu.
+* Add `hom_z_sigma_inflate` parameter to `hmm_estimate_CN` (default `1.5`). Applies two corrections for all-homozygous windows (`w_baf == 0`): (1) sigma is inflated by this factor during decoding to reduce z-emission discriminability; (2) post-decoding, chromosomes where every window has `w_baf == 0` are overridden to the sample-mode CN if their mean z-score is within `hom_z_sigma_inflate * sigma` of the baseline — suppressing false positive CNV calls driven by reference-homozygous depth bias while preserving genuine CN changes with larger z-deviations.
+* CN=1 samples are now labelled "1x or inbred" instead of "1x" in `compare_cn_track_summary` right-side block annotations, `count_types` printed summary, and `print.count_types` per-type rows.
+* Bugfix on `re_standardize` - when `use_estimated_dosages = TRUE` and majority of CN estimated doesn't match `ploidy.standardization` defined, replace the value by the majority estimated and warn the user with message
+
+# Qploidy2 1.18.1
+
+* Bugfix on `fb_smooth` when there is only one window at the chromosome
+* Adapt `plot_karyotype` to objects coming from `filter_hmm_cn`. Now, a gray bar is plotted on filtered regions
+* Add color option by `CN_reliability` on `plot_karyotype`
+* Add `CN_reliability` to results by window 
+* Add generalized Rmd document to reproduce alfalfa tutorial with any `qploidy_standardized` initial file
+* Update alfalfa tutorial adding new functions
+
+# Qploidy2 1.18.0
+
+## HMM stability improvements
+
+### Issue 1 – First window of the first chromosome had higher CN variation
+
+**Changes that remained in the EM (`em_hmm_cn.R`)**:
+
+* `update_pi0 = FALSE` (default)
+* Mu stability guard
+
+**Changes in the decoder (`hmm_main.R`)**:
+
+* Per-chromosome forward-backward decoding(`fb_smooth`)
+* Prior transition matrix for decoding (`A_dec`)
+
+### Issue 2 – Higher variation in all-homozygous chromosomes
+
+* New output metric (`CN_reliability`): `hmm_estimate_CN` now returns a `CN_reliability` column in `by_window`
+* hmm results plots updated with this new metric
+
+### Issue 3 – CN estimation results differed based on chromosome ordering / naming
+
+**Changes in `hmm_main.R`**:
+
+* Sort windows by chromosome z-deviation before the EM
+* Recompute `ll_em` in original window order after the EM
+
+## New functions
+
+* `compare_cn_track_summary` — karyotype-style matrix (samples × chromosomes),
+  ordered by sample-level CN and ploidy category (euploid / aneuploid /
+  segmental), with colour-coded tiles, separating lines, and right-side labels.
+  Accepts `filter_type` and `filter_cn` arguments.
+* `filter_hmm_CN` — masks CN calls (sets to `NA`) in windows that fail one or
+  more quality thresholds: `min_CN_reliability`, `min_post_max`, `min_w_baf`,
+  `min_n_snps`, `min_n_het`, `min_window_size`, `max_CN_call`.
+* `count_types` — classifies every sample as euploid, aneuploid, or segmental
+  aneuploidy; returns a `count_types` object (a named list of sample-ID vectors
+  plus a `$by_cn` breakdown by sample-level CN) and auto-prints a summary table
+  via `print.count_types`.  
+
 # Qploidy2 1.17.0
 
 * Change `plot_cn_track` labels from `Est overall ploidy` to `Mean total depth/Z CN` and y-axis label `Copy Number` to `HMM-based CN`

@@ -223,8 +223,8 @@ Before proceeding to the standardization step, consider removing abnormal chromo
 
 ```{r}
 # interactive graphic if plotly package is installed
-p <- plot_heterozygosity(data, col2use = "ratio")
-p
+#p <- plot_heterozygosity(data, col2use = "ratio")
+#p
 ```
 
 This is an interactive graphic; hover your mouse over the cells to get information on sample name, heterozygosity percentage, and the number of markers used for this estimation.
@@ -401,9 +401,13 @@ There are two ways of performing it, one "quick and dirt" based on comparing par
 and another using `nQuack` EM functions:
 
 - EM approach BAF model selection: has a robust EM algorithm able to return tailored parameters for the selected distribution to users
-- Grid approach BAF model selection: does not use an EM algorithm but a grid of parameters to be tested, which is less time- and computationally demanding but may not provide the best parameters for this step
+- Grid approach BAF model selection: does not use an EM algorithm but a grid of parameters to be tested, 
+which is less time- and computationally demanding but may not provide the best parameters for this step.
+The results from this step are initial parameters for the HMM, 
+which will be further optimized by the EM algorithm implemented in the HMM.
 
-This current tutorial apply the "grid approach". Check tutorial [Qploidy2 and nQuack integration]() for running the EM approach using nQuack and a comparison between the methods results.
+
+This current tutorial apply the "grid approach". Check tutorial [Qploidy2 and nQuack integration]() for running the EM approach using nQuack.
 
 This step helps determine the most likely ploidy and mixture 
 model parameters for BAF. The selected approach and model will be used in the `Qploidy2` HMM for copy number estimation. 
@@ -418,7 +422,7 @@ or test multiple samples and compare results.
 sample_ratios <- data$ratio[data$SampleName == "J432"]
 selected_model_raw <- select_best_baf_model(baf_vec = sample_ratios,
                                             cn_grid= c(2,3,4,5,6),
-                                            bw = c(0.02, 0.04,0.1),
+                                            bw = c(0.02, 0.04, 0.06, 0.08, 0.1), # Default values
                                             plot = TRUE)
 
 selected_model_raw$plot
@@ -426,7 +430,7 @@ head(selected_model_raw$grid_results)
 ```
 
 See that despite selecting as the best a model that inferred the ploidy as 4, the second place inferred as 3 and the likelihood between models don't differ much.
-For this dataset, standardization is required for better results. This step and other downstream steps only make this move evident.
+**For this dataset, standardization is required for better results**. We will move forward just with the standardized object.
 
 ## Applying to standardized data
 
@@ -434,7 +438,7 @@ For this dataset, standardization is required for better results. This step and 
 selected_model <- select_best_baf_model(qploidy_standardization = qploidy_standardization, 
                                         sample = "J432",
                                         cn_grid= c(2,3,4,5,6),
-                                        bw = c(0.02, 0.04,0.1),
+                                        bw = c(0.02, 0.04, 0.06, 0.08, 0.1),
                                         plot = TRUE)
 
 selected_model$plot
@@ -450,18 +454,13 @@ This step provides a robust approach that integrates raw or standardized ratios 
 information across genomic regions to infer CNV segments. 
 Find all parameters description in `?hmm_estimate_CN`.
 
-## Applying to raw data
-
 ```{r}
-res_raw <- hmm_estimate_CN(data = data, 
-                           geno.pos = geno.pos,
-                           selected_model = selected_model_raw, 
-                           use_values = c("ratio","R"),
-                           sample_id = "J432",
-                           cn_grid =  c(2,3,4,5,6))
+res <- hmm_estimate_CN(qploidy_standarize_result = qploidy_standardization,
+                       sample_id ="J432",
+                       cn_grid =  c(2,3,4,5,6))
 
 # View results
-res_raw
+res
 ```
 
 Not that the HMM multipoint approach consider the marker position order based on the reference genome used. 
@@ -472,13 +471,13 @@ Therefore, changing the reference genome may change the results.
 `Qploidy2` has different ways to visualize the estimated karyotype:
 
 ```{r}
-plot_karyotype(res_raw, sample_name = "J432", nrow = 2)
+plot_karyotype(res, sample_name = "J432", nrow = 2)
 ```
 
 You can add color by the CN call final likelihood:
 
 ```{r}
-plot_karyotype(res_raw, sample_name = "J432", nrow = 2, color_by = "post_max_CN")
+plot_karyotype(res, sample_name = "J432", nrow = 2, color_by = "post_max_CN")
 ```
 
 The color show how confident the model was on calling the CN for each of the markers based
@@ -487,7 +486,7 @@ on the combination of R/z-score and ratio/BAF.
 You can also add color by the BAF weight:
 
 ```{r}
-plot_karyotype(res_raw, sample_name = "J432", nrow = 2, color_by = "w_baf")
+plot_karyotype(res, sample_name = "J432", nrow = 2, color_by = "w_baf")
 ```
 
 This metric shows if the CN for the window was inferred based on the BAF/ratio given the 
@@ -498,7 +497,8 @@ both BAF/ratio and R/z-score - they have BAF weight of 0.5 (and 0.5 for z-score 
 The function `plot_cn_track` provides a detailed diagnostic of the process:
 
 ```{r }
-p <- plot_cn_track(hmm_CN = res_raw, data = data, 
+p <- plot_cn_track(hmm_CN = res, 
+                   data = data, 
                    geno.pos = geno.pos, 
                    sample_id = "J432",
                    show_window_lines = FALSE,
@@ -508,34 +508,22 @@ p <- plot_cn_track(hmm_CN = res_raw, data = data,
 p$arranged
 ```
 
+The CN segments in the bottom track are coloured by `CN_reliability`, a joint confidence score
+calculated as `post_max × normalized_w_baf`. It summarises both the HMM's certainty about the
+called CN state and whether the call was supported by BAF evidence:
+
+- **Range 0–1**: a score of `1` means the HMM assigned the highest posterior to the called CN
+  state *and* the window contains enough heterozygous markers for BAF support to also be
+  confident.
+- **Low values near 0**: the call relies almost entirely on Z-score (total depth) because the
+  window lacks heterozygous markers (`w_baf ≈ 0`). By default, such windows are capped at
+  `0.25 × post_max`, so even a perfect HMM call cannot exceed 0.25 without BAF evidence.
+- **Interpreting the plot**: bright segments indicate high-confidence calls backed by both
+  signals; faded segments warrant manual inspection. Use `filter_hmm_CN(min_CN_reliability = ...)`
+  later in this tutorial to mask low-confidence windows before export.
+
 Despite not having the same peak resolution as the standardized data, the HMM was robust enough to retun correct result (CN 4) for all chromosomes. 
 The standardization will be more critical for more complex scenarios, such as messy ratios, and/or presence of loss or gain of chromosomes. We have some example further in this tutorial.
-
-## Applying to standardized data
-
-```{r}
-res <- hmm_estimate_CN(qploidy_standarize_result = qploidy_standardization,
-                       sample_id ="J432",
-                       cn_grid =  c(2,3,4,5,6))
-
-# View results
-res
-```
-
-Visualize with the different plots:
-
-```{r }
-plot_karyotype(res, sample_name = "J432", nrow = 2, color_by = "w_baf")
-
-p <- plot_cn_track(hmm_CN = res,
-                   qploidy_standarize_result = qploidy_standardization,
-                   sample_id = "J432",
-                   show_window_lines = FALSE,
-                   z_by_mean = TRUE)
-
-# All panels together
-p$arranged
-```
 
 ```{r}
 # Individual panels
@@ -559,36 +547,11 @@ Run HMM for all samples in parallel. The model will be selected internally using
 
 **Note**: Running HMM for many samples can be computationally intensive. Adjust `n_cores` based on your resources and dataset size.
 
-## Applying to raw data
-
-```{r}
-multi_esti_raw <- hmm_estimate_CN_multi(data = data,
-                                        geno.pos = geno.pos,
-                                        use_values = c("ratio","R"),
-                                        sample_ids = "all",
-                                        n_cores = 2, 
-                                        cn_grid =  c(2,3,4,5,6),
-                                        bw = c(0.02, 0.04,0.1))
-```
-
-Visualize summary of CNV for multiple samples:
-
-```{r}
-compare_cn_track(hmm_CN = multi_esti_raw,
-                 samples_to_plot = samples[1:30],
-                 facet_ncol = 8)
-```
-
-Again, not the best results for this dataset. Standardization is required.
-
-## Applying to standardized data
-
 ```{r}
 multi_esti <- hmm_estimate_CN_multi(qploidy_standarize_result = qploidy_standardization,
                                     sample_ids = "all",
                                     n_cores = 2, 
-                                    cn_grid =  c(2,3,4,5,6),
-                                    bw = c(0.02, 0.04,0.1))
+                                    cn_grid =  c(2,3,4,5,6))
 ```
 
 Visualize summary of CNV for multiple samples:
@@ -599,56 +562,76 @@ compare_cn_track(hmm_CN = multi_esti,
                  facet_ncol = 8)
 ```
 
-Not that sample `85-103` pointed in section 
-[`Chromosome-level screening based on z-score`](Qploidy_alfalfa_tutorial.html#71_Chromosome-level_screening_for_abnormalities_based_on_Z-score_(optional)) 
-having a higher depth compared to the rest of the 
-samples in chromosome 6 suggesting a possible aneuploidy now is presented as four copies. 
-The combination of mixed models and hidden markov model eliminated false variations of the expected copy number. 
-Applying the approach to the standardized data also eliminated several false CNV identified when running using the raw data. 
-See comparison below between raw and standardized data for sample `85-113`.
+# Filter by CN call according to quality metrics
 
+`filter_hmm_CN()` masks CN calls that do not meet user-defined quality thresholds by replacing `CN_call`,
+`post_max`, `CN_reliability`, and all `post_CN*` posteriors with `NA`.  Masked windows are treated as
+missing by all downstream plotting and export functions.
 
-```{r}
-# Plots for a specific sample within the multi-sample object
-plot_karyotype(multi_esti_raw, sample_name = "85-113", 
-               nrow = 2, color_by = "w_baf")
+The two most commonly used thresholds are:
 
-p_stand <- plot_cn_track(hmm_CN = multi_esti_raw,
-                         qploidy_standarize_result = qploidy_standardization,
-                         sample_id = "85-113",
-                         show_window_lines = TRUE)
-p_stand$arranged
-
-plot_karyotype(multi_esti, sample_name = "85-113", 
-               nrow = 2, color_by = "w_baf")
-
-p_stand <- plot_cn_track(hmm_CN = multi_esti,
-                         data = data,
-                         sample_id = "85-113",
-                         show_window_lines = TRUE)
-p_stand$arranged
-```
-
-On the other hand, sample `85-126` highlight a false negative from raw data analysis:
+* `min_CN_reliability` — joint confidence combining HMM posterior probability and BAF weight.
+  A value of `0` means no BAF evidence at all; `1` means full BAF support with a confident HMM call.
+  Windows supported only by z-score (e.g., all-homozygous chromosomes) cannot exceed
+  `z_no_baf_scale × post_max` in reliability (default cap = `0.25 × post_max`).
+* `min_post_max` — the raw HMM posterior probability for the called CN state, regardless of BAF support.
+  Useful when you want to retain z-score-only calls but still discard low-confidence HMM calls.
 
 ```{r}
-# For a specific sample
-plot_karyotype(multi_esti_raw, sample_name = "85-126", nrow = 2, color_by = "w_baf")
-
-p_stand <- plot_cn_track(hmm_CN = multi_esti_raw,
-                         qploidy_standarize_result = qploidy_standardization,
-                         sample_id = "85-126",
-                         show_window_lines = TRUE)
-p_stand$arranged
-
-plot_karyotype(multi_esti, sample_name = "85-126", nrow = 2, color_by = "w_baf")
-
-p_stand <- plot_cn_track(hmm_CN = multi_esti,
-                         data = data,
-                         sample_id = "85-126",
-                         show_window_lines = TRUE)
-p_stand$arranged
+multi_esti_filtered <- filter_hmm_CN(multi_esti, 
+                                     min_CN_reliability = 0.25, 
+                                     min_post_max = 0.6)
 ```
+
+# Summarized plots and tables
+
+After curating individual sample results you can get a high-level overview of the entire population using two complementary tools.
+
+`count_types()` classifies every sample as **euploid** (all chromosomes match the sample-level copy number),
+**aneuploid** (one or more chromosomes carry a different but uniform CN — whole-chromosome gain or loss), or
+**segmental** (at least one chromosome has windows with mixed CN, indicating a partial chromosomal change).
+It prints a summary table to the console and returns a named list of sample-ID vectors that you can use for downstream filtering:
+
+```{r}
+types_df <- count_types(multi_esti)
+types_df
+str(types_df)
+
+types_df_filtered <- count_types(multi_esti_filtered)
+types_df_filtered
+str(types_df_filtered)
+```
+
+Use the provided list to visualize specific sample type:
+
+```{r}
+plot_karyotype(multi_esti, 
+               sample_name = types_df$aneuploid[14], color_by = "CN_reliability")
+
+# Option to remove the ghost missing chromosome:
+plot_karyotype(multi_esti, 
+               sample_name = types_df$aneuploid[14], color_by = "CN_reliability", add_ghost = FALSE)
+
+plot_karyotype(multi_esti_filtered, 
+               sample_name = types_df_filtered$segmental[1], color_by = "CN_reliability")
+```
+
+`compare_cn_track_summary()` produces a karyotype-style matrix with samples in rows and chromosomes in columns.
+Samples are ordered by ascending sample-level CN and, within each CN block, by ploidy category (euploid → aneuploid → segmental).
+Chromosomes with mixed CN within their windows are shown in purple (segmental aneuploidy); others follow the same blue/gray/red palette as `compare_cn_track()`.
+Strong horizontal lines separate CN blocks; dashed lines separate the ploidy-category sub-blocks; group labels appear to the right:
+
+```{r}
+p_summ <- compare_cn_track_summary(multi_esti, 
+                                   samples_to_plot = c(types_df$aneuploid,types_df$segmental))
+p_summ
+
+p_summ <- compare_cn_track_summary(multi_esti_filtered, 
+                                   samples_to_plot = c(types_df$aneuploid,types_df$segmental))
+p_summ
+```
+
+You can plot specific samples of interest by providing a vector of sample IDs to the `samples_to_plot` argument.
 
 
 # Re-standardization (Optional)
@@ -659,7 +642,7 @@ If you want to improve BAF resolution (e.g., after identifying a subset of sampl
 re_qploidy_standardization <- re_standardize(
   data = data,
   geno.pos = geno.pos,
-  hmm_CN_multi  = multi_esti, 
+  hmm_CN_multi  = multi_esti_filtered, 
   use_estimated_dosages = TRUE, 
   ploidy.standardization = 4,
   threshold.n.clusters = 4,
@@ -694,71 +677,50 @@ re_multi_esti <- hmm_estimate_CN_multi(
   qploidy_standarize_result = re_qploidy_standardization,
   sample_ids = "all",
   n_cores = 2,
-  cn_grid =  c(2,3,4,5,6),
-  bw = c(0.02, 0.04,0.1))
+  cn_grid =  c(2,3,4,5,6))
+
+re_multi_esti_filtered <- filter_hmm_CN(re_multi_esti, 
+                                        min_CN_reliability = 0.25, 
+                                        min_post_max = 0.6)
 
 # CNV profiles before
-compare_cn_track(hmm_CN = multi_esti,
+compare_cn_track(hmm_CN = multi_esti_filtered,
                  samples_to_plot = samples[1:50],
                  facet_ncol = 8)
 
 # CNV profiles after
-compare_cn_track(hmm_CN = re_multi_esti,
+compare_cn_track(hmm_CN = re_multi_esti_filtered,
                  samples_to_plot = samples[1:50],
                  facet_ncol = 8)
 ```
 
-Among the first 50 samples, sample `85-117` differ between previous standardization and re-standardization results.
+For this dataset, there are a few changes for some samples. 
 
-```{r}
-# Same plots can be generated
-plot_karyotype(re_multi_esti, sample_name = "85-2", nrow = 2, color_by = "post_max_CN")
-```
+# Refine results for a single sample
 
-In this case, there are a small fragment with lower copy number (CN 3) on part of chromosome 7. And a higher CN in chromosome 8. 
-If you prefer to remove the dashed line showing the missing parts. Just set the
-`add_ghost` argument to FALSE:
-
-```{r}
-# Same plots can be generated
-plot_karyotype(re_multi_esti, sample_name = "85-2", nrow = 2, color_by = "post_max_CN", add_ghost = FALSE)
-```
-
-```{r}
-p_re <- plot_cn_track(hmm_CN = re_multi_esti,
-                      qploidy_standarize_result = re_qploidy_standardization,
-                      sample_id = "85-2",
-                      show_window_lines = TRUE)
-
-plot_karyotype(multi_esti, sample_name = "85-2", nrow = 2, color_by = "post_max_CN")
-
-p <- plot_cn_track(hmm_CN = multi_esti,
-                   qploidy_standarize_result = qploidy_standardization,
-                   sample_id = "85-2",
-                   show_window_lines = TRUE)
-
-p$arranged #before
-p_re$arranged #after
-```
-
-For this dataset, there are a few changes for some samples like the one showed above. 
-The predominant yellow color mean that BAF distributions likelihoods were not included in the HMM
-due to high dispersion. If this instability still leaves doubts about 
+If this instability still leaves doubts about 
 the CNV. You can further explore tweaking the other parameters, 
 for example, increasing the number of markers in the windows to better fit the mixed models on the BAF distributions:
 
 ```{r}
+plot_karyotype(multi_esti_filtered, sample_name = "85-177", nrow = 2, color_by = "post_max_CN")
+
+p <- plot_cn_track(hmm_CN = multi_esti_filtered,
+                   qploidy_standarize_result = re_qploidy_standardization,
+                   sample_id = "85-177",
+                   show_window_lines = TRUE)
+p$arranged
 
 res_tweak <- hmm_estimate_CN(qploidy_standarize_result = re_qploidy_standardization,
-                             sample_id = "85-2",
-                             min_snps_per_window = 60,
+                             sample_id = "85-177",
+                             min_snps_per_window = 40,
                              cn_grid =  c(2,3,4,5,6))
 
-plot_karyotype(multi_esti, sample_name = "85-2", nrow = 2, color_by = "post_max_CN")
+plot_karyotype(res_tweak, sample_name = "85-177", nrow = 2, color_by = "post_max_CN")
 
 p <- plot_cn_track(hmm_CN = res_tweak,
                    qploidy_standarize_result = re_qploidy_standardization,
-                   sample_id = "85-2",
+                   sample_id = "85-177",
                    show_window_lines = TRUE)
 
 p$arranged
@@ -766,15 +728,13 @@ p$arranged
 
 Explore more parameters consulting `?hmm_estimate_CN`.
 
-# Refine results for a single sample
-
 Once you get to a conclusion with results better explain the patterns, you can update your multi-sample
 HMM object by using the functions:
 
 ```{r}
-final_res <- update_hmm_CN_multi(multi_esti, 
+final_res <- update_hmm_CN_multi(re_multi_esti_filtered, 
                                  res_tweak, 
-                                 rm_sample = FALSE)
+                                 rm_sample = TRUE)
 ```
 
 If you decide that the results for this sample is inconclusive, 
@@ -809,7 +769,7 @@ The resulted objects from function `update_hmm_CN_multi`,
 ```{r}
 class(res_tweak) # result from hmm_estimate_CN
 class(multi_esti) # result from hmm_estimate_CN_multi
-class(re_multi_esti) # result from hmm_estimate_CN_multi after re-standardization
+class(re_multi_esti_filtered) # result from hmm_estimate_CN_multi after re-standardization
 class(final_res)  # result from update_hmm_CN_multi
 ```
 
@@ -857,7 +817,6 @@ baf <- final_res$by_marker$baf[final_res$by_marker$SampleName == sample_name]
 selected_model <- select_best_baf_model(baf_vec =  baf, 
                                         sample = sample_name,
                                         cn_grid= c(2,3,4),
-                                        bw = c(0.02, 0.04,0.1),
                                         plot = TRUE)
 
 dosages_one_sample <- call_BAF_dosages(baf, selected_model = selected_model, plot=TRUE)
@@ -907,6 +866,18 @@ write.csv(summ_hmm_chr, file = "CN_by_sample.csv")
 write.csv(summ_hmm_sample, file = "CN_chromosome.csv")
 write.csv(final_res$by_window, file = "CN_by_window.csv")
 write.csv(final_res$by_marker, file = "CN_by_marker.csv")
+```
+
+## Export to MAPpoly filter_aneuploidy function
+
+`export_mappoly()` converts the per-window copy-number calls into the input format expected by the
+`filter_aneuploidy()` function in the [MAPpoly](https://github.com/mmollina/MAPpoly) package.
+It returns a data frame with one row per sample, indicating the estimated CN for each chromosome (column), which
+`filter_aneuploidy()` uses to remove chromosomes from aneuploid regions before linkage map construction.
+
+```{r}
+for_mappoly <- export_mappoly(final_res)
+head(for_mappoly)
 ```
 
 ## karyotype notation

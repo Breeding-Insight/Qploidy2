@@ -159,8 +159,8 @@ if(getRversion() >= "2.15.1") utils::globalVariables(c(
 #'   mixture before renormalization. Default FALSE.
 #' @param uniform_weight Numeric in [0,1]. Mixture weight of the uniform
 #'   component when \code{add_uniform = TRUE}. Default 0.05.
-#' @param min_het_frac Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded from \code{cn_grid}, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default 0.05.
-#' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.2, 0.8)}). Values outside this range are treated as homozygous for the purpose of the \code{min_het_frac} filter.
+#' @param min_het_frac Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded from \code{cn_grid}, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default 0.01.
+#' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.05, 0.95)}). Values outside this range are treated as homozygous for the purpose of the \code{min_het_frac} filter.
 #' @param plot Logical. If TRUE, return a ggplot object showing observed and template distributions with likelihood and probability text for each CN. Default FALSE.
 #'
 #' @return A list containing:
@@ -177,8 +177,8 @@ if(getRversion() >= "2.15.1") utils::globalVariables(c(
 compute_baf_likelihoods <- function(baf_vec, cn_grid, M = 100, bw = 0.03,
                                    plot = FALSE, dist="gaussian", reflect = TRUE,
                                    add_uniform = FALSE, uniform_weight = 0.05,
-                                   min_het_frac = 0.05,
-                                   het_range = c(0.2, 0.8)) {
+                                   min_het_frac = 0.01,
+                                   het_range = c(0.05, 0.95)) {
 
   # Exclude CN=1 from the grid when the data has sufficient heterozygosity (het_frac > min_het_frac),
   # as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible.
@@ -296,8 +296,8 @@ compute_baf_likelihoods <- function(baf_vec, cn_grid, M = 100, bw = 0.03,
 #' @param plot Logical. If TRUE, returns a ggplot object for the best model only (default FALSE).
 #' @param param_count Optional named integer vector. Number of free parameters per distribution (for BIC penalty). If NULL, defaults to 0 for all.
 #' @param count_grid_as_params Logical. If TRUE (default), adds +1 to BIC penalty for each hyperparameter tuned by grid search (bw, and uniform_weight if used).
-#' @param min_het_frac Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded from \code{cn_grid}, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default 0.05.
-#' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.2, 0.8)}). Values outside this range are treated as homozygous for the purpose of the \code{min_het_frac} filter.
+#' @param min_het_frac Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded from \code{cn_grid}, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default 0.01.
+#' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.05, 0.95)}). Values outside this range are treated as homozygous for the purpose of the \code{min_het_frac} filter.
 #'
 #' @return A list with the following elements:
 #'   \item{n_obs}{Number of usable BAF observations (after filtering NA/out-of-range).}
@@ -338,8 +338,8 @@ select_best_baf_model <- function(
   plot = FALSE,
   param_count = NULL,
   count_grid_as_params = TRUE,
-  min_het_frac = 0.05,
-  het_range = c(0.2, 0.8)
+  min_het_frac = 0.01,
+  het_range = c(0.05, 0.95)
 ) {
   # --- Input validation ---
   if (is.null(baf_vec)) {

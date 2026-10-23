@@ -108,21 +108,50 @@ add_changepoint_windows <- function(dat,
       next
     }
 
+    # cpt.meanvar (native/C PELT implementation) is not safe against NA/NaN/Inf
+    # or zero-variance input and can crash the R session rather than raise an
+    # R-level error. Fall back to a single window whenever the segment is not
+    # well-behaved, and impute any residual non-finite values before calling it.
+    finite_z <- z[is.finite(z)]
+    if (length(finite_z) < 2 || length(unique(finite_z)) < 2 || !is.finite(stats::var(finite_z))) {
+      dat[[window_col]][idx] <- 1L
+      if (isTRUE(verbose)) {
+        message(sprintf("[changepoint] %s: 1 window (non-finite or zero-variance data)", chr))
+      }
+      next
+    }
+    if (any(!is.finite(z))) z[!is.finite(z)] <- mean(finite_z)
+
     if(is.null(minseglen)){
       floor <- 5 # hard default
       frac <- 0.1 # hard default
       m <- max(floor, floor(length(z) * frac))
       minseglen <- min(m, floor(length(z) / 2))
     }
+    seg_len <- min(minseglen, floor(length(z) / 2))
+    if (!is.finite(seg_len) || seg_len < 1) seg_len <- 1L
 
-    fit <- cpt.meanvar(
-      z,
-      method = "PELT",
-      penalty = "Manual",
-      pen.value = log(length(z)),
-      minseglen = minseglen,
-      class = TRUE
+    fit <- tryCatch(
+      cpt.meanvar(
+        z,
+        method = "PELT",
+        penalty = "Manual",
+        pen.value = log(length(z)),
+        minseglen = seg_len,
+        class = TRUE
+      ),
+      error = function(e) {
+        if (isTRUE(verbose)) {
+          message(sprintf("[changepoint] %s: segmentation failed (%s); using 1 window", chr, conditionMessage(e)))
+        }
+        NULL
+      }
     )
+
+    if (is.null(fit)) {
+      dat[[window_col]][idx] <- 1L
+      next
+    }
 
     ends <- cpts(fit)
     if (length(ends) == 0) {

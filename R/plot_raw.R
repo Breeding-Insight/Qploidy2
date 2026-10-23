@@ -174,7 +174,7 @@ plot_raw <- function(data,
       geom_point(alpha = 0.7, size = dot.size, colour = col_bar) +
       facet_grid(. ~ Chr, scales = "free_x") +
       theme_bw(base_size = font_size) +
-      ylab("Ratio") +
+      ylab(expression(theta)) +
       theme(
         axis.text.x      = element_text(angle = 90, vjust = 0.5, hjust = 1),
         strip.background = element_rect(fill = "grey92", colour = NA),
@@ -321,9 +321,9 @@ plot_raw <- function(data,
 #' @param count_grid_as_params Logical. Add +1 BIC penalty per tuned
 #'   hyperparameter. Default `TRUE`.
 #' @param min_het_frac Numeric. Minimum heterozygous fraction required to
-#'   exclude CN=1 from `cn_grid`. Default `0.05`.
+#'   exclude CN=1 from `cn_grid`. Default `0.01`.
 #' @param het_range Numeric vector of length 2. BAF interval defining
-#'   heterozygous loci. Default `c(0.2, 0.8)`.
+#'   heterozygous loci. Default `c(0.05, 0.95)`.
 #'
 #' @return An object of class `selected_BAF_model` as returned by
 #'   [select_best_baf_model()].
@@ -344,8 +344,8 @@ select_best_raw_model <- function(
     plot                = FALSE,
     param_count         = NULL,
     count_grid_as_params = TRUE,
-    min_het_frac        = 0.05,
-    het_range           = c(0.2, 0.8)) {
+    min_het_frac        = 0.01,
+    het_range           = c(0.05, 0.95)) {
 
   if (!is.data.frame(data))
     stop("'data' must be a data.frame.")

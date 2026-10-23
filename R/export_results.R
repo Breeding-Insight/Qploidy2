@@ -1,3 +1,5 @@
+if (getRversion() >= "2.15.1") utils::globalVariables(c("CN_mode"))
+
 #' Summarize copy number mode and posterior probability
 #'
 #' Summarizes the mode of copy number calls and the mean maximum posterior probability per sample,
@@ -25,14 +27,14 @@ summarize_cn_mode <- function(df,
     stop("Input must be a data.frame or an hmm_CN-like object with a data.frame at `$by_window`.")
 
   # required columns
-  req_cols <- c("Sample", "Chr", "Start", "End", cn_col, post_col)
+  req_cols <- c("Sample", "Chr", "Start", "End", cn_col)
   miss <- setdiff(req_cols, names(dat))
   if (length(miss)) stop("Missing required columns in data: ", paste(miss, collapse = ", "))
 
   if (!is.numeric(dat[[cn_col]]) && !is.integer(dat[[cn_col]])) {
     stop(sprintf("Column '%s' must be numeric/integer.", cn_col))
   }
-  if (!is.numeric(dat[[post_col]])) {
+  if (post_col %in% names(dat) && any(!is.na(dat[[post_col]])) && !is.numeric(dat[[post_col]])) {
     stop(sprintf("Column '%s' must be numeric.", post_col))
   }
 
@@ -88,7 +90,11 @@ summarize_cn_mode <- function(df,
     row <- list(
       Sample        = g$Sample[1],
       CN_mode       = mode(g[[cn_col]]),
-      mean_max_prob = mean(g[[post_col]], na.rm = TRUE),
+      mean_max_prob = if (post_col %in% names(g) && any(!is.na(g[[post_col]]))) {
+        mean(g[[post_col]], na.rm = TRUE)
+      } else {
+        NA_real_
+      },
       n_windows     = nrow(g)
     )
     if ("Chr" %in% group_vars)     row$Chr      <- g$Chr[1]
@@ -230,4 +236,108 @@ export_mappoly <- function(hmm_CN_obj){
     as.data.frame()
   
   return(aneu)
+}
+
+#' Import PennCNV output into an HMM result object
+#'
+#' Parses PennCNV segment output and converts it into the internal `hmm_CN`
+#' structure used by Qploidy2, producing both window-level and marker-level
+#' summaries compatible with downstream plotting and reporting functions.
+#'
+#' @param df A data.frame containing PennCNV output rows. It is expected to
+#'   include the segment identifier, chromosome, SNP count, CN state, and
+#'   confidence columns used by the PennCNV output format.
+#' @param geno.pos A data.frame with `MarkerName`, `Chromosome`, and `Position`
+#'   columns used to map PennCNV segments back to marker-level genomic positions.
+#'
+#' @return An object of class `hmm_CN` with populated `by_window` and
+#'   `by_marker` entries.
+#'
+#' @importFrom dplyr mutate row_number left_join rename filter select
+#' @importFrom stringr str_extract
+#'
+#' @export
+import_penncnv_results <- function(df, geno.pos) {
+
+  # --- Parse PennCNV columns into by_window format ---
+  penncnv_converted <- df %>%
+    mutate(
+      Sample         = str_extract(V5, "[^/]+$"),
+      Chr            = str_extract(V1, "(?<=chr)\\d+"),
+      Start          = as.integer(str_extract(V1, "(?<=:)\\d+")),
+      End            = as.integer(str_extract(V1, "(?<=-)[0-9]+")),
+      n_snps         = as.integer(str_extract(V2, "\\d+")),
+      CN_call        = as.integer(str_extract(V4, "(?<=cn=)\\d+")),
+      CN_reliability = as.numeric(str_extract(V8, "(?<=conf=)[0-9.]+"))
+    ) %>%
+    mutate(WindowID = row_number(), .by = c(Sample, Chr)) %>%
+    mutate(
+      n_het    = NA_integer_,
+      z        = NA_real_,
+      w_baf    = NA_real_,
+      post_max = NA_real_,
+      post_CN1 = NA_real_,
+      post_CN2 = NA_real_,
+      post_CN3 = NA_real_,
+      post_CN4 = NA_real_,
+      post_CN5 = NA_real_,
+      post_CN6 = NA_real_
+    ) %>%
+    select(Sample, Chr, WindowID, Start, End, n_snps, n_het,
+           z, w_baf, CN_call, CN_reliability, post_max,
+           post_CN1, post_CN2, post_CN3, post_CN4, post_CN5, post_CN6)
+
+  # --- Expand into by_marker format ---
+  penncnv_by_marker <- penncnv_converted %>%
+    mutate(Chr = as.integer(Chr)) %>%
+    left_join(
+      geno.pos %>% rename(Chr = Chromosome) %>% mutate(Chr = as.integer(Chr)),
+      by = "Chr",
+      relationship = "many-to-many"
+    ) %>%
+    filter(Position >= Start & Position <= End) %>%
+    mutate(
+      `.__w__`   = WindowID,
+      SampleName = Sample,
+      X          = NA_real_,
+      Y          = NA_real_,
+      R          = 0,
+      ratio      = 0.5,
+      geno       = NA_integer_,
+      baf        = 0.5,
+      z          = 0,
+      outlier    = FALSE,
+      w_baf      = 0,
+      post_max   = 0
+    ) %>%
+    select(Chr, `.__w__`, MarkerName, SampleName,
+           X, Y, R, ratio, geno, baf,
+           z, Position, outlier, w_baf,
+           CN_call, post_max, CN_reliability)
+
+  # --- Assemble into hmm_CN object ---
+  params_default <- list(
+    cn_grid = NA_integer_,
+    exp_ploidy = NA_real_,
+    min_snps_per_window = NA_real_,
+    distribution = NA_character_,
+    mu = NA_real_,
+    sigma = NA_real_,
+    loglik = NA_real_
+  )
+
+  sample_ids <- unique(penncnv_converted$Sample)
+  params_samples <- stats::setNames(
+    replicate(length(sample_ids), params_default, simplify = FALSE),
+    sample_ids
+  )
+
+  fake_hmm <- list(
+    by_window = penncnv_converted,
+    by_marker = penncnv_by_marker,
+    params = NULL,
+    params_samples = params_samples
+  )
+
+  return(structure(fake_hmm, class = "hmm_CN"))
 }

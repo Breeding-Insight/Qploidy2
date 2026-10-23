@@ -1,5 +1,5 @@
 utils::globalVariables(c(
-    "seg_id", "Ploidy", "Chr_CN", "ISCN_segment"
+    "seg_id", "Ploidy", "Chr_CN", "ISCN_segment", "CN_call_filled"
 ))
 
 ##' Build ISCN-style karyotype notation from HMM copy-number calls

@@ -32,6 +32,9 @@ black. Otherwise one of:
   \item{\code{"post_max_dosage"}}{Posterior probability of the most likely dosage associated with the most likely
     copy-number state.}
   \item{\code{"w_baf"}}{B-allele frequency weight applied on the HMM according to the number of heterozygous markers in the window.}
+  \item{\code{"CN_reliability"}}{Joint confidence score combining HMM posterior probability and BAF support
+    (\code{post_max × normalized_w_baf}). Ranges 0–1; windows with no BAF evidence are capped at
+    \code{0.25 × post_max} by default.}
 }}
 
 \item{nrow}{Integer. Number of rows passed to \code{\link[ggplot2]{facet_wrap}}
