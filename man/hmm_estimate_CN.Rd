@@ -22,16 +22,17 @@ hmm_estimate_CN(
   het_quantile = 0.8,
   baf_weight = 0.5,
   z_range = NULL,
-  transition_jump = 0.995,
+  transition_jump = 0.9,
   initial_prob = 0.5,
   z_only = FALSE,
+  baf_only = FALSE,
   verbose = TRUE,
   exp_ploidy = NA,
   rm_outliers = TRUE,
   outlier_alpha = 0.05,
   selected_model = NULL,
   dists = c("gaussian", "beta_binomial", "negative_binomial"),
-  bw_grid = c(0.02, 0.04, 0.06, 0.08, 0.1),
+  bw_grid = c(0.01, 0.02, 0.03, 0.04),
   add_uniform_grid = FALSE,
   uniform_weight_grid = c(0.01, 0.03, 0.05, 0.1, 0.15),
   param_count = NULL,
@@ -43,6 +44,10 @@ hmm_estimate_CN(
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
   cn0_background_frac = 0,
+  nQuack_EM = FALSE,
+  nQuack_cores = 1L,
+  nQuack_dists = NULL,
+  nQuack_exp_ploidy = FALSE,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 )
@@ -90,6 +95,8 @@ mixture before renormalization. Default FALSE.}
 
 \item{z_only}{Logical. If \code{TRUE}, fit the HMM using the z-emission only (ignores BAF). Default \code{FALSE}.}
 
+\item{baf_only}{Logical. If \code{TRUE}, fit the HMM using the BAF emission only (ignores z-score). Mutually exclusive with \code{z_only}. Default \code{FALSE}.}
+
 \item{verbose}{Logical. If \code{TRUE}, print progress messages. Default \code{TRUE}.}
 
 \item{exp_ploidy}{Numeric. Expected ploidy value. If \code{NA} or \code{NULL}, it is set to the best CN from the BAF model. Default \code{NA}.}
@@ -125,6 +132,35 @@ mixture before renormalization. Default FALSE.}
 \item{hom_z_sigma_inflate}{Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.}
 
 \item{cn0_background_frac}{Numeric in [0, 1]. Array probes emit residual background signal even at CN=0, which elevates the z-score above the linear extrapolation. This parameter shifts the initial \code{mu[0]} upward by \code{cn0_background_frac * (mu[1] - mu[0])}, placing it at the expected background-elevated z rather than the theoretical zero-signal floor. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0} (no background correction; suitable for sequencing data).}
+
+\item{nQuack_EM}{Logical. If \code{TRUE}, use the \pkg{nQuack} package to estimate \code{exp_ploidy} from
+whole-sample read-coverage data (total depth and one randomly chosen allele count per heterozygous site).
+The three mixture-model distributions shipped with nQuack (\code{quackNormal}, \code{quackBeta},
+\code{quackBetaBinom}) are each fitted and the winner by BIC is used to determine the ploidal level, which
+becomes \code{exp_ploidy} for the HMM run. Per-window BAF likelihoods are also computed via nQuack's own
+EM (\code{.nquack_baf_likelihoods_by_window}), not the template method; there is no template fallback for
+CN states nQuack cannot model. Because nQuack only models CN 2:6, \code{cn_grid} (excluding \code{0}) must
+be a subset of \code{2:6} when \code{nQuack_EM = TRUE}; other values (including the default's CN=1) raise
+an error. Use \code{nQuack_exp_ploidy} instead if you need CN=1/LOH or ploidies outside 2:6. Requires
+nQuack to be installed (\code{remotes::install_github("mgaynor1/nQuack")}) and
+the input data to contain columns \code{R} (total depth), \code{X} (ref allele count), \code{Y} (alt
+allele count), \code{ratio}, and \code{geno}. Only takes effect when \code{selected_model} is \code{NULL}
+and \code{exp_ploidy} is \code{NA}/\code{NULL}. Default \code{FALSE}.}
+
+\item{nQuack_dists}{Character vector or \code{NULL}. Restricts which nQuack mixture-model
+families are evaluated when \code{nQuack_EM = TRUE}. Valid values are \code{"normal"},
+\code{"beta"}, and \code{"beta-binomial"}. Both the base family and its
+\code{+uniform} variant are automatically tested for each entry. If \code{NULL} (default),
+all three families are evaluated and the best by BIC is selected. Example:
+\code{nQuack_dists = "normal"} tests only Normal and Normal+Uniform.}
+
+\item{nQuack_exp_ploidy}{Logical. If \code{TRUE}, use the \pkg{nQuack} package to
+estimate \code{exp_ploidy} only (same as \code{nQuack_EM}), but then use the
+template BAF model (\code{select_best_baf_model}) for per-window BAF likelihoods
+and dosage assignment. This is a middle-ground option: nQuack provides a more
+robust ploidy estimate while the template method handles the window-level inference.
+Requires the same input columns as \code{nQuack_EM}. Ignored when \code{nQuack_EM
+= TRUE}. Default \code{FALSE}.}
 
 \item{rerun_overall_ploidy}{Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.}
 
@@ -178,7 +214,7 @@ chromosomes/batches.
 \details{
 \strong{Windowing.} If \code{chr} is specified, only those chromosomes are analyzed. Windows are formed within each chromosome by grouping every \code{snps_per_window} consecutive SNPs. Windows with fewer than \code{min_snps_per_window} SNPs are removed.
 
-\strong{Emissions.} For state \code{c} (copy number), the z-emission is \eqn{\mathcal{N}(\mu_c, \sigma^2)}. The BAF emission is a multinomial log-likelihood comparing the observed BAF histogram to a state-specific template (a “comb” with peaks at \eqn{d/c}). Windows with few heterozygotes are down-weighted via \code{w_baf} (derived from \code{n_het}).
+\strong{Emissions.} For state \code{c} (copy number), the z-emission is \eqn{\mathcal{N}(\mu_c, \sigma^2)}, where \eqn{\sigma} is a single standard deviation shared across all CN states (it is not scaled per state, even though depth variance is in reality expected to increase with copy number). The BAF emission is a multinomial log-likelihood comparing the observed BAF histogram to a state-specific template (a “comb” with peaks at \eqn{d/c}). Windows with few heterozygotes are down-weighted via \code{w_baf} (derived from \code{n_het}). The combined per-window, per-state log-likelihood is a tempered log-product, \code{llz + w_baf * llb}: the z emission always contributes fully, assuming conditional independence of z and BAF given the CN state, while the BAF emission's evidence is scaled down (tempered) by \code{w_baf} when fewer heterozygotes support it.
 
 \strong{Numerical safety.} The implementation guards against non-finite emissions, enforces stochastic \code{A} rows, and lower-bounds \code{sigma}.
 }

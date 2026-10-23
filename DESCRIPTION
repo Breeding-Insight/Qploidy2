@@ -51,6 +51,7 @@ Imports:
     purrr,
     scales,
     tibble
+Remotes: mgaynor1/nQuack@updateGL
 Encoding: UTF-8
 URL: https://github.com/Breeding-Insight/Qploidy2
 BugReports: https://github.com/Breeding-Insight/Qploidy2/issues
@@ -59,12 +60,12 @@ RoxygenNote: 7.3.3
 Suggests: 
     covr,
     spelling,
-    updog,
     rmdformats,
     knitr (>= 1.10),
     rmarkdown,
     testthat (>= 3.0.0),
     plotly,
+    nQuack,
     AGHmatrix
 Config/testthat/edition: 3
 Language: en-US

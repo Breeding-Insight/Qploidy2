@@ -406,7 +406,6 @@ which is less time- and computationally demanding but may not provide the best p
 The results from this step are initial parameters for the HMM, 
 which will be further optimized by the EM algorithm implemented in the HMM.
 
-
 This current tutorial apply the "grid approach". Check tutorial [Qploidy2 and nQuack integration]() for running the EM approach using nQuack.
 
 This step helps determine the most likely ploidy and mixture 
@@ -417,12 +416,11 @@ or test multiple samples and compare results.
 
 ## Applying to raw data
 
-
 ```{r}
 sample_ratios <- data$ratio[data$SampleName == "J432"]
 selected_model_raw <- select_best_baf_model(baf_vec = sample_ratios,
                                             cn_grid= c(2,3,4,5,6),
-                                            bw = c(0.02, 0.04, 0.06, 0.08, 0.1), # Default values
+                                            bw = c(0.01, 0.02, 0.04), # Default values
                                             plot = TRUE)
 
 selected_model_raw$plot

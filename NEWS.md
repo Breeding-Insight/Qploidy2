@@ -1,3 +1,15 @@
+# Qploidy2 1.22.0
+
+* Added `nQuack_EM`, `nQuack_mixtures`, and `nQuack_cores` parameters to `hmm_estimate_CN()`. When `nQuack_EM = TRUE`, the three nQuack mixture-model distributions (`quackNormal`, `quackBeta`, `quackBetaBinom`) are fitted to whole-sample heterozygous-site coverage data and the BIC winner is used to set `exp_ploidy` — the expected ploidy that initialises the HMM state distribution and z-scale — instead of relying on the template BAF model. Per-window BAF likelihoods continue to use the existing template/histogram method. `nQuack_mixtures` controls which ploidal-level names are passed to `quackit()` (default: derived from `cn_grid` over 2:6); `nQuack_cores` passes the core count to the nQuack fitting functions. Requires `nQuack` installed via `remotes::install_github("mgaynor1/nQuack")`.
+
+* Added `from_standardized_baf` parameter (default `TRUE`) to `convert2nQuack()`. When `TRUE`, allele counts are derived by inverting the standardization-corrected `baf` column back into reference/alternative counts (`alt = round(baf * R)`, `ref = R - alt`), the same approach already used internally by `.nquack_estimate_ploidy()`, instead of using the raw `X`/`Y` allele counts.
+
+* Added the `Qploidy2_nQuack_tutorial.Rmd` vignette, covering the nQuack EM-based BAF model selection route (`nQuack_EM`/`nQuack_exp_ploidy`) and exporting standardized BAF data to nQuack's input format via `convert2nQuack()`.
+
+* Fixed `hmm_estimate_CN()`: when `nQuack_EM = TRUE`, CN states outside nQuack's native 2:6 range (chiefly CN=1/LOH, which `cn_grid` includes by default) had no template fallback and were left permanently at `-Inf` in `.nquack_baf_likelihoods_by_window()`. `em_hmm_cn()` neutralised these to 0 during EM fitting, but final decoding did not, so fitting and decoding disagreed and informative windows could never be called as CN=1 or other out-of-range states (sometimes producing `NaN` via `0 * -Inf`). `cn_grid` (excluding `0`) is now validated to be a subset of `2:6` when `nQuack_EM = TRUE`, with a clear error directing users to `nQuack_exp_ploidy = TRUE` if they need CN=1/LOH or ploidies outside 2:6. Corrected the roxygen docs and the nQuack tutorial, which incorrectly claimed a template fallback already existed for these states.
+
+* Fixed an inconsistency in the beta-binomial path of `.nquack_baf_likelihoods_by_window()` and `call_BAF_nQuack_dosages()`: when a raw `Y` (alt allele count) column was available, it was used in preference to reconstructing counts from the standardization-corrected BAF, while global model selection and heterozygote filtering always used the corrected BAF. Removed the raw-`Y` preference (and the now-unused `Y_vec` parameter of `call_BAF_nQuack_dosages()`); allele counts are now always reconstructed as `round(baf * R)` from the same corrected BAF used everywhere else.
+
 # Qploidy2 1.21.0
 
 * Added two-signal consistency gating to `hmm_estimate_CN()`: for each chromosome, the chromosome-level z-score consensus (sum of per-window z log-likelihoods) is compared to the chromosome-level BAF consensus. Gating operates at the chromosome level — not per window — because individual window z-scores are too noisy to reliably indicate disagreement, especially with wide CN grids. When the chromosome mean BAF weight is meaningful (>= 0.1) and the two signals disagree on the best CN state, the BAF contribution is suppressed for all windows on that chromosome and emissions are set to z-score only. When they agree, a reinforcement bonus (`log(3) × mean_w_baf`) is added to the agreed state. Chromosomes with sparse BAF (mean weight < 0.1) are unaffected.
@@ -100,6 +112,11 @@
   aneuploidy; returns a `count_types` object (a named list of sample-ID vectors
   plus a `$by_cn` breakdown by sample-level CN) and auto-prints a summary table
   via `print.count_types`.  
+
+## New tutorial template
+ * QuickStart_template.Rmd was created to allow reprodutibility of the alfalfa tutorial
+ with any initial standardized file input.
+
 
 # Qploidy2 1.17.0
 
