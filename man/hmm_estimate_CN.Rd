@@ -137,8 +137,12 @@ mixture before renormalization. Default FALSE.}
 whole-sample read-coverage data (total depth and one randomly chosen allele count per heterozygous site).
 The three mixture-model distributions shipped with nQuack (\code{quackNormal}, \code{quackBeta},
 \code{quackBetaBinom}) are each fitted and the winner by BIC is used to determine the ploidal level, which
-becomes \code{exp_ploidy} for the HMM run. Per-window BAF likelihoods are still computed with the existing
-template method. Requires nQuack to be installed (\code{remotes::install_github("mgaynor1/nQuack")}) and
+becomes \code{exp_ploidy} for the HMM run. Per-window BAF likelihoods are also computed via nQuack's own
+EM (\code{.nquack_baf_likelihoods_by_window}), not the template method; there is no template fallback for
+CN states nQuack cannot model. Because nQuack only models CN 2:6, \code{cn_grid} (excluding \code{0}) must
+be a subset of \code{2:6} when \code{nQuack_EM = TRUE}; other values (including the default's CN=1) raise
+an error. Use \code{nQuack_exp_ploidy} instead if you need CN=1/LOH or ploidies outside 2:6. Requires
+nQuack to be installed (\code{remotes::install_github("mgaynor1/nQuack")}) and
 the input data to contain columns \code{R} (total depth), \code{X} (ref allele count), \code{Y} (alt
 allele count), \code{ratio}, and \code{geno}. Only takes effect when \code{selected_model} is \code{NULL}
 and \code{exp_ploidy} is \code{NA}/\code{NULL}. Default \code{FALSE}.}

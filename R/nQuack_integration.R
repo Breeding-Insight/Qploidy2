@@ -195,7 +195,10 @@ convert2nQuack <- function(qploidy_standardization_object,
 
   # Build xi (allele freq) and xm (matrix) for het sites
   make_empty <- function() {
-    ll_vec   <- setNames(rep(-Inf, length(cn_grid)), paste0("CN", cn_grid))
+    # No/insufficient het evidence: the window is uninformative, not impossible.
+    # Equal finite log-likelihoods (neutral) let depth (z) alone drive inference;
+    # -Inf here would make every state "impossible" and corrupt forward/backward sums.
+    ll_vec   <- setNames(rep(0, length(cn_grid)), paste0("CN", cn_grid))
     prob_vec <- setNames(rep(1 / length(cn_grid), length(cn_grid)), paste0("CN", cn_grid))
     list(ll_vec = ll_vec, prob_vec = prob_vec, no_one = FALSE)
   }
@@ -209,9 +212,10 @@ convert2nQuack <- function(qploidy_standardization_object,
 
   xi_all <- baf_raw[valid]
 
-  # For beta-binomial we need R (total depth) and the allele count.
-  # Prefer the raw alt allele count column Y when available (exact integer);
-  # otherwise reconstruct from round(baf * R), consistent with .nquack_estimate_ploidy().
+  # For beta-binomial we need R (total depth) and the allele count. Always
+  # reconstruct from the standardized/corrected baf_col (xi_all), never the raw
+  # Y column, so counts stay consistent with the BAF used for model selection
+  # and heterozygote filtering elsewhere.
   xm_all <- NULL
   if (base_family == "beta-binomial") {
     if (!has_depth) {
@@ -219,7 +223,7 @@ convert2nQuack <- function(qploidy_standardization_object,
       return(make_empty())
     }
     R_vals  <- d_win$R[valid]
-    alt_raw <- if ("Y" %in% colnames(d_win)) d_win$Y[valid] else round(xi_all * R_vals)
+    alt_raw <- round(xi_all * R_vals)
     ok_depth <- !is.na(R_vals) & R_vals > 0 & !is.na(alt_raw)
     if (sum(ok_depth) < 2L) return(make_empty())
     xi_all  <- xi_all[ok_depth]
@@ -588,10 +592,9 @@ convert2nQuack <- function(qploidy_standardization_object,
 #'   for heterozygous markers.  Default \code{c(0.05, 0.95)}.
 #' @param R_vec     Integer vector of total read depths, same length as
 #'   \code{baf_vec}.  Required when \code{nq_dist} contains
-#'   \code{"beta-binomial"}.
-#' @param Y_vec     Integer vector of alt allele counts, same length as
-#'   \code{baf_vec}.  Used in preference to \code{round(baf * R)} when
-#'   \code{nq_dist} is \code{"beta-binomial"} and these values are available.
+#'   \code{"beta-binomial"}. The alt allele count is always reconstructed as
+#'   \code{round(baf_vec * R_vec)}, keeping it consistent with the
+#'   standardized/corrected \code{baf_vec} rather than raw read counts.
 #' @param max_cn    Optional integer.  When provided, extra
 #'   \code{dosage_<k>} columns (filled with \code{NA}) are appended for
 #'   dosages \code{cn+1} through \code{max_cn}, matching the column layout
@@ -610,7 +613,6 @@ call_BAF_nQuack_dosages <- function(baf_vec,
                                     nq_dist    = "beta",
                                     het_range  = c(0.05, 0.95),
                                     R_vec      = NULL,
-                                    Y_vec      = NULL,
                                     max_cn     = NULL,
                                     niter      = 1000L,
                                     epsilon    = 0.1) {
@@ -703,8 +705,9 @@ call_BAF_nQuack_dosages <- function(baf_vec,
         R_het  <- as.integer(R_vec[het_idx])
         ok     <- !is.na(R_het) & R_het > 0L
         if (sum(ok) < 2L) stop("Insufficient depth data for beta-binomial dosage.")
-        alt_het <- if (!is.null(Y_vec)) as.integer(Y_vec[het_idx]) else
-                    round(xi_het * R_het)
+        # Always reconstruct from baf_vec (standardized/corrected), never raw Y,
+        # to stay consistent with model selection and heterozygote filtering.
+        alt_het <- round(xi_het * R_het)
         xm_het <- cbind(R_het[ok], alt_het[ok])
         fn  <- if (add_uniform) nQuack::emstepBBU else nQuack::emstepBB
         res <- fn(parms, xm_het, niter, epsilon, trunc, "free", glreturn = TRUE)

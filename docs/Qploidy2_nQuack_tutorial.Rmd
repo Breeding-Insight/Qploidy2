@@ -524,10 +524,18 @@ res <- hmm_estimate_CN(..., nQuack_EM = TRUE)
 
 ## nQuack supports copy numbers 2–6 only
 
-The nQuack route is restricted to `cn_grid` values between 2 and 6 (nQuack's
-supported range). Values outside this range are silently dropped from the nQuack
-evaluation; the HMM itself still tests all values in `cn_grid` using the template
-model for those out-of-range states.
+The nQuack route (`nQuack_EM = TRUE`) only models CN states 2 through 6 (nQuack's
+internal `emstep*` functions have no representation for CN=1/LOH or CN > 6). There
+is **no template fallback** for out-of-range states on this route: `cn_grid`
+(excluding `0`, which is handled separately) must be a subset of `2:6`, or
+`hmm_estimate_CN()` stops with an informative error — including the default
+`cn_grid`, which includes CN=1 and must be restricted explicitly.
+
+If you need CN=1/LOH detection or ploidies outside 2:6, use
+`nQuack_exp_ploidy = TRUE` instead: nQuack still estimates the overall sample
+ploidy, but per-window BAF likelihoods (and therefore the full `cn_grid`) are
+handled by Qploidy2's own kernel-density template model, which has no such
+restriction.
 
 # How to Cite
 

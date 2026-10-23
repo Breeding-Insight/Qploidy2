@@ -65,6 +65,7 @@ Suggests:
     rmarkdown,
     testthat (>= 3.0.0),
     plotly,
-    nQuack
+    nQuack,
+    AGHmatrix
 Config/testthat/edition: 3
 Language: en-US
