@@ -9,21 +9,31 @@
 #' @param qploidy_standardization_object An object of class
 #'   \code{qploidy_standardization} or a plain \code{data.frame} containing at
 #'   least the columns \code{SampleName}, \code{R} (total read depth),
-#'   \code{X} (reference allele count), \code{Y} (alternative allele count),
-#'   \code{ratio}, and \code{geno}.
+#'   \code{ratio}, and \code{geno}. When \code{from_standardized_baf = TRUE}
+#'   (default) a \code{baf} column (standardized BAF) is also required; when
+#'   \code{FALSE}, \code{X} (reference allele count) and \code{Y} (alternative
+#'   allele count) are required instead.
 #' @param min_depth Integer. Minimum total read depth (\code{R}) required for
 #'   a site to be retained. Default is \code{10}.
 #' @param max_geno Integer. Maximum genotype dosage considered homozygous
 #'   (inclusive). Sites where \code{geno == 0} or \code{geno == max_geno} are
 #'   filtered as homozygous. Default is \code{4} (tetraploid).
 #' @param seed Integer. Random seed for reproducibility of the random allele selection. Default is \code{123L}.
+#' @param from_standardized_baf Logical. If \code{TRUE} (default), allele
+#'   counts are derived by inverting the standardization-corrected \code{baf}
+#'   column back into reference/alternative counts (\code{alt = round(baf * R)},
+#'   \code{ref = R - alt}), the same approach used internally by
+#'   \code{.nquack_estimate_ploidy()}. If \code{FALSE}, the raw \code{X}/\code{Y}
+#'   allele counts are used directly instead.
 #'
 #' @return A named \code{list} with one element per sample. Each element is a
 #'   two-column integer \code{matrix}:
 #'   \itemize{
 #'     \item Column 1: total read depth (\code{R}).
-#'     \item Column 2: read count of one randomly chosen allele (X or Y,
-#'       selected with equal probability per site).
+#'     \item Column 2: read count of one randomly chosen allele, selected with
+#'       equal probability per site (reference/alternative counts inverted
+#'       from \code{baf} when \code{from_standardized_baf = TRUE}, or raw
+#'       \code{X}/\code{Y} otherwise).
 #'   }
 #'   Samples with no qualifying sites after filtering return an empty matrix
 #'   with zero rows.
@@ -51,7 +61,8 @@
 convert2nQuack <- function(qploidy_standardization_object,
                            min_depth = 10L,
                            max_geno  = NULL,
-                           seed      = 123L) {
+                           seed      = 123L,
+                           from_standardized_baf = TRUE) {
 
                         
   # Accept qploidy_standardization objects
@@ -64,7 +75,8 @@ convert2nQuack <- function(qploidy_standardization_object,
   }
 
   dat <- qploidy_standardization_object
-  required_cols <- c("SampleName", "R", "X", "Y", "ratio", "geno")
+  required_cols <- c("SampleName", "R", "ratio", "geno")
+  required_cols <- if (from_standardized_baf) c(required_cols, "baf") else c(required_cols, "X", "Y")
   missing_cols  <- setdiff(required_cols, names(dat))
   if (length(missing_cols) > 0L) {
     stop("Input is missing required columns: ", paste(missing_cols, collapse = ", "))
@@ -86,11 +98,20 @@ convert2nQuack <- function(qploidy_standardization_object,
       next
     }
 
-    # Randomly select X or Y coverage per site (vectorised)
+    # Randomly select ref/alt coverage per site (vectorised)
     set.seed(seed)  # For reproducibility
     n       <- nrow(temp)
-    choices <- sample(c(1L, 2L), size = n, replace = TRUE)
-    allele  <- ifelse(choices == 1L, temp$X, temp$Y)
+    use_ref <- sample(c(TRUE, FALSE), size = n, replace = TRUE)
+
+    if (from_standardized_baf) {
+      # Invert standardized BAF back into allele counts (mirrors .nquack_estimate_ploidy()),
+      # so nQuack receives standardization-corrected allele frequencies instead of raw X/Y.
+      alt_count <- as.integer(round(temp$baf * temp$R))
+      ref_count <- as.integer(temp$R) - alt_count
+      allele    <- ifelse(use_ref, ref_count, alt_count)
+    } else {
+      allele <- ifelse(use_ref, temp$X, temp$Y)
+    }
 
     xmr <- cbind(R = temp$R, allele = allele)
 

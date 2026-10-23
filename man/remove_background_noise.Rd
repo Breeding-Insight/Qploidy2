@@ -42,7 +42,7 @@ Default \code{1} (same threshold for all samples).}
 \item{verbose}{Logical. Print a filtering summary. Default \code{TRUE}.}
 }
 \value{
-The input \code{data} with R and ratio set to \code{NA} for
+The input \code{data} with X, Y, R, and ratio set to \code{NA} for
   background-level entries. Returned invisibly.
 }
 \description{
