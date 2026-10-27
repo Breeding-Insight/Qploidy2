@@ -9,7 +9,7 @@ utils::globalVariables(c(
 ##' (mode of \code{CN_call} across all markers), the chromosome-level copy
 ##' number (mode of \code{CN_call} within the chromosome), and identifies
 ##' contiguous segments where the copy number deviates, reporting them in an
-##' ISCN-inspired genomic notation (\code{Chr:g.start_end×CN}).
+##' ISCN-inspired genomic notation (\code{Chr:g.start_endxCN}).
 ##'
 ##' @param df A \code{data.frame} with at least the columns \code{SampleName},
 ##'   \code{Chr}, \code{Position} (base-pair coordinates), and \code{CN_call}
@@ -18,7 +18,7 @@ utils::globalVariables(c(
 ##' @param sample_name Character vector of sample names to include, or
 ##'   \code{NULL} (default) to return notation for all samples in \code{df}.
 ##'
-##' @return A \code{data.frame} with one row per sample–chromosome combination
+##' @return A \code{data.frame} with one row per sample-chromosome combination
 ##'   and the following columns:
 ##'   \describe{
 ##'     \item{\code{ChrID}}{Chromosome identifier.}
@@ -27,7 +27,7 @@ utils::globalVariables(c(
 ##'       \code{CN_call} within the chromosome).}
 ##'     \item{\code{Segment}}{Semicolon-separated ISCN-style notation for
 ##'       segments that deviate from the chromosome-level copy number, e.g.
-##'       \code{"Chr01:g.1000000_5000000×2"}. \code{NA} when no deviating
+##'       \code{"Chr01:g.1000000_5000000x2"}. \code{NA} when no deviating
 ##'       segments are found.}
 ##'   }
 ##'

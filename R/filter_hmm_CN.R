@@ -14,7 +14,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c(
 #'
 #' @param hmm_CN An object of class \code{hmm_CN}.
 #' @param min_CN_reliability Numeric \[0,1\]. Minimum joint reliability score
-#'   (HMM posterior × BAF support). Default \code{0.15}. Particularly useful
+#'   (HMM posterior x BAF support). Default \code{0.15}. Particularly useful
 #'   for suppressing high-confidence z-only calls on all-homozygous windows.
 #' @param min_post_max Numeric \[0,1\]. Minimum raw HMM posterior probability.
 #'   Use when you need a floor on the HMM's own confidence regardless of BAF.
@@ -62,7 +62,7 @@ filter_hmm_CN <- function(hmm_CN,
   stopifnot(inherits(hmm_CN, "hmm_CN"))
   bw <- hmm_CN$by_window
 
-  # ---- build failure mask (TRUE = window fails ≥ 1 criterion) ----
+  # ---- build failure mask (TRUE = window fails >= 1 criterion) ----
   fail <- rep(FALSE, nrow(bw))
 
   if (!is.null(min_CN_reliability) && "CN_reliability" %in% names(bw))

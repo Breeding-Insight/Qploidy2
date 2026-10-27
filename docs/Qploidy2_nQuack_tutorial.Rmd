@@ -1,0 +1,531 @@
+---
+title: "Qploidy2 and nQuack Integration Tutorial"
+subtitle: "Large-scale copy number estimation in alfalfa mapping population using nQuack EM-based BAF model selection"
+author: "Breeding Insight"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    css: BIcolors_template.css
+    includes:
+      in_header: header.html
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+---
+
+```{r, echo=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 10,
+  fig.height = 10,
+  out.width = "40%"
+)
+```
+
+# Introduction
+
+This tutorial demonstrates how to run Qploidy2's copy number estimation using the
+**nQuack EM-based BAF model selection** route. It uses the same alfalfa mapping
+population dataset as the [main Qploidy2 tutorial](Qploidy_alfalfa_tutorial.html)
+and assumes that you have already completed the **Standardization** step described
+there (`standardize()`).
+
+> **Important**: The nQuack route requires allele read counts (`X`, `Y`, `R` columns)
+> and is therefore **exclusive to sequencing-based data** (WGS, targeted sequencing
+> such as DArTag/GTseq/AgriSeq, etc.). It cannot be used with intensity-based
+> genotyping arrays (Axiom, Illumina), because arrays do not produce read counts.
+> For array data, use `hmm_estimate_CN()` (the grid-based BAF model selection
+> route) instead.
+
+## `hmm_estimate_CN_nQuack()`: a self-contained nQuack route
+
+The nQuack integration is a separate, self-contained function,
+`hmm_estimate_CN_nQuack()`. It implements the same HMM structure as `hmm_estimate_CN`
+but using nQuack EM models to estimate both the overall sample ploidy estimate and per-window BAF
+likelihoods/dosage calling. Because nQuack only models copy-number
+states 2 through 6, `cn_grid` must be a subset of `2:6`; use
+`hmm_estimate_CN()` instead for CN=0/1/LOH detection or ploidies outside 2:6.
+
+Its signature mirrors `hmm_estimate_CN()` for the shared windowing/HMM
+arguments (`cn_grid`, `chr`, `segment_zscore`, `exp_ploidy`, etc.), plus two
+arguments specific to nQuack:
+
+| Argument | Default | Description |
+|---|---|---|
+| `nQuack_cores` | `1L` | Number of cores passed to nQuack's internal parallelism (the `cores` and `parallel` arguments of `quackNormal`, `quackBeta`, and `quackBetaBinom`). Setting this to a value greater than 1 enables parallel fitting of candidate ploidy models within a single call. Note that `hmm_estimate_CN_multi()` has its own `n_cores` argument that parallelises across samples; `nQuack_cores` parallelises the model fitting *within* a single sample. On most laptops, set `nQuack_cores = 1` and use `n_cores` in `hmm_estimate_CN_multi()` to gain parallelism across samples instead. |
+| `nQuack_dists` | `"normal"` | Restricts which distribution families nQuack evaluates. Valid values: `"normal"`, `"beta"`, `"beta-binomial"`. For each family listed, both the base model and its `+uniform` variant are tested. Defaults to `"normal"` only; set to `NULL` to evaluate all three families and pick the best by BIC (slower). |
+
+`hmm_estimate_CN_multi()` auto-detects which function to run per sample: if
+either `nQuack_cores` or `nQuack_dists` is passed via `...`, it dispatches to
+`hmm_estimate_CN_nQuack()`; otherwise it runs `hmm_estimate_CN()`.
+
+`nQuack` must be installed before using this route:
+
+```{r, eval=FALSE}
+remotes::install_github("mgaynor1/nQuack@updateGL")
+```
+
+For full details on the grid-based route, see the
+[Qploidy2 alfalfa tutorial](Qploidy_alfalfa_tutorial.html). For background on
+nQuack itself, see
+[Gaynor et al. (2024)](https://doi.org/10.1002/aps3.11606) and the
+[nQuack vignettes](https://mlgaynor.com/nQuack/).
+
+# Data Preparation
+
+Follow Steps 1–4 of the main tutorial to obtain the standardized object. The
+code below reproduces those steps for completeness.
+
+```{r}
+library(Qploidy2)
+```
+
+## Download the alfalfa dataset
+
+```{r}
+vcf_path_web <- "https://github.com/Breeding-Insight/BIGapp-PanelHub/raw/refs/heads/long_seq/alfalfa/GenoBrew_example/alfalfa_F1_marker_panel_dataset_publicly_available.vcf.gz"
+download.file(vcf_path_web,
+              destfile = "alfalfa_F1_marker_panel_dataset_publicly_available.vcf.gz")
+vcf_path_local <- "alfalfa_F1_marker_panel_dataset_publicly_available.vcf.gz"
+```
+
+## Read input files
+
+```{r}
+data     <- qploidy_read_vcf(vcf_path_local)
+genos    <- qploidy_read_vcf(vcf_path_local, geno     = TRUE)
+geno.pos <- qploidy_read_vcf(vcf_path_local, geno.pos = TRUE)
+```
+
+## Standardize
+
+The nQuack integration requires the columns `X` (reference allele count), `Y`
+(alternative allele count), and `R` (total depth) that are present in the
+`$data` slot of the standardized object. Make sure your standardization step
+preserves them (the default `standardize()` call does).
+
+```{r}
+qploidy_standardization <- standardize(
+  data                   = data,
+  genos                  = genos,
+  geno.pos               = geno.pos,
+  ploidy.standardization = 4,
+  threshold.n.clusters   = 4,
+  threshold.missing.geno = 0.9,
+  min.depth              = 30,
+  max.depth              = 600,
+  n.cores                = 2,
+  out_filename           = "standardization.tsv.gz",
+  verbose                = TRUE
+)
+```
+
+If you already have the standardized file from the main tutorial, reload it:
+
+```{r, eval=FALSE}
+qploidy_standardization <- read_qploidy_standardization("standardization.tsv.gz")
+```
+
+# Export nQuack input format from standardized BAF
+
+`hmm_estimate_CN_nQuack()` builds the nQuack input matrix automatically (see
+the next section). If you instead want to inspect the data nQuack sees, or fit
+`quackNormal()`, `quackBeta()`, or `quackBetaBinom()` yourself outside of
+Qploidy2's HMM, use `convert2nQuack()` to convert the standardized object into
+the list-of-matrices format these functions expect — one matrix per sample.
+
+```{r}
+nquack_input <- convert2nQuack(
+  qploidy_standardization_object = qploidy_standardization,
+  min_depth              = 10,
+  seed                   = 123
+)
+
+length(nquack_input)
+head(nquack_input[[1]])
+```
+
+By default (`from_standardized_baf = TRUE`), `convert2nQuack()` derives the
+allele counts fed to nQuack from the **standardization-corrected** `baf` column
+rather than the raw `X`/`Y` read counts. For each retained heterozygous site it
+inverts the standardized BAF back into reference/alternative counts:
+
+- `alt_count <- round(baf * R)`
+- `ref_count <- R - alt_count`
+
+and then randomly keeps one of the two (reference or alternative) with equal
+probability — the same approach used internally by `hmm_estimate_CN_nQuack()`.
+This ensures nQuack sees allele frequencies that have already been corrected
+for marker/assay biases by `standardize()`, which matters most for data where
+raw `X`/`Y` ratios can be systematically skewed per marker.
+
+If you would rather fit nQuack on the raw, uncorrected allele counts, set
+`from_standardized_baf = FALSE`:
+
+```{r, eval=FALSE}
+nquack_input_raw <- convert2nQuack(
+  qploidy_standardization_object = qploidy_standardization,
+  min_depth              = 10,
+  from_standardized_baf  = FALSE
+)
+```
+
+Each element of the returned list is a two-column integer matrix (one row per
+qualifying site): column 1 is the total read depth `R`, column 2 is the
+randomly selected allele count. You can fit any of the nQuack models directly
+on this output, e.g.:
+
+```{r, eval=FALSE}
+nQuack::quackBeta(xm = nquack_input[[1]], samplename = names(nquack_input)[1], cores = 1)
+```
+
+See `?convert2nQuack` for the full filtering details (homozygous-site removal,
+minimum depth, genotype dosage filter).
+
+# How nQuack Input Is Built Inside Qploidy2
+
+> **You do not need to prepare nQuack input yourself.** `hmm_estimate_CN_nQuack()`
+> builds the nQuack input matrix automatically from the `$data` slot of your
+> standardized object.
+
+For transparency, here is what happens internally for each sample:
+
+**Step 1 — Discard homozygous markers.**
+Only markers where the sample is heterozygous are kept. A site is considered
+heterozygous when its allele ratio is neither 0 (all-reference) nor 1 (all-alternative),
+and its dosage call (`geno`) is neither 0 (homozygous reference) nor the maximum
+dosage for the dataset (homozygous alternative). In practice this means markers
+where the sample carries at least one copy of each allele. Homozygous markers are
+discarded because their allele frequency provides no information for distinguishing
+ploidy levels — only heterozygous sites generate the mixture of allele-frequency
+peaks that nQuack models.
+
+**Step 2 — Remove low-coverage sites.**
+Sites with total read depth `R < 10` are discarded. At very low depths, allele
+counts are too noisy to reliably estimate allele frequencies. The threshold of 10
+reads is nQuack's recommended minimum for meaningful allele-frequency estimation.
+
+**Step 3 — Randomly sample one allele per site.**
+For each remaining heterozygous site, either the reference (`X`) or the alternative
+(`Y`) allele count is randomly drawn with equal probability (P = 0.5). This produces
+a matrix with two columns:
+
+- **column 1**: `R`, the total read depth at that site
+- **column 2**: `sampled_count`, the read count for the randomly chosen allele
+  (either the reference count `X` or the alternative count `Y`)
+
+The ratio `sampled_count / R` gives one allele frequency observation per site.
+Because the reference and alternative alleles are sampled randomly, the allele
+frequencies cluster symmetrically between 0 and 0.5 regardless of which allele
+is the reference — this is what nQuack's mixture models expect.
+
+**Step 4 — Fit nQuack models.**
+The two-column matrix is passed to `quackNormal`, `quackBeta`, and `quackBetaBinom`.
+Each function fits mixture models for all candidate ploidies (from `cn_grid`,
+restricted to the range 2–6 supported by nQuack). The model with the lowest BIC
+across all families and all ploidies is declared the winner, and its ploidy becomes
+`exp_ploidy` for the HMM.
+
+The random allele sampling in Step 3 means results can vary slightly between runs.
+Set `set.seed()` before calling `hmm_estimate_CN_nQuack()` for reproducibility.
+
+# BAF Model Selection and HMM: the nQuack Route
+
+## Single sample
+
+`hmm_estimate_CN_nQuack()` lets nQuack handle the entire BAF model selection step.
+By default it only fits the Normal family (fastest option) for each candidate
+ploidy; set `nQuack_dists = NULL` to also test Beta and Beta-Binomial and pick
+the best by BIC. Qploidy2 then uses the winning distribution and ploidy to
+build the HMM emission parameters.
+
+```{r}
+set.seed(42)
+res_nq <- hmm_estimate_CN_nQuack(
+  qploidy_standarize_result = qploidy_standardization,
+  sample_id                 = "J432",
+  cn_grid                   = c(2, 3, 4, 5, 6),
+  nQuack_cores              = 2, 
+  nQuack_dists = "normal",
+  min_snps_per_window = 50,
+  verbose                   = TRUE
+)
+
+res_nq
+```
+
+Inspect the karyotype:
+
+```{r}
+plot_karyotype(res_nq, sample_name = "J432", nrow = 2)
+```
+
+Color by HMM posterior confidence:
+
+```{r}
+plot_karyotype(res_nq, sample_name = "J432", nrow = 2, color_by = "post_max_CN")
+```
+
+Detailed diagnostic track:
+
+```{r}
+p <- plot_cn_track(hmm_CN      = res_nq,
+                   data        = data,
+                   geno.pos    = geno.pos,
+                   sample_id   = "J432",
+                   show_window_lines = FALSE,
+                   z_by_mean   = TRUE)
+p$arranged
+```
+
+## Restricting distribution families with `nQuack_dists`
+
+By default, only the Normal family is tested. Set `nQuack_dists = NULL` to test
+all three families, or pass a subset once you know from a pilot run which
+families fit your data:
+
+```{r, eval=FALSE}
+# Test only the Normal family (Normal and Normal+Uniform variants)
+res_nq_normal <- hmm_estimate_CN_nQuack(
+  qploidy_standarize_result = qploidy_standardization,
+  sample_id                 = "J432",
+  cn_grid                   = c(2, 3, 4, 5, 6),
+  nQuack_dists              = "normal",
+  nQuack_cores              = 2
+)
+
+# Test Beta and Beta-Binomial only
+res_nq_seq <- hmm_estimate_CN_nQuack(
+  qploidy_standarize_result = qploidy_standardization,
+  sample_id                 = "J432",
+  cn_grid                   = c(2, 3, 4, 5, 6),
+  nQuack_dists              = c("beta", "beta-binomial"),
+  nQuack_cores              = 2
+)
+```
+
+Valid values for `nQuack_dists`: `"normal"`, `"beta"`, `"beta-binomial"`. Pass a
+character vector to test multiple families while excluding others.
+
+## Multiple samples
+
+Run the nQuack route for all samples in parallel. Because nQuack fits multiple
+mixture models per sample, this takes longer than the grid route. The two
+parallelism arguments work at different levels:
+
+- `n_cores`: number of samples processed simultaneously (outer parallelism)
+- `nQuack_cores`: number of cores used by nQuack within each sample (inner parallelism)
+
+On most workstations, set `nQuack_cores = 1` and tune `n_cores` to balance
+memory and CPU usage across samples.
+
+`hmm_estimate_CN_multi()` detects the nQuack route automatically: passing
+`nQuack_cores` and/or `nQuack_dists` (via `...`) is enough to dispatch each
+sample to `hmm_estimate_CN_nQuack()` instead of `hmm_estimate_CN()`.
+
+```{r}
+set.seed(42)
+multi_esti_nq <- hmm_estimate_CN_multi(
+  qploidy_standarize_result = qploidy_standardization,
+  sample_ids                = "all",
+  n_cores                   = 3,
+  cn_grid                   = c(2, 3, 4, 5, 6),
+  nQuack_dists              = c("normal"),
+  nQuack_cores              = 1
+)
+```
+
+```{r}
+samples <- unique(qploidy_standardization$data$SampleName)
+compare_cn_track(hmm_CN          = multi_esti_nq,
+                 samples_to_plot = samples[1:30],
+                 facet_ncol      = 8)
+```
+
+# Comparing Routes: nQuack vs. Grid
+
+For a well-behaved tetraploid dataset the two routes typically agree. The table
+below summarises their trade-offs:
+
+| Feature | Grid (`hmm_estimate_CN()`) | nQuack (`hmm_estimate_CN_nQuack()`) |
+|---|---|---|
+| BAF model selection | Grid search over KDE bandwidth | nQuack EM for ploidy + all BAF parameters |
+| Speed | Faster | Slower |
+| Mixture families tested | Parametric templates | Normal, Beta, Beta-Binomial |
+| Data requirement | Ratio/BAF only | Read counts (X, Y, R) |
+| CN range | Any (including 0/1/LOH) | 2–6 only |
+
+# Filter, Summarize, and Export
+
+All downstream steps are identical regardless of which route was used. The
+examples below use the nQuack route results (`multi_esti_nq`).
+
+## Filter by quality
+
+```{r}
+multi_esti_nq_filtered <- filter_hmm_CN(multi_esti_nq,
+                                        min_CN_reliability = 0.05,
+                                        min_post_max       = 0.4)
+```
+
+## Ploidy type summary
+
+```{r}
+types_df <- count_types(multi_esti_nq_filtered)
+types_df
+```
+
+```{r}
+compare_cn_track_summary(
+  multi_esti_nq_filtered,
+  samples_to_plot = c(types_df$aneuploid, types_df$segmental)
+)
+```
+
+## Per-sample, per-chromosome summaries
+
+```{r}
+summ_chr    <- summarize_cn_mode(multi_esti_nq_filtered, level = "chromosome")
+summ_sample <- summarize_cn_mode(multi_esti_nq_filtered, level = "sample")
+
+head(summ_chr)
+head(summ_sample)
+```
+
+## Write results
+
+```{r, eval=FALSE}
+write_hmm_CN(multi_esti_nq_filtered, prefix = "alfalfa_nQuack")
+```
+
+Reload in a later session:
+
+```{r, eval=FALSE}
+multi_esti_nq_filtered <- read_hmm_CN(
+  by_marker_file = "alfalfa_nQuack_by_marker.csv.gz",
+  by_window_file = "alfalfa_nQuack_by_window.csv.gz",
+  params_file    = "alfalfa_nQuack_params.rds"
+)
+```
+
+## MAPpoly export
+
+```{r}
+for_mappoly <- export_mappoly(multi_esti_nq_filtered)
+head(for_mappoly)
+```
+
+# Troubleshooting nQuack Integration
+
+## nQuack is not installed
+
+```
+Error: nQuack is not installed. Install with:
+  remotes::install_github("mgaynor1/nQuack")
+```
+
+Install nQuack and restart R before re-running.
+
+## Array data — nQuack route not applicable
+
+If your data comes from a hybridization-based genotyping array (Axiom, Illumina),
+the `X`, `Y`, and `R` columns will contain probe intensities rather than read
+counts, and the nQuack model assumptions will not hold. Use `hmm_estimate_CN()`
+(the grid-based BAF model selection route) for array data instead.
+
+## Too few heterozygous sites
+
+nQuack needs a minimum number of heterozygous sites (at least 10 after
+filtering) to fit mixture models. If a sample has too few informative sites,
+`hmm_estimate_CN_nQuack()` stops with an error instead of estimating ploidy —
+there is no template fallback on this route. Either supply `exp_ploidy`
+explicitly, or use `hmm_estimate_CN()` (which does support a grid-based
+template fallback) for such samples. Low heterozygosity samples (< 5 %) are
+typically consistent with haploid (CN = 1) or highly inbred lines.
+
+## nQuack calls an unexpected ploidy (high-variance samples)
+
+On samples with very wide BAF distributions (high allele-frequency variance, often
+due to low sequencing depth or complex rearrangements), nQuack's fixed-mean normal
+mixture model may favour a higher ploidy by BIC simply because more components
+absorb variance better. There is currently no reliable automated safeguard against
+this: a one-component "diploid sigma" check was previously used to flag and force
+such calls to diploid, but that check could not distinguish genuine noise from real
+separation between dosage peaks (a noiseless tetraploid sample, for example, can
+produce a sigma well above the override's threshold purely from its three distinct
+peaks at 0.25/0.5/0.75) and has been removed.
+
+If you suspect an inflated ploidy call, inspect the sample's BAF distribution
+directly (e.g. with `plot_baf_hist()`) and consider improving sequencing depth or
+reviewing the standardization quality for that sample.
+
+## Reproducibility
+
+nQuack's input preparation randomly samples one allele per heterozygous site
+(Step 3 in the input-building pipeline above). Set a seed before calling
+`hmm_estimate_CN_nQuack()` or `hmm_estimate_CN_multi()` for reproducible results:
+
+```{r, eval=FALSE}
+set.seed(42)
+res <- hmm_estimate_CN_nQuack(...)
+```
+
+## nQuack supports copy numbers 2–6 only
+
+`hmm_estimate_CN_nQuack()` only models CN states 2 through 6 (nQuack's internal
+`emstep*` functions have no representation for CN=1/LOH or CN > 6), and it has
+**no template fallback** for out-of-range states: `cn_grid` (excluding `0`,
+which is also rejected) must be a subset of `2:6`, or the function stops with
+an informative error — including the default `cn_grid`, which includes CN=1
+and must be restricted explicitly.
+
+If you need CN=1/LOH detection or ploidies outside 2:6, use `hmm_estimate_CN()`
+(the grid/template route) instead — it has no such restriction.
+
+# How to Cite
+
+### Qploidy — Standardization
+
+Taniguti, C. H., Lau, J., Hochhaus, T., Arias, D. C. L., Hokanson, S. C.,
+Zlesak, D. C., Byrne, D. H., Klein, P. E., & Riera-Lizarazu, O. (2025).
+Exploring chromosomal variations in garden roses: Insights from high-density SNP
+array data and a new tool, Qploidy. *The Plant Genome*, e70044.
+https://doi.org/10.1002/tpg2.70044
+
+### Qploidy2 — HMM and BAF model selection
+
+Manuscript in preparation. Please contact the author for more information.
+
+### nQuack — EM-based BAF model selection
+
+Gaynor, M., Landis, J., O'Connor, T., Laport, R., Doyle, J., Soltis, D.,
+Ponciano, J., & Soltis, P. (2024). nQuack: An R package for predicting ploidal
+level from sequence data using site-based heterozygosity. *Applications in Plant
+Sciences*, 12(4), e11606. https://doi.org/10.1002/aps3.11606
+
+# Acknowledgments
+
+### Qploidy version 1.0.0
+
+Funded in part by the Robert E. Basye Endowment in Rose Genetics, Dept. of
+Horticultural Sciences, Texas A&M University, and USDA's National Institute of
+Food and Agriculture (NIFA), Specialty Crop Research Initiative (SCRI) projects:
+"Tools for Genomics-Assisted Breeding in Polyploids: Development of a Community
+Resource" (Award No. 2020-51181-32156); and "Developing Sustainable Rose
+Landscapes via Rose Rosette Disease Education, Socioeconomic Assessments, and
+Breeding RRD-Resistant Roses with Stable Black Spot Resistance" (Award
+No. 2022-51181-38330).
+
+### Qploidy versions > 1.0.0 and Qploidy2
+
+Supported by [Breeding Insight](https://www.breedinginsight.org/).

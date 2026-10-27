@@ -1,6 +1,6 @@
 Package: Qploidy2
 Title: Estimation of Large-Scale Copy Number Variation Using Genotyping Data
-Version: 1.21.0
+Version: 1.22.0
 Authors@R: c(person(given='Cristiane', 
                     family='Taniguti', 
                     email = 'ctaniguti@ufl.edu', 
@@ -50,7 +50,9 @@ Imports:
     data.table,
     purrr,
     scales,
-    tibble
+    tibble,
+    nQuack
+Remotes: mgaynor1/nQuack@updateGL
 Encoding: UTF-8
 URL: https://github.com/Breeding-Insight/Qploidy2
 BugReports: https://github.com/Breeding-Insight/Qploidy2/issues
@@ -59,12 +61,12 @@ RoxygenNote: 7.3.3
 Suggests: 
     covr,
     spelling,
-    updog,
     rmdformats,
     knitr (>= 1.10),
     rmarkdown,
     testthat (>= 3.0.0),
     plotly,
-    AGHmatrix
+    AGHmatrix,
+    updog
 Config/testthat/edition: 3
 Language: en-US

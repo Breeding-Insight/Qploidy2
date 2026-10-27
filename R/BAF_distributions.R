@@ -88,7 +88,7 @@
 # 4) Why Qploidy DOES NOT fully reproduce the nQuack EM approach, despite admiring it
 # ------------------------------------------------------------------------------
 #
-# We admire nQuack’s EM-based model fitting and its principled model-selection
+# We admire nQuack's EM-based model fitting and its principled model-selection
 # framework (Gaynor et al. 2024). However, our pipeline design is intentionally
 # different at this stage for two main reasons:
 #
@@ -124,7 +124,7 @@
 # 5) How our approach borrows the nQuack idea while remaining template-based
 # ------------------------------------------------------------------------------
 #
-# Inspired by nQuack’s model selection across distributions, we extend our
+# Inspired by nQuack's model selection across distributions, we extend our
 # template scoring to test:
 #   - multiple distribution families (gaussian/beta/beta-binomial/negative-binomial)
 #   - a small grid of bw values (smoothing/dispersion proxy)

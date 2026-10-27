@@ -16,7 +16,7 @@ in which case the \code{by_marker} slot is used automatically.}
 \code{NULL} (default) to return notation for all samples in \code{df}.}
 }
 \value{
-A \code{data.frame} with one row per sample–chromosome combination
+A \code{data.frame} with one row per sample-chromosome combination
   and the following columns:
   \describe{
     \item{\code{ChrID}}{Chromosome identifier.}
@@ -25,7 +25,7 @@ A \code{data.frame} with one row per sample–chromosome combination
       \code{CN_call} within the chromosome).}
     \item{\code{Segment}}{Semicolon-separated ISCN-style notation for
       segments that deviate from the chromosome-level copy number, e.g.
-      \code{"Chr01:g.1000000_5000000×2"}. \code{NA} when no deviating
+      \code{"Chr01:g.1000000_5000000x2"}. \code{NA} when no deviating
       segments are found.}
   }
 }
@@ -35,7 +35,7 @@ For each sample and chromosome, the function derives the sample-wide ploidy
 (mode of \code{CN_call} across all markers), the chromosome-level copy
 number (mode of \code{CN_call} within the chromosome), and identifies
 contiguous segments where the copy number deviates, reporting them in an
-ISCN-inspired genomic notation (\code{Chr:g.start_end×CN}).
+ISCN-inspired genomic notation (\code{Chr:g.start_endxCN}).
 }
 \examples{
 \dontrun{

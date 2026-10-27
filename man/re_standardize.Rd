@@ -64,11 +64,11 @@ re_standardize(
 
 \item{n.cores}{Integer. Number of cores for parallel computation. Default is 1.}
 
-\item{threshold.geno.prob}{Numeric (0–1). Minimum genotype call probability. Default is 0.5.}
+\item{threshold.geno.prob}{Numeric (0-1). Minimum genotype call probability. Default is 0.5.}
 
-\item{threshold.missing.geno}{Numeric (0–1). Maximum fraction of missing datapoints per marker. Default is 0.90.}
+\item{threshold.missing.geno}{Numeric (0-1). Maximum fraction of missing datapoints per marker. Default is 0.90.}
 
-\item{threshold.missing.samples}{Numeric (0–1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed. Default is 1 (no filtering).}
+\item{threshold.missing.samples}{Numeric (0-1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed. Default is 1 (no filtering).}
 
 \item{out_filename}{Optional. Path to save the standardized dataset (CSV/TSV).}
 

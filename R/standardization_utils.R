@@ -78,7 +78,7 @@ updog_centers <- function(multidog_obj, threshold.n.clusters=2, rm.mks){
 #' sorted in ascending order. If `theta_subject` values fall outside the range, BAFs are
 #' capped at 0 or 1 accordingly.
 #'
-#' @references Wang, K., Li, M., Hadley, D., Liu, R., Glessner, J., Grant, S. F. A., Hakonarson, H., & Bucan, M. (2007). PennCNV: An integrated hidden Markov model designed for high-resolution copy number variation detection in whole-genome SNP genotyping data. \emph{Genome Research, 17}(11), 1665–1674. \doi{10.1101/gr.6861907}
+#' @references Wang, K., Li, M., Hadley, D., Liu, R., Glessner, J., Grant, S. F. A., Hakonarson, H., & Bucan, M. (2007). PennCNV: An integrated hidden Markov model designed for high-resolution copy number variation detection in whole-genome SNP genotyping data. \emph{Genome Research, 17}(11), 1665-1674. \doi{10.1101/gr.6861907}
 #'
 #' @examples
 #' theta <- c(0.1, 0.35, 0.6, 0.95)
@@ -438,7 +438,7 @@ rm_outlier <- function(data, alpha=0.05, z=FALSE){
 #'   all samples are used to estimate the per-marker background median.
 #' @param background_markers Optional character vector of marker names for which
 #'   \code{background_samples} are background. If NULL, all markers present for
-#'   those samples are used — only appropriate when those samples are background
+#'   those samples are used -- only appropriate when those samples are background
 #'   for the entire array.
 #' @param multiplier Positive numeric. Samples with R below \code{multiplier * median(background R)}
 #'   are set to NA. Values >= 1 remove samples below a multiple of the background median; values
@@ -510,7 +510,7 @@ remove_background_noise <- function(data,
     return(invisible(data))
   }
 
-  # NA for markers without a background estimate → those rows are not flagged
+  # NA for markers without a background estimate -> those rows are not flagged
   threshold <- bg_medians[as.character(data$MarkerName)]
   # non-reference samples may have lower background; scale their threshold down
   if (!is.null(background_samples) && target_background_fraction != 1) {

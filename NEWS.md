@@ -1,3 +1,15 @@
+# Qploidy2 1.22.0
+
+ * Fixed `.nquack_estimate_ploidy()`'s model selection: BIC values from `quackNormal()`/`quackBeta()`/`quackBetaBinom()` were compared across all three fit `type`s (`"fixed"`, `"fixed_2"`, `"fixed_3"`), but nQuack's own documentation states BIC is only comparable *within* a given type. `"fixed_2"`/`"fixed_3"` (which also estimate variance) can converge to numerically degenerate, near-zero-variance solutions with spuriously very negative BIC - particularly for beta-binomial with few heterozygous sites - which previously hijacked the global-minimum-BIC winner selection and produced an incorrect ploidy call. Model selection now restricts to `type == "fixed"` (mixing proportions only; means/variance fixed at theoretical dosage positions) before comparing BIC across distributions and mixtures. The now-discarded `fixed_2`/`fixed_3` fits can still emit benign "NaNs produced" warnings from nQuack's internal EM steps for the degenerate solutions; these are suppressed since they don't affect the selected result.
+
+ * Added `hmm_estimate_CN_nQuack()`, a self-contained analogue of `hmm_estimate_CN()` that uses the `nQuack` package for both whole-sample ploidy estimation and per-window BAF likelihoods/dosage calling. Requires `nQuack >= 1.0.5` (install with `remotes::install_github("mgaynor1/nQuack@updateGL")`). `cn_grid` must be a subset of `2:6` (nQuack's supported range); use `hmm_estimate_CN()` for CN=0/1/LOH detection.
+
+ * Added `from_standardized_baf` parameter (default `TRUE`) to `convert2nQuack()`, deriving allele counts from the standardization-corrected `baf` column instead of raw `X`/`Y` counts.
+
+ * Added the `Qploidy2_nQuack_tutorial.Rmd` vignette, covering the nQuack EM-based BAF model selection route and exporting standardized BAF data via `convert2nQuack()`.
+
+ * Fixed `em_hmm_cn()` (used by both `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()`): chromosomes that collapse to a single window no longer crash with `subscript out of bounds`.
+
 # Qploidy2 1.21.0
 
 * Added two-signal consistency gating to `hmm_estimate_CN()`: for each chromosome, the chromosome-level z-score consensus (sum of per-window z log-likelihoods) is compared to the chromosome-level BAF consensus. Gating operates at the chromosome level — not per window — because individual window z-scores are too noisy to reliably indicate disagreement, especially with wide CN grids. When the chromosome mean BAF weight is meaningful (>= 0.1) and the two signals disagree on the best CN state, the BAF contribution is suppressed for all windows on that chromosome and emissions are set to z-score only. When they agree, a reinforcement bonus (`log(3) × mean_w_baf`) is added to the agreed state. Chromosomes with sparse BAF (mean weight < 0.1) are unaffected.
@@ -100,6 +112,11 @@
   aneuploidy; returns a `count_types` object (a named list of sample-ID vectors
   plus a `$by_cn` breakdown by sample-level CN) and auto-prints a summary table
   via `print.count_types`.  
+
+## New tutorial template
+ * QuickStart_template.Rmd was created to allow reprodutibility of the alfalfa tutorial
+ with any initial standardized file input.
+
 
 # Qploidy2 1.17.0
 

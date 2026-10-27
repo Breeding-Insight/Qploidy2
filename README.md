@@ -29,6 +29,7 @@ devtools::install_github("Breeding-Insight/Qploidy2")
 
 * [Prepare input files tutorial](https://Breeding-Insight.github.io/Qploidy2/Prepare_inputs_Qploidy.html)
 * [Aneuploid Detection with DArTag Markers in Alfalfa F1 Population](https://Breeding-Insight.github.io/Qploidy2/Qploidy_alfalfa_tutorial.html) - large-scale copy number estimation in alfalfa mapping population using DArTag sequencing data
+* [Qploidy2 and nQuack Integration Tutorial - Large-scale copy number estimation in alfalfa mapping population using nQuack EM-based BAF model selection](https://Breeding-Insight.github.io/Qploidy2/Qploidy_alfalfa_tutorial.html)
 
 ## Interactive visualization and curation of results
 
@@ -40,7 +41,6 @@ Visit `GenoBrew` GitHub [repository](https://github.com/Breeding-Insight/GenoBre
 and [tutorial](https://scribehow.com/viewer/GenoBrew_Interactive_Marker_Panel_Evaluation_CNV_Visualization_and_Curation__4uWloBuPT1WlnCvW2UWiTg) 
 for more information.
 
-![GenoBrew Demo](inst/app/www/GenoBrew_demo.gif)
 
 ## AI Assistant (Claude Code)
 

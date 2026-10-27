@@ -21,3 +21,5 @@ $run_dev.*
 ^CRAN-SUBMISSION$
 ^README\.md$
 ^app\.R$
+^\.claude$
+^\.httr-oauth$
