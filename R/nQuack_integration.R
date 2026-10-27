@@ -156,7 +156,7 @@ convert2nQuack <- function(qploidy_standardization_object,
 #   baf_col      - BAF column name in d_all
 #   cn_grid      - CN states to evaluate (2:6 only supported by nQuack)
 #   nq_dist      - winning distribution from global pass, e.g. "beta-uniform"
-#   het_range    - c(lo, hi) — sites outside this range are excluded
+#   het_range    - c(lo, hi) -- sites outside this range are excluded
 #   min_het_frac - minimum fraction of het sites required (below this, or with
 #                  fewer than 2 usable het sites, neutral equal log-likelihoods
 #                  are returned instead of fitting any model)
@@ -265,15 +265,15 @@ convert2nQuack <- function(qploidy_standardization_object,
     ll <- tryCatch({
       if (base_family == "beta") {
         fn  <- if (add_uniform) nQuack::emstepBU else nQuack::emstepB
-        res <- fn(parms, xi_all, niter, epsilon, trunc, "fixed-2")
+        res <- fn(parms, xi_all, niter, epsilon, trunc, "fixed")
         res$loglikelihood
       } else if (base_family == "normal") {
         fn  <- if (add_uniform) nQuack::emstepNU else nQuack::emstepN
-        res <- fn(parms, xi_all, niter, epsilon, trunc, "fixed-2")
+        res <- fn(parms, xi_all, niter, epsilon, trunc, "fixed")
         res$loglikelihood
       } else if (base_family == "beta-binomial") {
         fn  <- if (add_uniform) nQuack::emstepBBU else nQuack::emstepBB
-        res <- fn(parms, xm_all, niter, epsilon, trunc, "fixed-2")
+        res <- fn(parms, xm_all, niter, epsilon, trunc, "fixed")
         res$loglikelihood
       } else {
         -Inf
@@ -303,7 +303,7 @@ convert2nQuack <- function(qploidy_standardization_object,
 # --------
 # 1. Resolve BAF frequency column (baf preferred; ratio fallback).
 # 2. Apply depth filter (R >= min_depth).
-# 3. Apply het-range filter (het_range) to strip homozygous flanking sites —
+# 3. Apply het-range filter (het_range) to strip homozygous flanking sites --
 #    this is the primary guard before passing data to quackBeta/quackBetaBinom.
 # 4. Build xm = cbind(R, allele_count), randomly flipping each site to its ref
 #    or alt count (P=0.5) to keep the BAF distribution symmetric for nQuack;
@@ -428,7 +428,7 @@ convert2nQuack <- function(qploidy_standardization_object,
   # Gate each quack* call on whether fixed_dist (if set) matches that family.
   fixed_base    <- if (!is.null(fixed_dist)) sub("-uniform$", "", fixed_dist) else NULL
   # allowed_dists: user-supplied restriction on which families to evaluate
-  # e.g. c("normal") → only Normal/Normal+Uniform; NULL → all three families
+  # e.g. c("normal") -> only Normal/Normal+Uniform; NULL -> all three families
   allowed_lo <- if (!is.null(allowed_dists)) tolower(trimws(allowed_dists)) else NULL
   run_normal    <- (is.null(fixed_base) || fixed_base == "normal") &&
                    (is.null(allowed_lo)  || "normal" %in% allowed_lo)
@@ -451,21 +451,35 @@ convert2nQuack <- function(qploidy_standardization_object,
          verbose = verbose, level = 1, type = ">>", fixed_dist)
   out_nq <- tryCatch({
     out_parts <- list()
+    # quack*() always internally fits all three types (fixed/fixed_2/fixed_3);
+    # fixed_2/fixed_3 can hit degenerate near-zero-variance solutions and emit
+    # "NaNs produced" warnings even though those rows are discarded below
+    # (only type == "fixed" is used), so they are suppressed here.
     if (run_normal)
-      out_parts$normal   <- nQuack::quackNormal(xm = xm_het, samplename = sample_id,
+      out_parts$normal   <- suppressWarnings(nQuack::quackNormal(xm = xm_het, samplename = sample_id,
                                                 cores = nQuack_cores, parallel = (nQuack_cores > 1L),
-                                                verbose = FALSE)
+                                                verbose = FALSE))
     if (run_beta)
-      out_parts$beta     <- nQuack::quackBeta(xm = xm_het, samplename = sample_id,
+      out_parts$beta     <- suppressWarnings(nQuack::quackBeta(xm = xm_het, samplename = sample_id,
                                               cores = nQuack_cores, parallel = (nQuack_cores > 1L),
-                                              verbose = FALSE)
+                                              verbose = FALSE))
     if (run_betabinom)
-      out_parts$betabinom <- nQuack::quackBetaBinom(xm = xm_het, samplename = sample_id,
+      out_parts$betabinom <- suppressWarnings(nQuack::quackBetaBinom(xm = xm_het, samplename = sample_id,
                                                     cores = nQuack_cores, parallel = (nQuack_cores > 1L),
-                                                    verbose = FALSE)
+                                                    verbose = FALSE))
   out_all <- do.call(rbind, out_parts)
-  out_all[out_all$type == "fixed_2", ]   # <-- keep only fixed-2 rows for BIC selection
-  
+  # Per nQuack's own documentation (?quackit): BIC/LL are only comparable
+  # *within* a given (distribution, type) combination, never across types.
+  # "fixed" (only alpha/mixing-proportions estimated; means and variance
+  # pinned at theoretical values) is the most constrained/stable type - unlike
+  # "fixed_2"/"fixed_3" (which also estimate variance), it cannot degenerate
+  # into a near-zero-variance boundary solution. That degeneracy is exactly
+  # what the "NaNs produced" warnings from emstepBBU indicate, and it can make
+  # fixed_2/fixed_3 BIC values spuriously very negative (artificially
+  # "winning"), especially for beta-binomial with few het sites. Restricting
+  # to a single type keeps the cross-distribution BIC comparison valid.
+  out_all[out_all$type == "fixed", ]
+
   }, error = function(e) {
     stop(sprintf("nQuack_EM = TRUE: nQuack model fitting failed: %s", conditionMessage(e)))
   })
@@ -476,11 +490,12 @@ convert2nQuack <- function(qploidy_standardization_object,
   # winner per group) - it never returns an overall cross-family winner.
   # Taking winnerBIC[1L] from it just returns the first group's local winner
   # (the Normal/fixed row whenever Normal is evaluated), regardless of every
-  # other fit. BIC is explicitly designed to be comparable across models of
-  # differing complexity, so the correct cross-family rule is the global
-  # minimum BIC across every evaluated (distribution, type, mixture)
-  # combination for the requested mixtures - this also guarantees ploidy and
-  # distribution are read from the exact same winning row.
+  # other fit. out_nq has already been restricted to type == "fixed" above
+  # (BIC is only comparable within a fixed type per nQuack's own docs), so the
+  # correct cross-family rule here is simply the global minimum BIC across
+  # every evaluated (distribution, mixture) combination for the requested
+  # mixtures - this also guarantees ploidy and distribution are read from the
+  # exact same winning row.
   candidates <- out_nq[out_nq$mixture %in% nQuack_mixtures & is.finite(out_nq$BIC), ]
   if (nrow(candidates) == 0L)
     stop("nQuack_EM = TRUE: no finite BIC values available across the evaluated nQuack models.")
@@ -508,10 +523,10 @@ convert2nQuack <- function(qploidy_standardization_object,
 #'
 #' @details
 #' nQuack mixture components correspond to heterozygous dosage peaks
-#' (\code{mvec} positions 1/cn, 2/cn, …, (cn-1)/cn) plus, when a uniform
+#' (\code{mvec} positions 1/cn, 2/cn, ..., (cn-1)/cn) plus, when a uniform
 #' component is present, one final column for the uniform class.  Observations
 #' outside \code{het_range} are considered homozygous and assigned dosage 0
-#' (BAF < 0.5) or \code{cn} (BAF ≥ 0.5) without involving the mixture model.
+#' (BAF < 0.5) or \code{cn} (BAF >= 0.5) without involving the mixture model.
 #' Observations inside \code{het_range} are assigned the dosage corresponding
 #' to \code{argmax(pir[i, 1:ncol_het])} (the uniform column, if present, is
 #' excluded from this argmax so that uniform-assigned observations still map to
@@ -521,8 +536,8 @@ convert2nQuack <- function(qploidy_standardization_object,
 #'   markers in the window, not pre-filtered).
 #' @param cn        Integer copy number for the window.
 #' @param nq_dist   Distribution family string as returned by
-#'   \code{.nquack_estimate_ploidy()} (e.g.\ \code{"beta"},
-#'   \code{"beta-uniform"}, \code{"beta-binomial"}).
+#'   \code{.nquack_estimate_ploidy()} (e.g.\ \code{"normal"},
+#'   \code{"normal-uniform"}, \code{"beta-binomial"}).
 #' @param het_range Numeric length-2 vector: lower and upper BAF boundaries
 #'   for heterozygous markers.  Default \code{c(0.05, 0.95)}.
 #' @param R_vec     Integer vector of total read depths, same length as
@@ -539,13 +554,13 @@ convert2nQuack <- function(qploidy_standardization_object,
 #'
 #' @return A list of class \code{"BAF_dosage_calls"} with element \code{$data},
 #'   a \code{data.frame} with the same column layout as \code{call_BAF_dosages}:
-#'   \code{BAF}, \code{dosage}, \code{max_prob}, \code{dosage_0}, …,
+#'   \code{BAF}, \code{dosage}, \code{max_prob}, \code{dosage_0}, ...,
 #'   \code{dosage_<cn>} (plus any padding columns up to \code{max_cn}).
 #'
 #' @keywords internal
 call_BAF_nQuack_dosages <- function(baf_vec,
                                     cn,
-                                    nq_dist    = "beta",
+                                    nq_dist    = "normal",
                                     het_range  = c(0.05, 0.95),
                                     R_vec      = NULL,
                                     max_cn     = NULL,
@@ -587,11 +602,11 @@ call_BAF_nQuack_dosages <- function(baf_vec,
   parms <- if (add_uniform) setU[[idx]] else set[[idx]]
 
   # The mvec gives the BAF peak positions for het dosages 1..(cn-1).
-  # mvec is ordered high→low for diploid (0.67, 0.33) — normalise to ascending order
-  # to map column index → dosage integer robustly via closest peak.
+  # mvec is ordered high->low for diploid (0.67, 0.33) -- normalise to ascending order
+  # to map column index -> dosage integer robustly via closest peak.
   mvec_raw  <- parms$mvec                         # length = cn-1
   mvec_ord  <- order(mvec_raw)                    # ascending sort order
-  mvec_sort <- mvec_raw[mvec_ord]                 # sorted mvec (low→high BAF)
+  mvec_sort <- mvec_raw[mvec_ord]                 # sorted mvec (low->high BAF)
   # Expected peaks for dosages 1..(cn-1) in ascending order
   exp_peaks  <- seq_len(cn - 1L) / cn             # e.g. 1/4, 2/4, 3/4 for CN=4
   # Map each sorted mvec column to the nearest dosage integer
@@ -617,7 +632,7 @@ call_BAF_nQuack_dosages <- function(baf_vec,
       prob_mat[hom_idx[k], d_hom[k] + 1L] <- 1.0
     }
   }
-  # NA baf → dosage NA, leave prob_mat row as 0
+  # NA baf -> dosage NA, leave prob_mat row as 0
   na_idx <- which(is.na(baf_vec))
   dosage_vec <- replace(dosage_vec, na_idx, NA_integer_)
 
@@ -630,11 +645,11 @@ call_BAF_nQuack_dosages <- function(baf_vec,
     pir <- tryCatch({
       if (base_family == "beta") {
         fn  <- if (add_uniform) nQuack::emstepBU else nQuack::emstepB
-        res <- fn(parms, xi_het, niter, epsilon, trunc, "fixed-2", glreturn = TRUE)
+        res <- fn(parms, xi_het, niter, epsilon, trunc, "fixed", glreturn = TRUE)
         res$pir
       } else if (base_family == "normal") {
         fn  <- if (add_uniform) nQuack::emstepNU else nQuack::emstepN
-        res <- fn(parms, xi_het, niter, epsilon, trunc, "fixed-2", glreturn = TRUE)
+        res <- fn(parms, xi_het, niter, epsilon, trunc, "fixed", glreturn = TRUE)
         res$pir
       } else if (base_family == "beta-binomial") {
         if (is.null(R_vec))
@@ -647,7 +662,7 @@ call_BAF_nQuack_dosages <- function(baf_vec,
         alt_het <- round(xi_het * R_het)
         xm_het <- cbind(R_het[ok], alt_het[ok])
         fn  <- if (add_uniform) nQuack::emstepBBU else nQuack::emstepBB
-        res <- fn(parms, xm_het, niter, epsilon, trunc, "fixed-2", glreturn = TRUE)
+        res <- fn(parms, xm_het, niter, epsilon, trunc, "fixed", glreturn = TRUE)
         # pir rows align only to ok-subset; expand back
         pir_full <- matrix(NA_real_, nrow = length(het_idx), ncol = ncol(res$pir))
         pir_full[ok, ] <- res$pir
@@ -662,8 +677,8 @@ call_BAF_nQuack_dosages <- function(baf_vec,
       n_het_cols <- cn - 1L
       pir_het    <- pir[, seq_len(n_het_cols), drop = FALSE]   # [n_het x (cn-1)]
 
-      # argmax over het columns → col index in original (unsorted) mvec order
-      # Re-sort back through mvec_ord: column k in pir ↔ mvec_ord[k] in sorted
+      # argmax over het columns -> col index in original (unsorted) mvec order
+      # Re-sort back through mvec_ord: column k in pir <-> mvec_ord[k] in sorted
       # We need the dosage for each col in the ORIGINAL (unsorted) pir layout.
       # pir columns correspond to original parms$mvec order.
       # col_to_dosage was built for sorted mvec; map back via mvec_ord.
@@ -680,7 +695,7 @@ call_BAF_nQuack_dosages <- function(baf_vec,
       max_prob[het_idx]   <- mp_het
 
       # Fill prob_mat columns for het dosages from pir
-      # Each col in pir_het → a dosage integer via orig_col_to_dosage
+      # Each col in pir_het -> a dosage integer via orig_col_to_dosage
       for (col_k in seq_len(n_het_cols)) {
         d_col <- orig_col_to_dosage[col_k]
         prob_mat[het_idx, d_col + 1L] <- pir_het[, col_k]
@@ -689,14 +704,14 @@ call_BAF_nQuack_dosages <- function(baf_vec,
       # Fallback: assign each het SNP to nearest dosage peak by BAF distance
       for (k in seq_along(het_idx)) {
         baf_k <- baf_vec[het_idx[k]]
-        d_k   <- which.min(abs(baf_k - exp_peaks))  # 1-based → dosage 1..(cn-1)
+        d_k   <- which.min(abs(baf_k - exp_peaks))  # 1-based -> dosage 1..(cn-1)
         dosage_vec[het_idx[k]] <- d_k
         max_prob[het_idx[k]]   <- NA_real_
         prob_mat[het_idx[k], d_k + 1L] <- 1.0
       }
     }
   } else if (length(het_idx) == 1L) {
-    # Only one het observation — assign by proximity
+    # Only one het observation -- assign by proximity
     baf_k <- baf_vec[het_idx]
     d_k   <- which.min(abs(baf_k - (seq_len(cn - 1L) / cn)))
     dosage_vec[het_idx] <- d_k
@@ -738,7 +753,7 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #' @param cn_grid Integer vector of copy-number states to consider. Must contain at least one value in \code{2:6} (nQuack's supported range) unless \code{z_only = TRUE}; \code{0} is not allowed (use \code{\link{hmm_estimate_CN}} for CN=0/LOH detection). Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.
 #' @param max_iter Integer. Maximum EM iterations. Default \code{60}.
 #' @param het_quantile Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.
-#' @param baf_weight Numeric. Overall weight applied to BAF emission (0–1). Default \code{0.5}.
+#' @param baf_weight Numeric. Overall weight applied to BAF emission (0-1). Default \code{0.5}.
 #' @param z_range Numeric. Padding added to min/max z for initial mean estimation. Default \code{NULL}.
 #' @param transition_jump Numeric. Diagonal value for transition matrix (probability to stay in same CN state). Default \code{0.9}.
 #' @param initial_prob Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.5}. Sets the prior probability for the expected ploidy (or nQuack's estimated ploidy) at the first window; remaining probability is distributed uniformly across other states.
@@ -757,10 +772,11 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #' @param hom_z_sigma_inflate Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.
 #' @param nQuack_cores Integer. Number of cores to use for nQuack's internal
 #'   parallelism (default: 1).
-#' @param nQuack_dists Character vector or \code{NULL}. Restricts which nQuack
+#' @param nQuack_dists Character vector or \code{"normal"}. Restricts which nQuack
 #'   mixture-model families are evaluated. Valid values are \code{"normal"},
 #'   \code{"beta"}, and \code{"beta-binomial"} (plus their \code{"-uniform"}
-#'   variants). \code{NULL} (default) tests all families.
+#'   variants). Default \code{"normal"}. Set to \code{NULL} to test all three
+#'   families.
 #'
 #' @return An object of class \code{hmm_CN}. Unlike \code{hmm_estimate_CN()},
 #'   \code{params$bins} is always \code{NULL} and \code{params$bw} is always
@@ -798,7 +814,7 @@ hmm_estimate_CN_nQuack <- function(
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
   nQuack_cores = 1L,
-  nQuack_dists = NULL
+  nQuack_dists = "normal"
 ) {
   # ---- Input checks ----
   if (any(cn_grid < 0) | any(cn_grid > 10)) stop("All values in cn_grid must be between 0 and 10.")

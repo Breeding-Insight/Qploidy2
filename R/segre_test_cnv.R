@@ -4,7 +4,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("colour_group", "xinterc
 #'
 #' Calculates the expected distribution of progeny copy-number (CN) states
 #' resulting from a cross between two polyploid parents, supporting even and
-#' odd ploidies and interploid (e.g. 4x × 2x) crosses.
+#' odd ploidies and interploid (e.g. 4x x 2x) crosses.
 #'
 #' Each parent's CN state can be supplied either as a per-homolog integer vector
 #' (e.g. \code{c(-1, 0, 0, 0)} for a tetraploid carrying one deletion) or as a
@@ -177,7 +177,7 @@ segreg_poly_cn <- function(cn_P, cn_Q, pop_ploidy = NULL, ploidy_P = NULL, ploid
 #'   both parents have \code{cn_dev == 0} AND the same effective ploidy are
 #'   excluded from testing. Such markers produce 100\% of progeny at the
 #'   reference CN and carry no segregation information. Markers where parents
-#'   share \code{cn_dev == 0} but differ in ploidy (e.g. a 3x × 4x cross) are
+#'   share \code{cn_dev == 0} but differ in ploidy (e.g. a 3x x 4x cross) are
 #'   retained because unequal gamete sizes still produce a non-trivial progeny
 #'   distribution. Set to \code{FALSE} to retain all markers.
 #' @param error_rate Numeric in (0, 1). A small probability substituted for any
@@ -230,7 +230,7 @@ test_cn_segregation <- function(dosages,
 
   all_parent_names <- c(parent_names_P, parent_names_Q)
 
-  # ── 1. Split progenies and parents ──────────────────────────────────────────
+  # -- 1. Split progenies and parents ------------------------------------------
   if (is.null(progeny_names)) {
     progenies_data <- dosages[!dosages[[sample_col]] %in% all_parent_names, ]
   } else {
@@ -240,7 +240,7 @@ test_cn_segregation <- function(dosages,
   }
   parents_data <- dosages[dosages[[sample_col]] %in% all_parent_names, ]
 
-  # ── 2. Build per-marker effective ploidy (chromosome mode or global ploidy) ──
+  # -- 2. Build per-marker effective ploidy (chromosome mode or global ploidy) --
   if (!is.null(chrom_col)) {
     if (!chrom_col %in% colnames(dosages))
       stop("'chrom_col' column '", chrom_col, "' not found in dosages.")
@@ -264,7 +264,7 @@ test_cn_segregation <- function(dosages,
     marker_eff_ploidy <- setNames(rep(ploidy, length(all_markers)), all_markers)
   }
 
-  # ── 3. Observed counts per marker × CN deviation ────────────────────────────
+  # -- 3. Observed counts per marker x CN deviation ----------------------------
   progenies_eff_ploidy <- marker_eff_ploidy[progenies_data[[marker_col]]]
   obs_counts <- aggregate(
     list(count = rep(1L, nrow(progenies_data))),
@@ -275,7 +275,7 @@ test_cn_segregation <- function(dosages,
     FUN = length
   )
 
-  # ── 4. Parent CN deviations per marker ──────────────────────────────────────
+  # -- 4. Parent CN deviations per marker --------------------------------------
   parents_eff_ploidy <- marker_eff_ploidy[parents_data[[marker_col]]]
   parents_cn <- data.frame(
     sample     = parents_data[[sample_col]],
@@ -285,7 +285,7 @@ test_cn_segregation <- function(dosages,
     stringsAsFactors = FALSE
   )
 
-  # ── 5. Iterate over all P × Q parent combinations ───────────────────────────
+  # -- 5. Iterate over all P x Q parent combinations ---------------------------
   combinations <- expand.grid(
     parent_P = parent_names_P,
     parent_Q = parent_names_Q,
@@ -304,7 +304,7 @@ test_cn_segregation <- function(dosages,
     # Markers with non-missing CN calls for both parents
     shared <- merge(cn_P_markers, cn_Q_markers,
                     by = "marker", suffixes = c("_P", "_Q"))
-    # eff_ploidy_P / eff_ploidy_Q are kept separate — parents may differ
+    # eff_ploidy_P / eff_ploidy_Q are kept separate -- parents may differ
     shared <- shared[!is.na(shared$cn_dev_P) & !is.na(shared$cn_dev_Q), ]
 
     # Optionally drop markers with no CNV in either parent (uninformative).
@@ -316,8 +316,8 @@ test_cn_segregation <- function(dosages,
 
     if (nrow(shared) == 0) next
 
-    # ── A. Compute expected distributions for unique (cn_dev_P, cn_dev_Q, eff_ploidy_P, eff_ploidy_Q) tuples
-    #       (many markers share the same parental state — compute once, reuse)
+    # -- A. Compute expected distributions for unique (cn_dev_P, cn_dev_Q, eff_ploidy_P, eff_ploidy_Q) tuples
+    #       (many markers share the same parental state -- compute once, reuse)
     unique_pairs <- unique(shared[, c("cn_dev_P", "cn_dev_Q", "eff_ploidy_P", "eff_ploidy_Q")])
 
     exp_list <- lapply(seq_len(nrow(unique_pairs)), function(i) {
@@ -338,13 +338,13 @@ test_cn_segregation <- function(dosages,
     exp_all <- do.call(rbind, exp_list)
     if (is.null(exp_all) || nrow(exp_all) == 0) next
 
-    # ── B. Attach expected prob to every (marker, cn) row — single join
+    # -- B. Attach expected prob to every (marker, cn) row -- single join
     shared_exp <- merge(shared[, c("marker", "cn_dev_P", "cn_dev_Q", "eff_ploidy_P", "eff_ploidy_Q")],
                         exp_all,
                         by = c("cn_dev_P", "cn_dev_Q", "eff_ploidy_P", "eff_ploidy_Q"))
     # shared_exp columns: marker, cn_dev_P, cn_dev_Q, cn, prob
 
-    # ── C. Full join with observed counts across all markers at once
+    # -- C. Full join with observed counts across all markers at once
     obs_sub <- obs_counts[obs_counts$marker %in% shared$marker, ]
     full_data <- merge(shared_exp[, c("marker", "cn", "prob")],
                        obs_sub,
@@ -354,7 +354,7 @@ test_cn_segregation <- function(dosages,
     full_data$count[is.na(full_data$count)] <- 0L
     full_data$prob[is.na(full_data$prob)]   <- 0
 
-    # ── D. Apply error_rate and rescale per marker
+    # -- D. Apply error_rate and rescale per marker
     full_data$prob[full_data$prob == 0] <- error_rate
     full_data$prob <- ave(full_data$prob, full_data$marker,
                           FUN = function(p) p / sum(p))
@@ -365,11 +365,11 @@ test_cn_segregation <- function(dosages,
 
     if (nrow(full_data) == 0) next
 
-    # ── E. Run chi-square test per marker
+    # -- E. Run chi-square test per marker
     mk_split  <- split(full_data, full_data$marker)
     p_values  <- vapply(mk_split, function(d) {
-      # Single-cell case: 0 degrees of freedom, chi-square statistic = 0 → p = 1
-      # (all observations fall in the one expected class — perfect fit)
+      # Single-cell case: 0 degrees of freedom, chi-square statistic = 0 -> p = 1
+      # (all observations fall in the one expected class -- perfect fit)
       if (nrow(d) == 1L) return(1)
       test <- tryCatch(
         chisq.test(d$count, p = d$prob, rescale.p = TRUE),
@@ -378,10 +378,10 @@ test_cn_segregation <- function(dosages,
       if (is.null(test)) NA_real_ else test$p.value
     }, numeric(1))
 
-    # ── F. Build two tidy outputs ────────────────────────────────────────────
+    # -- F. Build two tidy outputs --------------------------------------------
     marker_cn_devs <- unique(shared[, c("marker", "cn_dev_P", "cn_dev_Q", "eff_ploidy_P", "eff_ploidy_Q")])
 
-    # summary: one row per marker — parental CN deviations + p.value
+    # summary: one row per marker -- parental CN deviations + p.value
     summary_combo <- merge(
       marker_cn_devs,
       data.frame(marker  = names(p_values),
@@ -401,7 +401,7 @@ test_cn_segregation <- function(dosages,
                                        "p.value", "p.adj")]
     summary_combo <- summary_combo[order(summary_combo$marker), ]
 
-    # cn_detail: one row per marker × cn — expected prob + observed count
+    # cn_detail: one row per marker x cn -- expected prob + observed count
     detail_combo <- full_data[, c("marker", "cn", "prob", "count")]
     detail_combo$parent_P <- pP
     detail_combo$parent_Q <- pQ
@@ -448,10 +448,10 @@ test_cn_segregation <- function(dosages,
 #' @param color_by Character. What to use for colours/fills. One of:
 #'   \describe{
 #'     \item{\code{"combination"} (default)}{Colour by parent name combination
-#'       (e.g. \code{"ParentA × ParentB"}).}
+#'       (e.g. \code{"ParentA x ParentB"}).}
 #'     \item{\code{"cn_pair"}}{Colour by the canonical parental CN-deviation
-#'       pair (e.g. \code{"-1 × 0"}). The pair is sorted so that
-#'       \code{"-1 × 0"} and \code{"0 × -1"} receive the same colour.}
+#'       pair (e.g. \code{"-1 x 0"}). The pair is sorted so that
+#'       \code{"-1 x 0"} and \code{"0 x -1"} receive the same colour.}
 #'   }
 #' @param bonferroni Logical. If \code{TRUE} (default), plots the
 #'   \code{p.adj} column (Bonferroni-adjusted p-values, computed over tested
@@ -481,7 +481,7 @@ plot_tested_cn_segregation <- function(x,
     x$colour_group <- paste(x$parent_P, "\u00d7", x$parent_Q)
     legend_title <- "Parent combination"
   } else {
-    # Canonical CN pair: sort the two deviations so -1×0 == 0×-1
+    # Canonical CN pair: sort the two deviations so -1x0 == 0x-1
     x$colour_group <- apply(
       cbind(x$cn_dev_P, x$cn_dev_Q), 1,
       function(v) paste(sort(v), collapse = " \u00d7 ")
@@ -575,7 +575,7 @@ plot_tested_cn_segregation <- function(x,
 #' Simulate a Dosages Object for CN Segregation Testing
 #'
 #' Generates a synthetic \code{data.frame} in the format expected by
-#' \code{\link{test_cn_segregation}}. Exactly one P × Q parent pair is the
+#' \code{\link{test_cn_segregation}}. Exactly one P x Q parent pair is the
 #' "true" cross; progeny CN calls for that combination are drawn from the
 #' expected segregation distribution. All other parent combinations produce
 #' progeny with CN calls drawn from a uniform distribution, ensuring they are
@@ -641,7 +641,7 @@ simulate_cn_segregation <- function(n_parents_P    = 3,
   max_dev  <- ploidy %/% 2
   dev_pool <- seq(-max_dev, max_dev)
 
-  # ── Assign CN deviations to parents per marker ──────────────────────────────
+  # -- Assign CN deviations to parents per marker ------------------------------
   # True parents get informative deviations; decoys are fixed at 0
   n_inform <- round(n_markers * prop_informative)
   inform_idx <- sample(n_markers, n_inform)
@@ -686,7 +686,7 @@ simulate_cn_segregation <- function(n_parents_P    = 3,
     k <- k + 1L
   }
 
-  # ── Simulate progeny CN calls ─────────────────────────────────────────────
+  # -- Simulate progeny CN calls ---------------------------------------------
   # For each marker, draw progeny CN from the expected segregation distribution
   progeny_cn_mat <- matrix(ploidy, nrow = n_markers, ncol = n_progeny,
                            dimnames = list(marker_names, progeny_names))
@@ -706,7 +706,7 @@ simulate_cn_segregation <- function(n_parents_P    = 3,
     # (relevant when gametes of different sizes produce the same cn)
     exp_agg <- aggregate(prob ~ cn, data = exp_df, FUN = sum)
 
-    # CN deviations → absolute CN; clamp to valid range [0, 2*ploidy]
+    # CN deviations -> absolute CN; clamp to valid range [0, 2*ploidy]
     exp_agg$cn_abs <- exp_agg$cn + ploidy
     exp_agg <- exp_agg[exp_agg$cn_abs >= 0 & exp_agg$cn_abs <= 2 * ploidy, ]
 

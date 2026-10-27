@@ -262,7 +262,7 @@ compare_cn_track <- function(hmm_CN,
       d <- plot_df[plot_df$Chr == ch, ]
       fig <- plotly::plot_ly()
 
-      # One trace per CN level — guarantees a legend swatch for every level
+      # One trace per CN level -- guarantees a legend swatch for every level
       for (cn in cn_levels_all) {
         dsub <- d[as.character(d$CN_call) == as.character(cn), ]
         if (nrow(dsub) == 0) next
@@ -395,9 +395,9 @@ compare_cn_track <- function(hmm_CN,
 
 #' Karyotype-style copy-number overview across all samples
 #'
-#' One tile per sample × chromosome: samples in rows ordered by sample-level
+#' One tile per sample x chromosome: samples in rows ordered by sample-level
 #' CN (ascending), chromosomes in columns.  Within each CN block samples are
-#' further sub-ordered as euploid → aneuploid → segmental.  Chromosomes whose
+#' further sub-ordered as euploid -> aneuploid -> segmental.  Chromosomes whose
 #' windows carry mixed CN (segmental aneuploidy) are shown in purple; others
 #' use the same blue/gray/red palette as \code{\link{compare_cn_track}}.
 #' Strong black lines separate CN blocks; medium dashed lines separate
@@ -534,7 +534,7 @@ compare_cn_track_summary <- function(hmm_CN,
   sample_ordered <- sample_class %>% arrange(sample_cn, sample_type)
   sample_order   <- sample_ordered$Sample
   n_sam          <- length(sample_order)
-  # first sample (lowest CN, euploid) → top → highest y value
+  # first sample (lowest CN, euploid) -> top -> highest y value
   y_map <- setNames(rev(seq_len(n_sam)), sample_order)
 
   # ---- plot data ----
@@ -552,7 +552,7 @@ compare_cn_track_summary <- function(hmm_CN,
   # ---- line positions ----
   row_meta <- sample_ordered %>%
     mutate(y_pos = y_map[as.character(Sample)]) %>%
-    arrange(desc(y_pos)) %>%                     # top → bottom
+    arrange(desc(y_pos)) %>%                     # top -> bottom
     mutate(prev_cn = lag(sample_cn), prev_type = lag(sample_type))
 
   cn_lines <- row_meta %>%

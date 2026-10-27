@@ -264,11 +264,11 @@ plot_baf_hist <- function(data_sample,
   if (ratio) data_sample2$sample <- data_sample2$ratio
 
   # Colorblind-friendly palette (Okabe-Ito)
-  col_inside   <- "#009E73"   # bluish green  – inside area
-  col_outside  <- "#D55E00"   # vermillion    – outside area
-  col_bar      <- "#0072B2"   # blue          – default bar fill
-  col_expected <- "#D55E00"   # vermillion    – expected peak
-  col_estimated <- "#56B4E9"  # sky blue      – estimated peak
+  col_inside   <- "#009E73"   # bluish green  - inside area
+  col_outside  <- "#D55E00"   # vermillion    - outside area
+  col_bar      <- "#0072B2"   # blue          - default bar fill
+  col_expected <- "#D55E00"   # vermillion    - expected peak
+  col_estimated <- "#56B4E9"  # sky blue      - estimated peak
   x_label <- if (ratio) expression(theta) else "BAF"
 
   if (!BAF_hist_overall) {
@@ -964,7 +964,7 @@ all_resolutions_plots <- function(
   return(p_list)
 }
 
-#' Plot X–Y scatter with ploidy dosage guide lines and optional sample highlighting
+#' Plot X-Y scatter with ploidy dosage guide lines and optional sample highlighting
 #'
 #' @description
 #' Creates a dot plot of allele counts `X` (A-allele) vs `Y` (B-allele) and overlays
@@ -974,7 +974,7 @@ all_resolutions_plots <- function(
 #' automatically omitted from the legend.
 #'
 #' Accepts three types of input for `df`:
-#' * A `qploidy_standardization` object — its `$data` slot is used automatically.
+#' * A `qploidy_standardization` object -- its `$data` slot is used automatically.
 #' * A data frame with a `MarkerName` column (e.g. the per-marker long format
 #'   exported by Axiom/Illumina readers). When multiple markers are present, you
 #'   must specify `marker`.
@@ -991,8 +991,8 @@ all_resolutions_plots <- function(
 #' * When `sample` is a specific name, only that sample is colored with
 #'   `highlight_color`; all others use `other_color`. If the requested sample has
 #'   no plotted points, it is omitted from the legend.
-#' * Draws dosage guide lines for dosages `d = 0, …, ploidy`:
-#'   `d = 0` → horizontal line `Y = 0`; `d = ploidy` → vertical line `X = 0`;
+#' * Draws dosage guide lines for dosages `d = 0, ..., ploidy`:
+#'   `d = 0` -> horizontal line `Y = 0`; `d = ploidy` -> vertical line `X = 0`;
 #'   intermediate dosages are lines through the origin with slope
 #'   \eqn{(d/ploidy) / (1 - d/ploidy)}.
 #' * Uses a fixed aspect ratio (`coord_fixed`) so that one unit on the x- and y-axes
@@ -1001,7 +1001,7 @@ all_resolutions_plots <- function(
 #' @param df A `data.frame` with at least columns `X` and `Y`, a data frame that
 #'   also contains a `MarkerName` column (per-marker long format), or an object of
 #'   class `qploidy_standardization`.
-#' @param ploidy Integer (≥ 2). Ploidy used to compute and draw dosage guide lines.
+#' @param ploidy Integer (>= 2). Ploidy used to compute and draw dosage guide lines.
 #' @param marker Character or integer. Required when `df` (or `df$data`) contains a
 #'   `MarkerName` column with more than one unique value. Provide the marker name as
 #'   a string or its integer index (1-based) in the vector of unique marker names.
@@ -1025,7 +1025,7 @@ all_resolutions_plots <- function(
 #'       large group counts).}
 #'     \item{`"polychrome"`}{24 perceptually-distinct colours from the
 #'       Polychrome palette, suitable for 20+ groups.}
-#'     \item{`"okabe_ito"`}{8-colour Okabe-Ito palette — the recommended
+#'     \item{`"okabe_ito"`}{8-colour Okabe-Ito palette -- the recommended
 #'       colorblind-friendly choice. Colours are recycled if there are more
 #'       than 8 groups.}
 #'   }
@@ -1230,7 +1230,7 @@ plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
   p
 }
 
-#' Plot BAF-derived X–Y scatter with ploidy dosage guides (optional sample highlighting)
+#' Plot BAF-derived X-Y scatter with ploidy dosage guides (optional sample highlighting)
 #'
 #' @description
 #' Reconstructs Cartesian coordinates from standardized B-allele frequency (BAF) and
@@ -1241,7 +1241,7 @@ plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
 #' automatically omitted from the legend.
 #'
 #' Accepts three types of input for `df`:
-#' * A `qploidy_standardization` object — its `$data` slot is used automatically.
+#' * A `qploidy_standardization` object -- its `$data` slot is used automatically.
 #' * A data frame with a `MarkerName` column. When multiple markers are present, you
 #'   must specify `marker`.
 #' * A plain data frame with columns `baf`, `R`, and `SampleName`.
@@ -1255,7 +1255,7 @@ plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
 #'   emphasizes dosage bands rather than depth variation. When `FALSE`, each point
 #'   uses its own `R`.
 #' * Dosage guide lines are drawn for \eqn{d \in \{0,\dots,\mathrm{ploidy}\}}:
-#'   `d = 0` → horizontal line `Y = 0`; `d = ploidy` → vertical line `X = 0`;
+#'   `d = 0` -> horizontal line `Y = 0`; `d = ploidy` -> vertical line `X = 0`;
 #'   intermediate dosages are lines through the origin with slope
 #'   \eqn{(d/\mathrm{ploidy}) / (1 - d/\mathrm{ploidy})}.
 #' * The legend is built from actually plotted rows only; if a requested `sample`
@@ -1266,7 +1266,7 @@ plot_xy_with_ploidy_guides <- function(df, ploidy = 2,
 #'   that also contains a `MarkerName` column, or an object of class
 #'   `qploidy_standardization`. When multiple markers are present, `marker` must be
 #'   supplied.
-#' @param ploidy Integer (≥ 2). Ploidy used to compute dosage guide lines.
+#' @param ploidy Integer (>= 2). Ploidy used to compute dosage guide lines.
 #' @param marker Character or integer. Required when `df` (or `df$data`) contains a
 #'   `MarkerName` column with more than one unique value. Provide the marker name as
 #'   a string or its integer index (1-based) in the vector of unique marker names.
@@ -1558,7 +1558,7 @@ plot_geno_by_marker <- function(df, ploidy = NULL, marker = NULL, alpha = 0.6) {
   has_unknown  <- any(is.na(geno_str_all) | (!is.na(geno_str_all) & geno_str_all == "NA"))
   if (has_unknown) geno_levels <- c(geno_levels, "unknown")
   df_plot$geno_cat <- factor(df_plot$geno_cat, levels = geno_levels)
-  # Safety net: any factor NA (value not in levels) → "unknown"
+  # Safety net: any factor NA (value not in levels) -> "unknown"
   if (has_unknown && any(is.na(df_plot$geno_cat))) {
     df_plot$geno_cat[is.na(df_plot$geno_cat)] <- "unknown"
   }

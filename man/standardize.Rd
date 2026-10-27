@@ -47,11 +47,11 @@ standardize(
 - Chromosome: Chromosome names
 - Position: Base-pair positions on the genome}
 
-\item{threshold.missing.geno}{Numeric (0–1). Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.}
+\item{threshold.missing.geno}{Numeric (0-1). Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.}
 
-\item{threshold.missing.samples}{Numeric (0–1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed from both `data` and `genos`. Default is 1 (no filtering). Removed sample IDs are stored in `info$samples.rm.ids`.}
+\item{threshold.missing.samples}{Numeric (0-1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed from both `data` and `genos`. Default is 1 (no filtering). Removed sample IDs are stored in `info$samples.rm.ids`.}
 
-\item{threshold.geno.prob}{Numeric (0–1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.}
+\item{threshold.geno.prob}{Numeric (0-1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.}
 
 \item{ploidy.standardization}{Integer. The ploidy level of the reference panel used for standardization.}
 

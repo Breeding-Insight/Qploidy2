@@ -33,7 +33,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("PC1", "PC2", "PC3"))
 #'       large group counts).}
 #'     \item{`"polychrome"`}{24 perceptually-distinct colours from the
 #'       Polychrome palette, suitable for 20+ groups.}
-#'     \item{`"okabe_ito"`}{8-colour Okabe-Ito palette — the recommended
+#'     \item{`"okabe_ito"`}{8-colour Okabe-Ito palette -- the recommended
 #'       colorblind-friendly choice. Colours are recycled if there are more
 #'       than 8 groups.}
 #'   }

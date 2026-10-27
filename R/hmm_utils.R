@@ -144,7 +144,7 @@ viterbi_bidi <- function(ll_em, logA, logpi0) {
 
   if (W == 1L) return(which.max(ll_em[1, ]))
 
-  # Forward max pass — uniform init so window 1 is not biased by pi0
+  # Forward max pass -- uniform init so window 1 is not biased by pi0
   delta <- matrix(-Inf, W, K)
   delta[1, ] <- ll_em[1, ]
   for (i in 2:W) {

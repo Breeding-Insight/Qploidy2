@@ -4,7 +4,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #'
 #' Aggregates SNP-level data into windows, builds BAF histograms, and fits a
 #' Hidden Markov Model that combines a Gaussian emission for depth/z and a
-#' polyploid BAF “comb” emission to infer copy number (CN) per window.
+#' polyploid BAF "comb" emission to infer copy number (CN) per window.
 #' Returns a tidy data frame with CN calls and posterior probabilities that is
 #' ready for plotting (e.g., with \code{\link{plot_cn_track}}) or merging across
 #' chromosomes/batches.
@@ -27,7 +27,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param M Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.
 #' @param max_iter Integer. Maximum EM iterations. Default \code{60}.
 #' @param het_quantile Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.
-#' @param baf_weight Numeric. Overall weight applied to BAF emission (0–1). Default \code{0.5}.
+#' @param baf_weight Numeric. Overall weight applied to BAF emission (0-1). Default \code{0.5}.
 #' @param z_range Numeric. Padding added to min/max z for initial mean estimation. Default \code{0.2}.
 #' @param transition_jump Numeric. Diagonal value for transition matrix (probability to stay in same CN state). Default \code{0.995}.
 #' @param initial_prob Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.5}. Sets the prior probability for the expected ploidy (or best CN from BAF model) at the first window; remaining probability is distributed uniformly across other states. If the best CN is not found, pi0 is uniform across all states.
@@ -66,24 +66,24 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #'     \item{result}{A \code{data.frame} with one row per window and columns:
 #'       \itemize{
 #'         \item \code{Sample}, \code{Chr}, \code{WindowID}, \code{Start}, \code{End}
-#'         \item \code{n_snps}, \code{n_het} – counts per window
-#'         \item \code{z} – mean z per window
-#'         \item \code{w_baf} – weight applied to the BAF emission (0–1)
-#'         \item \code{CN_call} – Viterbi copy-number call (factor/integer)
-#'         \item \code{post_max} – posterior probability of the called state
-#'         \item \code{post_CN<k>} – posterior probability for each state in \code{cn_grid}
+#'         \item \code{n_snps}, \code{n_het} - counts per window
+#'         \item \code{z} - mean z per window
+#'         \item \code{w_baf} - weight applied to the BAF emission (0-1)
+#'         \item \code{CN_call} - Viterbi copy-number call (factor/integer)
+#'         \item \code{post_max} - posterior probability of the called state
+#'         \item \code{post_CN<k>} - posterior probability for each state in \code{cn_grid}
 #'       }
 #'     }
 #'     \item{params}{A list of fitted HMM parameters:
 #'       \itemize{
-#'         \item \code{cn_grid} – copy-number states
-#'         \item \code{mu} – estimated z means per state
-#'         \item \code{sigma} – estimated z standard deviation
-#'         \item \code{A} – transition matrix
-#'         \item \code{pi0} – initial state probabilities
-#'         \item \code{bins} – number of BAF bins (M)
-#'         \item \code{bw} – BAF template bandwidth
-#'         \item \code{loglik} – final log-likelihood
+#'         \item \code{cn_grid} - copy-number states
+#'         \item \code{mu} - estimated z means per state
+#'         \item \code{sigma} - estimated z standard deviation
+#'         \item \code{A} - transition matrix
+#'         \item \code{pi0} - initial state probabilities
+#'         \item \code{bins} - number of BAF bins (M)
+#'         \item \code{bw} - BAF template bandwidth
+#'         \item \code{loglik} - final log-likelihood
 #'       }
 #'     }
 #'   }
@@ -92,7 +92,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @details
 #' \strong{Windowing.} If \code{chr} is specified, only those chromosomes are analyzed. Windows are formed within each chromosome by grouping every \code{snps_per_window} consecutive SNPs. Windows with fewer than \code{min_snps_per_window} SNPs are removed.
 #'
-#' \strong{Emissions.} For state \code{c} (copy number), the z-emission is \eqn{\mathcal{N}(\mu_c, \sigma^2)}, where \eqn{\sigma} is a single standard deviation shared across all CN states (it is not scaled per state, even though depth variance is in reality expected to increase with copy number). The BAF emission is a multinomial log-likelihood comparing the observed BAF histogram to a state-specific template (a “comb” with peaks at \eqn{d/c}). Windows with few heterozygotes are down-weighted via \code{w_baf} (derived from \code{n_het}). The combined per-window, per-state log-likelihood is a tempered log-product, \code{llz + w_baf * llb}: the z emission always contributes fully, assuming conditional independence of z and BAF given the CN state, while the BAF emission's evidence is scaled down (tempered) by \code{w_baf} when fewer heterozygotes support it.
+#' \strong{Emissions.} For state \code{c} (copy number), the z-emission is \eqn{\mathcal{N}(\mu_c, \sigma^2)}, where \eqn{\sigma} is a single standard deviation shared across all CN states (it is not scaled per state, even though depth variance is in reality expected to increase with copy number). The BAF emission is a multinomial log-likelihood comparing the observed BAF histogram to a state-specific template (a "comb" with peaks at \eqn{d/c}). Windows with few heterozygotes are down-weighted via \code{w_baf} (derived from \code{n_het}). The combined per-window, per-state log-likelihood is a tempered log-product, \code{llz + w_baf * llb}: the z emission always contributes fully, assuming conditional independence of z and BAF given the CN state, while the BAF emission's evidence is scaled down (tempered) by \code{w_baf} when fewer heterozygotes support it.
 #'
 #' \strong{Numerical safety.} The implementation guards against non-finite emissions, enforces stochastic \code{A} rows, and lower-bounds \code{sigma}.
 #'
@@ -150,7 +150,7 @@ hmm_estimate_CN <- function(
   outlier_alpha = 0.05,
   selected_model = NULL,
   dists = c("gaussian", "beta_binomial", "negative_binomial"),
-  bw_grid = c(0.01, 0.02, 0.03, 0.04),
+  bw_grid = c(0.01,0.02, 0.04),
   add_uniform_grid = FALSE,
   uniform_weight_grid = c(0.01, 0.03, 0.05, 0.10, 0.15),
   param_count = NULL,
@@ -177,8 +177,6 @@ hmm_estimate_CN <- function(
 
     if(any(cn_grid < 0) | any(cn_grid > 10)) stop("All values in cn_grid must be between 0 and 10.")
     if (z_only && baf_only) stop("z_only and baf_only cannot both be TRUE.")
-
-
 
     if (!is.character(sample_id) || length(sample_id) != 1 || nchar(sample_id) == 0) {
       stop("sample_id must be a non-empty character scalar.")
@@ -288,30 +286,26 @@ hmm_estimate_CN <- function(
   } else {
     # This step was added to be activated if rerun_overall_ploidy is TRUE
     if (!is.null(recycled_obj_rerun_overall_ploidy$rm_mks)) {
-      rm_idx       <- which(d$MarkerName %in% recycled_obj_rerun_overall_ploidy$rm_mks)
-      bafs_overall <- d[[baf_col]][-rm_idx]
-      d_overall    <- d[-rm_idx, , drop = FALSE]
+      bafs_overall <- d[[baf_col]][-which(d$MarkerName %in% recycled_obj_rerun_overall_ploidy$rm_mks)]
     } else {
       bafs_overall <- d[[baf_col]]
-      d_overall    <- d
     }
 
     selected_model <- select_best_baf_model(
-
-        baf_vec = bafs_overall,
-        sample = sample_id,
-        cn_grid = cn_grid[cn_grid >= 1L],  # BAF is undefined at CN=0
-        dists = dists,
-        M = M,
-        reflect = reflect,
-        bw_grid = bw_grid,
-        add_uniform_grid = add_uniform_grid,
-        uniform_weight_grid = uniform_weight_grid,
-        param_count = param_count,
-        count_grid_as_params = count_grid_as_params,
-        min_het_frac = min_het_frac,
-        het_range = het_range
-      )
+      baf_vec = bafs_overall,
+      sample = sample_id,
+      cn_grid = cn_grid[cn_grid >= 1L],  # BAF is undefined at CN=0
+      dists = dists,
+      M = M,
+      reflect = reflect,
+      bw_grid = bw_grid,
+      add_uniform_grid = add_uniform_grid,
+      uniform_weight_grid = uniform_weight_grid,
+      param_count = param_count,
+      count_grid_as_params = count_grid_as_params,
+      min_het_frac = min_het_frac,
+      het_range = het_range
+    )
   }
 
   # Use exp_ploidy argument if provided, otherwise use selected_model$best$best_cn
@@ -322,7 +316,7 @@ hmm_estimate_CN <- function(
     vmsg("exp_ploidy provided by user: %s", verbose = verbose, level = 1, type = ">>", exp_ploidy)
   }
 
-    vmsg("Parameters ready", verbose = verbose, level = 1, type = ">>")
+  vmsg("Parameters ready", verbose = verbose, level = 1, type = ">>")
   # --- build windows ---
   vmsg("Defining windows", verbose = verbose, level = 0, type = ">>")
   d[["Position"]] <- as.numeric(d[["Position"]])
@@ -434,19 +428,18 @@ hmm_estimate_CN <- function(
     vmsg("Only one window remains after filtering. Assigning CN by BAF likelihood only", verbose = verbose, level = 1, type = ">>")
     # BAF is undefined at CN=0, so it must be excluded from the grid used here
     cn_grid_baf <- cn_grid[cn_grid >= 1L]
-    win_idx <- which(keep)
     ll_baf_matrix <- compute_baf_likelihoods(baf_list[keep][[1]],
-        cn_grid_baf,
-        M = M,
-        bw = selected_model$best$bw,
-        plot = FALSE,
-        dist = selected_model$best$dist,
-        reflect = reflect,
-        add_uniform = selected_model$best$add_uniform,
-        uniform_weight = selected_model$best$uniform_weight,
-        min_het_frac = min_het_frac,
-        het_range = het_range
-      )
+      cn_grid_baf,
+      M = M,
+      bw = selected_model$best$bw,
+      plot = FALSE,
+      dist = selected_model$best$dist,
+      reflect = reflect,
+      add_uniform = selected_model$best$add_uniform,
+      uniform_weight = selected_model$best$uniform_weight,
+      min_het_frac = min_het_frac,
+      het_range = het_range
+    )
 
     cn_call <- cn_grid_baf[which.max(ll_baf_matrix$ll_vec)]
     post_max <- rep(1, 1)
@@ -455,16 +448,16 @@ hmm_estimate_CN <- function(
     post_df[1, paste0("post_CN", cn_grid_baf[which.max(ll_baf_matrix$prob_vec)])] <- 1
     # n_het is now calculated using dosages
     dosages <- mapply(function(x, y) {
-        call_BAF_dosages(x,
-          cn = y,
-          bw = selected_model$best$bw,
-          plot = FALSE,
-          dist = selected_model$best$dist,
-          add_uniform = selected_model$best$add_uniform,
-          uniform_weight = selected_model$best$uniform_weight
-        )
-      }, baf_list[keep], cn_call, SIMPLIFY = FALSE)
-    n_het <- sum(dosages[[1]]$data$dosage != 0 & dosages[[1]]$data$dosage != cn_call[1], na.rm = TRUE)
+      call_BAF_dosages(x,
+        cn = y,
+        bw = selected_model$best$bw,
+        plot = FALSE,
+        dist = selected_model$best$dist,
+        add_uniform = selected_model$best$add_uniform,
+        uniform_weight = selected_model$best$uniform_weight
+      )
+    }, baf_list[keep], cn_call, SIMPLIFY = FALSE)
+    n_het <- sum(dosages[[1]]$dosage != 0 & dosages[[1]]$dosage != cn_call[1], na.rm = TRUE)
     result <- cbind(
       data.frame(
         Sample = sample_id,
@@ -574,25 +567,26 @@ hmm_estimate_CN <- function(
     cn0_win_df <- NULL
   }
 
-  # Generate BAF likelihoods and probabilities per window using the template model
+  # Generate BAF likelihoods and probabilities per window
+  # Uses parameters from selected_model
   if (!z_only) {
     vmsg("Generating BAF likelihoods by window", verbose = verbose, level = 0, type = ">>")
     grid1 <- unique(c(1L, cn_grid[cn_grid >= 1L])) # BAF undefined at CN=0; always test CN=1 for LOH
 
     baf_results <- lapply(baf_list, function(baf_vec) {
-        compute_baf_likelihoods(baf_vec,
-          grid1,
-          M = M,
-          bw = selected_model$best$bw,
-          plot = FALSE,
-          dist = selected_model$best$dist,
-          reflect = reflect,
-          add_uniform = selected_model$best$add_uniform,
-          uniform_weight = selected_model$best$uniform_weight,
-          het_range = het_range,
-          min_het_frac = min_het_frac
-        )
-      })
+      compute_baf_likelihoods(baf_vec,
+        grid1,
+        M = M,
+        bw = selected_model$best$bw,
+        plot = FALSE,
+        dist = selected_model$best$dist,
+        reflect = reflect,
+        add_uniform = selected_model$best$add_uniform,
+        uniform_weight = selected_model$best$uniform_weight,
+        het_range = het_range,
+        min_het_frac = min_het_frac
+      )
+    })
 
     ll_baf_matrix <- do.call(rbind, lapply(baf_results, function(res) res$ll_vec))
     ploidies_temp <- apply(ll_baf_matrix, 1, which.max)
@@ -650,19 +644,19 @@ hmm_estimate_CN <- function(
 
     vmsg("Calling dosages", verbose = verbose, level = 1, type = ">>")
     dosages <- mapply(
-        function(x, y) {
-          call_BAF_dosages(x,
-            cn = y,
-            bw = selected_model$best$bw,
-            plot = FALSE,
-            dist = selected_model$best$dist,
-            add_uniform = selected_model$best$add_uniform,
-            uniform_weight = selected_model$best$uniform_weight
-          )
-        },
-        baf_list, ploidies_temp,
-        SIMPLIFY = FALSE
-      )
+      function(x, y) {
+        call_BAF_dosages(x,
+          cn = y,
+          bw = selected_model$best$bw,
+          plot = FALSE,
+          dist = selected_model$best$dist,
+          add_uniform = selected_model$best$add_uniform,
+          uniform_weight = selected_model$best$uniform_weight
+        )
+      },
+      baf_list, ploidies_temp,
+      SIMPLIFY = FALSE
+    )
 
     # For each window, count heterozygotes: dosage != 0 & dosage != ploidies_temp & dosage_prob > dosage_threshold
     vmsg("Counting heterozygotes per window", verbose = verbose, level = 1, type = ">>")
@@ -736,13 +730,13 @@ hmm_estimate_CN <- function(
   state_ids <- as.character(cn_grid)
 
   # Transition matrix and initial state distribution
-  # A is K×K. Before normalizing, every off-diagonal entry is 0.001 (rare jumps), and the diagonal is 0.995 (strong tendency to stay in the same CN state).
+  # A is KxK. Before normalizing, every off-diagonal entry is 0.001 (rare jumps), and the diagonal is 0.995 (strong tendency to stay in the same CN state).
   A <- matrix(1e-3, K, K)
   diag(A) <- transition_jump
   # A <- A / rowSums(A) makes each row sum to 1 (a valid Markov matrix). After this, values are almost unchanged (just scaled so each row sums exactly to 1).
   A <- A / rowSums(A)
   # To consider: If is possible to change this matrix to favor specific small jumps, like if changing from 2->4 is more likely than 2->6
-  # pi0 is the initial state distribution at the first window; here it’s uniform (no prior preference for any CN at the start).
+  # pi0 is the initial state distribution at the first window; here it's uniform (no prior preference for any CN at the start).
   # Set pi0 to favor exp_ploidy (if provided) or best CN from BAF model
   pi0 <- if (K > 1) rep((1 - initial_prob) / (K - 1), K) else 1
   if (!is.null(exp_ploidy) && !is.na(exp_ploidy)) {
@@ -1023,7 +1017,7 @@ hmm_estimate_CN <- function(
   # EM-learned A can have degenerate uniform rows for states never visited:
   # a missing-state can "jump for free" to the best future window, giving it a
   # ~log(K) backward bonus that can flip window 1's call.  Using the prior A
-  # (strong diagonal, rare off-diagonal) costs ~log(K/1e-3) ≈ 8 for any
+  # (strong diagonal, rare off-diagonal) costs ~log(K/1e-3) ~= 8 for any
   # off-diagonal transition, making a degenerate state unable to overcome the
   # correct state's backward advantage regardless of emission noise.
   A_dec <- matrix(1e-3, K, K)
@@ -1044,9 +1038,6 @@ hmm_estimate_CN <- function(
       # markers), the BAF log-likelihoods are unreliable as a prior, and the z-score
       # sum across windows is a better anchor for the starting state distribution.
       mean_w_baf_chr <- mean(w_baf_dec[idx], na.rm = TRUE)
-      # Guard: mean(na.rm=TRUE) of an all-NA vector returns NaN, not 0.
-      # Treat NaN mean as 0 (no BAF data) so the blend below doesn't propagate NaN.
-      if (is.nan(mean_w_baf_chr)) mean_w_baf_chr <- 0
 
       # z-score based pi0: sum of z log-likelihoods across chromosome windows
       chr_z_sum <- colSums(llz_mat[idx, , drop = FALSE], na.rm = TRUE)
@@ -1065,11 +1056,7 @@ hmm_estimate_CN <- function(
       logpi0_chr <- log(
         (1 - mean_w_baf_chr) * exp(logpi0_z) + mean_w_baf_chr * exp(logpi0_baf)
       )
-      # Numeric stability: subtract max.  If all entries are -Inf or NaN (can
-      # happen when both logpi0_z and logpi0_baf are degenerate), fall back to
-      # the uniform/exp_ploidy prior rather than propagating NaN into fb_smooth.
-      max_lp <- max(logpi0_chr)
-      logpi0_chr <- if (is.finite(max_lp)) logpi0_chr - max_lp else log(pi0 / sum(pi0))
+      logpi0_chr <- logpi0_chr - max(logpi0_chr)  # numeric stability
     } else {
       # z_only: fix per-chromosome pi0 at the exp_ploidy prior; deviates only if
       # within-chromosome evidence is strong enough to overcome it.
@@ -1077,13 +1064,7 @@ hmm_estimate_CN <- function(
     }
     gamma_dec[idx, ] <- fb_smooth(ll_em[idx, , drop = FALSE], log(A_dec), logpi0_chr)
   }
-  if (!is.matrix(gamma_dec) || ncol(gamma_dec) == 0L)
-    stop(sprintf("Internal error: gamma_dec is not a valid matrix after fb_smooth (dim=%s, K=%d). Please report this.", paste(dim(gamma_dec), collapse="x"), K))
-  # which.max on a row of all-NaN returns integer(0), and apply() then returns a
-  # list (mixed lengths).  Use a safe wrapper that falls back to state 1 (exp_ploidy)
-  # when all posterior values are non-finite, so the result is always an integer vector.
-  safe_which_max <- function(x) { idx <- which.max(x); if (length(idx) == 0L) 1L else idx }
-  cn_call  <- cn_grid[vapply(seq_len(nrow(gamma_dec)), function(i) safe_which_max(gamma_dec[i, ]), integer(1L))]
+  cn_call  <- cn_grid[apply(gamma_dec, 1, which.max)]
   post_max <- apply(gamma_dec, 1, max)
   # CN=0 windows carry only background array signal; treat as missing like sequencing gaps.
   cn0_idx <- cn_call == 0
@@ -1126,7 +1107,7 @@ hmm_estimate_CN <- function(
       cn_call[idx] <- mode_cn
       if (length(mode_col) == 1)
         post_max[idx] <- gamma_dec[idx, mode_col]
-      message(sprintf("[POST-GATE] %s: CN%d→CN%d (mean_w_baf=%.3f, z_dev=%.3f < %.3f*sig)",
+      message(sprintf("[POST-GATE] %s: CN%d->CN%d (mean_w_baf=%.3f, z_dev=%.3f < %.3f*sig)",
         chr_i, chr_cn_mode, mode_cn, mean_w_baf_chr,
         abs(chr_z_mean - baseline_mu_val), hom_z_sigma_inflate))
     }
@@ -1312,8 +1293,7 @@ hmm_estimate_CN <- function(
                                                recycled_d = keep_d,
                                                recycled_baf_col = keep_baf_col,
                                                recycled_z_col = keep_z_col,
-                                               recycled_cn_grid = keep_cn_grid,
-)
+                                               recycled_cn_grid = keep_cn_grid)
     )
 
     # The rerun has its own pre-pass, but apply the outer call's cn0_win_df as
@@ -1344,8 +1324,6 @@ hmm_estimate_CN <- function(
 
   return(structure(list(by_window = result, by_marker = d, params = params), class = "hmm_CN"))
 }
-
-
 
 
 #' Run hmm_estimate_CN in parallel for multiple samples (using parLapply)
@@ -1435,7 +1413,7 @@ hmm_estimate_CN_multi <- function(qploidy_standarize_result = NULL,
       envir = environment()
     )
   }
-  # FORK workers inherit everything from the parent process — no export needed
+  # FORK workers inherit everything from the parent process -- no export needed
 
   results_list <- parLapply(
     cl, sample_ids, worker,

@@ -2,7 +2,7 @@
 % Please edit documentation in R/plots_standardization.R
 \name{plot_baf_with_ploidy_guides}
 \alias{plot_baf_with_ploidy_guides}
-\title{Plot BAF-derived X–Y scatter with ploidy dosage guides (optional sample highlighting)}
+\title{Plot BAF-derived X-Y scatter with ploidy dosage guides (optional sample highlighting)}
 \usage{
 plot_baf_with_ploidy_guides(
   df,
@@ -22,7 +22,7 @@ that also contains a `MarkerName` column, or an object of class
 `qploidy_standardization`. When multiple markers are present, `marker` must be
 supplied.}
 
-\item{ploidy}{Integer (≥ 2). Ploidy used to compute dosage guide lines.}
+\item{ploidy}{Integer (>= 2). Ploidy used to compute dosage guide lines.}
 
 \item{marker}{Character or integer. Required when `df` (or `df$data`) contains a
 `MarkerName` column with more than one unique value. Provide the marker name as
@@ -64,7 +64,7 @@ the rest in gray. Samples with no plottable points (non-finite coordinates) are
 automatically omitted from the legend.
 
 Accepts three types of input for `df`:
-* A `qploidy_standardization` object — its `$data` slot is used automatically.
+* A `qploidy_standardization` object -- its `$data` slot is used automatically.
 * A data frame with a `MarkerName` column. When multiple markers are present, you
   must specify `marker`.
 * A plain data frame with columns `baf`, `R`, and `SampleName`.
@@ -78,7 +78,7 @@ Accepts three types of input for `df`:
   emphasizes dosage bands rather than depth variation. When `FALSE`, each point
   uses its own `R`.
 * Dosage guide lines are drawn for \eqn{d \in \{0,\dots,\mathrm{ploidy}\}}:
-  `d = 0` → horizontal line `Y = 0`; `d = ploidy` → vertical line `X = 0`;
+  `d = 0` -> horizontal line `Y = 0`; `d = ploidy` -> vertical line `X = 0`;
   intermediate dosages are lines through the origin with slope
   \eqn{(d/\mathrm{ploidy}) / (1 - d/\mathrm{ploidy})}.
 * The legend is built from actually plotted rows only; if a requested `sample`

@@ -35,8 +35,8 @@ utils::globalVariables(c(
 ##'       copy-number state.}
 ##'     \item{\code{"w_baf"}}{B-allele frequency weight applied on the HMM according to the number of heterozygous markers in the window.}
 ##'     \item{\code{"CN_reliability"}}{Joint confidence score combining HMM posterior probability and BAF support
-##'       (\code{post_max × normalized_w_baf}). Ranges 0–1; windows with no BAF evidence are capped at
-##'       \code{0.25 × post_max} by default.}
+##'       (\code{post_max x normalized_w_baf}). Ranges 0-1; windows with no BAF evidence are capped at
+##'       \code{0.25 x post_max} by default.}
 ##'   }
 ##' @param nrow Integer. Number of rows passed to \code{\link[ggplot2]{facet_wrap}}
 ##'   when arranging chromosome panels. Default \code{1} places all chromosomes

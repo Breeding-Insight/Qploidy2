@@ -7,7 +7,7 @@
 call_BAF_nQuack_dosages(
   baf_vec,
   cn,
-  nq_dist = "beta",
+  nq_dist = "normal",
   het_range = c(0.05, 0.95),
   R_vec = NULL,
   max_cn = NULL,
@@ -22,8 +22,8 @@ markers in the window, not pre-filtered).}
 \item{cn}{Integer copy number for the window.}
 
 \item{nq_dist}{Distribution family string as returned by
-\code{.nquack_estimate_ploidy()} (e.g.\ \code{"beta"},
-\code{"beta-uniform"}, \code{"beta-binomial"}).}
+\code{.nquack_estimate_ploidy()} (e.g.\ \code{"normal"},
+\code{"normal-uniform"}, \code{"beta-binomial"}).}
 
 \item{het_range}{Numeric length-2 vector: lower and upper BAF boundaries
 for heterozygous markers.  Default \code{c(0.05, 0.95)}.}
@@ -46,7 +46,7 @@ returned by \code{call_BAF_dosages}.}
 \value{
 A list of class \code{"BAF_dosage_calls"} with element \code{$data},
   a \code{data.frame} with the same column layout as \code{call_BAF_dosages}:
-  \code{BAF}, \code{dosage}, \code{max_prob}, \code{dosage_0}, …,
+  \code{BAF}, \code{dosage}, \code{max_prob}, \code{dosage_0}, ...,
   \code{dosage_<cn>} (plus any padding columns up to \code{max_cn}).
 }
 \description{
@@ -57,10 +57,10 @@ obtain per-observation posterior component-membership probabilities
 }
 \details{
 nQuack mixture components correspond to heterozygous dosage peaks
-(\code{mvec} positions 1/cn, 2/cn, …, (cn-1)/cn) plus, when a uniform
+(\code{mvec} positions 1/cn, 2/cn, ..., (cn-1)/cn) plus, when a uniform
 component is present, one final column for the uniform class.  Observations
 outside \code{het_range} are considered homozygous and assigned dosage 0
-(BAF < 0.5) or \code{cn} (BAF ≥ 0.5) without involving the mixture model.
+(BAF < 0.5) or \code{cn} (BAF >= 0.5) without involving the mixture model.
 Observations inside \code{het_range} are assigned the dosage corresponding
 to \code{argmax(pir[i, 1:ncol_het])} (the uniform column, if present, is
 excluded from this argmax so that uniform-assigned observations still map to

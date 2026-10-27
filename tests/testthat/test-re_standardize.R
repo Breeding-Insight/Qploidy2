@@ -122,7 +122,6 @@ test_that("re_standardize returns a valid qploidy_standardization object", {
                                  geno.pos = fixtures$geno_pos)
   pl <- summarize_cn_mode(multi, level = "sample")
   expect_equal(as.vector(table(pl$CN_mode)), c(2,2,9))
-
 })
 
 test_that("re_standardize output contains expected columns", {

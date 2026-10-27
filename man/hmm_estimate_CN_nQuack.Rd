@@ -31,11 +31,11 @@ hmm_estimate_CN_nQuack(
   correct_scale = TRUE,
   min_het_frac = 0.01,
   het_range = c(0.05, 0.95),
-  dosage_threshold = 0.6,
+  dosage_threshold = 0,
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
   nQuack_cores = 1L,
-  nQuack_dists = NULL
+  nQuack_dists = "normal"
 )
 }
 \arguments{
@@ -63,7 +63,7 @@ hmm_estimate_CN_nQuack(
 
 \item{het_quantile}{Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.}
 
-\item{baf_weight}{Numeric. Overall weight applied to BAF emission (0–1). Default \code{0.5}.}
+\item{baf_weight}{Numeric. Overall weight applied to BAF emission (0-1). Default \code{0.5}.}
 
 \item{z_range}{Numeric. Padding added to min/max z for initial mean estimation. Default \code{NULL}.}
 
@@ -100,10 +100,11 @@ hmm_estimate_CN_nQuack(
 \item{nQuack_cores}{Integer. Number of cores to use for nQuack's internal
 parallelism (default: 1).}
 
-\item{nQuack_dists}{Character vector or \code{NULL}. Restricts which nQuack
+\item{nQuack_dists}{Character vector or \code{"normal"}. Restricts which nQuack
 mixture-model families are evaluated. Valid values are \code{"normal"},
 \code{"beta"}, and \code{"beta-binomial"} (plus their \code{"-uniform"}
-variants). \code{NULL} (default) tests all families.}
+variants). Default \code{"normal"}. Set to \code{NULL} to test all three
+families.}
 }
 \value{
 An object of class \code{hmm_CN}. Unlike \code{hmm_estimate_CN()},

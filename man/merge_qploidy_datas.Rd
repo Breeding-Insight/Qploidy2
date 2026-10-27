@@ -34,7 +34,7 @@ A named list with:
 \description{
 Combines a list of \code{qploidy_standardization} objects and (optionally) a list
 of \code{hmm_CN} objects into single merged objects. Duplicate sample names across
-batches are detected and renamed with a numeric suffix (\code{_1}, \code{_2}, …)
+batches are detected and renamed with a numeric suffix (\code{_1}, \code{_2}, ...)
 with a warning.
 }
 \details{
@@ -43,7 +43,7 @@ Sample names are gathered from \code{qploidy_standardization$data$SampleName} (a
 from \code{hmm_CN$by_window$Sample} / \code{hmm_CN$by_marker$SampleName} if
 \code{hmm_list} is provided). Any sample name that appears in more than one batch
 is renamed in every occurrence: the copy from batch \emph{i} receives the suffix
-\code{_i} (e.g.\ \code{MySample} → \code{MySample_1}, \code{MySample_2}). A
+\code{_i} (e.g.\ \code{MySample} -> \code{MySample_1}, \code{MySample_2}). A
 warning listing all affected sample names is issued.
 
 \strong{Filter aggregation.}

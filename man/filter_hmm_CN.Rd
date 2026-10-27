@@ -23,7 +23,7 @@ filter_hmm_CN(
 \item{hmm_CN}{An object of class \code{hmm_CN}.}
 
 \item{min_CN_reliability}{Numeric \[0,1\]. Minimum joint reliability score
-(HMM posterior × BAF support). Default \code{0.15}. Particularly useful
+(HMM posterior x BAF support). Default \code{0.15}. Particularly useful
 for suppressing high-confidence z-only calls on all-homozygous windows.}
 
 \item{min_post_max}{Numeric \[0,1\]. Minimum raw HMM posterior probability.

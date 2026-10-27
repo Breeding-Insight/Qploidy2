@@ -194,7 +194,7 @@ test_that("hmm_estimate_CN_nQuack returns valid hmm_CN object", {
     chr          = 1,
     cn_grid      = c(2, 3, 4, 5, 6),
     nQuack_cores = 1L,
-    verbose      = FALSE
+    verbose      = TRUE
   )
 
   expect_s3_class(res, "hmm_CN")
@@ -292,6 +292,6 @@ test_that("hmm_estimate_CN_multi with nQuack runs without error", {
   expect_true(is.data.frame(multi_res$by_window))
   expect_true(nrow(multi_res$by_window) > 0)
   expect_true(all(c("Sample", "Chr", "WindowID", "CN_call") %in% names(multi_res$by_window)))
-  expect_equal(summarize_cn_mode(multi_res)[,2], c(2,2,4,4,4,4,3,3))
+  expect_equal(summarize_cn_mode(multi_res)[,2], c(2,2,4,4,4,4,4,3,3))
 
 })

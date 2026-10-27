@@ -35,9 +35,9 @@ sample-level CN is in this vector (e.g. \code{c(2L, 4L)}). \code{NULL}
 A \code{ggplot} object.
 }
 \description{
-One tile per sample × chromosome: samples in rows ordered by sample-level
+One tile per sample x chromosome: samples in rows ordered by sample-level
 CN (ascending), chromosomes in columns.  Within each CN block samples are
-further sub-ordered as euploid → aneuploid → segmental.  Chromosomes whose
+further sub-ordered as euploid -> aneuploid -> segmental.  Chromosomes whose
 windows carry mixed CN (segmental aneuploidy) are shown in purple; others
 use the same blue/gray/red palette as \code{\link{compare_cn_track}}.
 Strong black lines separate CN blocks; medium dashed lines separate

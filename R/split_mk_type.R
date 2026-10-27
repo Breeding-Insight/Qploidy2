@@ -3,7 +3,7 @@
 #' Classifies markers according to which sub-genome(s) they carry signal in,
 #' based on signal intensity (R) observed in a set of diploid reference samples
 #' representing each sub-genome.  Works for any number of sub-genomes (A, B, C,
-#' …) and returns every combination (A, B, AB, AC, ABC, …) that is present.
+#' ...) and returns every combination (A, B, AB, AC, ABC, ...) that is present.
 #'
 #' For each marker the median R is computed within every sub-genome group.  A
 #' sub-genome is considered "active" for that marker when its median R is at
@@ -39,6 +39,8 @@
 #'   \code{"B"}, \code{"AB"}).  List items are ordered first by the number of
 #'   sub-genomes in the combination, then alphabetically.  Markers with no
 #'   active sub-genome are returned under the name \code{""} if any exist.
+#'
+#' @importFrom stats reshape
 #'
 #' @export
 split_mk_type <- function(data,
@@ -101,7 +103,7 @@ split_mk_type <- function(data,
     if (is.infinite(m)) NA_real_ else m
   })
 
-  # Active sub-genome: ratio to maximum >= threshold (NA → inactive)
+  # Active sub-genome: ratio to maximum >= threshold (NA -> inactive)
   ratio_mat  <- med_mat / row_max
   active_mat <- !is.na(ratio_mat) & ratio_mat >= threshold
   colnames(active_mat) <- subgenome_names
@@ -133,7 +135,7 @@ split_mk_type <- function(data,
     plot_df$subgenome <- factor(plot_df$subgenome, levels = subgenome_names)
 
     p <- ggplot2::ggplot(plot_df,
-                         ggplot2::aes(x = subgenome, y = .data[[R_col]])) +
+                         ggplot2::aes(x = .data[["subgenome"]], y = .data[[R_col]])) +
       ggplot2::geom_boxplot(fill        = "steelblue",
                             color       = "black",
                             outlier.shape = 21) +

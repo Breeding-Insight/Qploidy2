@@ -32,7 +32,7 @@ hmm_estimate_CN(
   outlier_alpha = 0.05,
   selected_model = NULL,
   dists = c("gaussian", "beta_binomial", "negative_binomial"),
-  bw_grid = c(0.01, 0.02, 0.03, 0.04),
+  bw_grid = c(0.01, 0.02, 0.04),
   add_uniform_grid = FALSE,
   uniform_weight_grid = c(0.01, 0.03, 0.05, 0.1, 0.15),
   param_count = NULL,
@@ -81,7 +81,7 @@ mixture before renormalization. Default FALSE.}
 
 \item{het_quantile}{Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.}
 
-\item{baf_weight}{Numeric. Overall weight applied to BAF emission (0–1). Default \code{0.5}.}
+\item{baf_weight}{Numeric. Overall weight applied to BAF emission (0-1). Default \code{0.5}.}
 
 \item{z_range}{Numeric. Padding added to min/max z for initial mean estimation. Default \code{0.2}.}
 
@@ -147,24 +147,24 @@ An object of class \code{hmm_CN}, a list with two elements:
     \item{result}{A \code{data.frame} with one row per window and columns:
       \itemize{
         \item \code{Sample}, \code{Chr}, \code{WindowID}, \code{Start}, \code{End}
-        \item \code{n_snps}, \code{n_het} – counts per window
-        \item \code{z} – mean z per window
-        \item \code{w_baf} – weight applied to the BAF emission (0–1)
-        \item \code{CN_call} – Viterbi copy-number call (factor/integer)
-        \item \code{post_max} – posterior probability of the called state
-        \item \code{post_CN<k>} – posterior probability for each state in \code{cn_grid}
+        \item \code{n_snps}, \code{n_het} - counts per window
+        \item \code{z} - mean z per window
+        \item \code{w_baf} - weight applied to the BAF emission (0-1)
+        \item \code{CN_call} - Viterbi copy-number call (factor/integer)
+        \item \code{post_max} - posterior probability of the called state
+        \item \code{post_CN<k>} - posterior probability for each state in \code{cn_grid}
       }
     }
     \item{params}{A list of fitted HMM parameters:
       \itemize{
-        \item \code{cn_grid} – copy-number states
-        \item \code{mu} – estimated z means per state
-        \item \code{sigma} – estimated z standard deviation
-        \item \code{A} – transition matrix
-        \item \code{pi0} – initial state probabilities
-        \item \code{bins} – number of BAF bins (M)
-        \item \code{bw} – BAF template bandwidth
-        \item \code{loglik} – final log-likelihood
+        \item \code{cn_grid} - copy-number states
+        \item \code{mu} - estimated z means per state
+        \item \code{sigma} - estimated z standard deviation
+        \item \code{A} - transition matrix
+        \item \code{pi0} - initial state probabilities
+        \item \code{bins} - number of BAF bins (M)
+        \item \code{bw} - BAF template bandwidth
+        \item \code{loglik} - final log-likelihood
       }
     }
   }
@@ -173,7 +173,7 @@ The \code{result} data frame is suitable for downstream plotting or merging. The
 \description{
 Aggregates SNP-level data into windows, builds BAF histograms, and fits a
 Hidden Markov Model that combines a Gaussian emission for depth/z and a
-polyploid BAF “comb” emission to infer copy number (CN) per window.
+polyploid BAF "comb" emission to infer copy number (CN) per window.
 Returns a tidy data frame with CN calls and posterior probabilities that is
 ready for plotting (e.g., with \code{\link{plot_cn_track}}) or merging across
 chromosomes/batches.
@@ -181,7 +181,7 @@ chromosomes/batches.
 \details{
 \strong{Windowing.} If \code{chr} is specified, only those chromosomes are analyzed. Windows are formed within each chromosome by grouping every \code{snps_per_window} consecutive SNPs. Windows with fewer than \code{min_snps_per_window} SNPs are removed.
 
-\strong{Emissions.} For state \code{c} (copy number), the z-emission is \eqn{\mathcal{N}(\mu_c, \sigma^2)}, where \eqn{\sigma} is a single standard deviation shared across all CN states (it is not scaled per state, even though depth variance is in reality expected to increase with copy number). The BAF emission is a multinomial log-likelihood comparing the observed BAF histogram to a state-specific template (a “comb” with peaks at \eqn{d/c}). Windows with few heterozygotes are down-weighted via \code{w_baf} (derived from \code{n_het}). The combined per-window, per-state log-likelihood is a tempered log-product, \code{llz + w_baf * llb}: the z emission always contributes fully, assuming conditional independence of z and BAF given the CN state, while the BAF emission's evidence is scaled down (tempered) by \code{w_baf} when fewer heterozygotes support it.
+\strong{Emissions.} For state \code{c} (copy number), the z-emission is \eqn{\mathcal{N}(\mu_c, \sigma^2)}, where \eqn{\sigma} is a single standard deviation shared across all CN states (it is not scaled per state, even though depth variance is in reality expected to increase with copy number). The BAF emission is a multinomial log-likelihood comparing the observed BAF histogram to a state-specific template (a "comb" with peaks at \eqn{d/c}). Windows with few heterozygotes are down-weighted via \code{w_baf} (derived from \code{n_het}). The combined per-window, per-state log-likelihood is a tempered log-product, \code{llz + w_baf * llb}: the z emission always contributes fully, assuming conditional independence of z and BAF given the CN state, while the BAF emission's evidence is scaled down (tempered) by \code{w_baf} when fewer heterozygotes support it.
 
 \strong{Numerical safety.} The implementation guards against non-finite emissions, enforces stochastic \code{A} rows, and lower-bounds \code{sigma}.
 }

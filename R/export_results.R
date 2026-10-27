@@ -1,4 +1,6 @@
-if (getRversion() >= "2.15.1") utils::globalVariables(c("CN_mode"))
+if (getRversion() >= "2.15.1") utils::globalVariables(c("CN_mode",
+  "V1", "V2", "V4", "V5", "V8", ".__w__",
+  "post_CN1", "post_CN2", "post_CN3", "post_CN4", "post_CN5", "post_CN6"))
 
 #' Summarize copy number mode and posterior probability
 #'
@@ -40,7 +42,7 @@ summarize_cn_mode <- function(df,
 
   dat <- as.data.frame(dat)
 
-  # chromosome-arm handling → create chrID.1 (Chr) and chrID.2 (1=p, 2=q)
+  # chromosome-arm handling -> create chrID.1 (Chr) and chrID.2 (1=p, 2=q)
   if (level == "chromosome-arm") {
     if (is.null(centromeres))
       stop("For level='chromosome-arm', provide `centromeres` (named numeric vector or data.frame with Chr, Centromere).")
@@ -213,13 +215,13 @@ merge_cn_summary_with_estimates <- function(hmm_summarized,
 #' Export chromosome-level copy number calls in MAPpoly-compatible format
 #'
 #' Summarizes the modal copy number per sample and chromosome from an HMM CN object and
-#' returns a wide data.frame (samples × chromosomes) suitable for use with MAPpoly.
+#' returns a wide data.frame (samples x chromosomes) suitable for use with MAPpoly.
 #'
 #' @param hmm_CN_obj An object of class `hmm_CN` as returned by `hmm_estimate_CN_multi`,
 #'   or a data.frame with columns `Sample`, `Chr`, `Start`, `End`, `CN_call`, and `post_max`.
 #'
 #' @return A data.frame with samples as rows and chromosomes as columns, where each cell
-#'   contains the modal copy number call for that sample–chromosome combination.
+#'   contains the modal copy number call for that sample-chromosome combination.
 #'
 #' @importFrom dplyr select
 #' @importFrom tidyr pivot_wider

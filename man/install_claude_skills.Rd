@@ -30,7 +30,7 @@ Two skills are installed:
 \itemize{
   \item \strong{qploidy2-input-prep}: guides input preparation from VCF,
     Axiom, or Illumina array files.
-  \item \strong{qploidy2-analysis}: covers the full analysis pipeline —
+  \item \strong{qploidy2-analysis}: covers the full analysis pipeline --
     standardization, BAF model selection, HMM copy number estimation,
     filtering, visualization, and export.
 }

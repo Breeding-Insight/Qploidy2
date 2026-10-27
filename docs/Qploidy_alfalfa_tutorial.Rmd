@@ -577,8 +577,8 @@ The two most commonly used thresholds are:
 
 ```{r}
 multi_esti_filtered <- filter_hmm_CN(multi_esti, 
-                                     min_CN_reliability = 0.25, 
-                                     min_post_max = 0.6)
+                                     min_CN_reliability = 0.05, 
+                                     min_post_max = 0.25)
 ```
 
 # Summarized plots and tables
@@ -604,14 +604,14 @@ Use the provided list to visualize specific sample type:
 
 ```{r}
 plot_karyotype(multi_esti, 
-               sample_name = types_df$aneuploid[14], color_by = "CN_reliability")
+               sample_name = types_df$by_cn$`4x`$euploid[14], color_by = "CN_reliability")
 
 # Option to remove the ghost missing chromosome:
 plot_karyotype(multi_esti, 
-               sample_name = types_df$aneuploid[14], color_by = "CN_reliability", add_ghost = FALSE)
+               sample_name = types_df$by_cn$`4x`$euploid[14], color_by = "CN_reliability", add_ghost = FALSE)
 
 plot_karyotype(multi_esti_filtered, 
-               sample_name = types_df_filtered$segmental[1], color_by = "CN_reliability")
+               sample_name = types_df$by_cn$`4x`$euploid[14], color_by = "CN_reliability")
 ```
 
 `compare_cn_track_summary()` produces a karyotype-style matrix with samples in rows and chromosomes in columns.
@@ -678,8 +678,8 @@ re_multi_esti <- hmm_estimate_CN_multi(
   cn_grid =  c(2,3,4,5,6))
 
 re_multi_esti_filtered <- filter_hmm_CN(re_multi_esti, 
-                                        min_CN_reliability = 0.25, 
-                                        min_post_max = 0.6)
+                                        min_CN_reliability = 0.05, 
+                                        min_post_max = 0.25)
 
 # CNV profiles before
 compare_cn_track(hmm_CN = multi_esti_filtered,
@@ -723,6 +723,9 @@ p <- plot_cn_track(hmm_CN = res_tweak,
 
 p$arranged
 ```
+
+The sample estimated as 6x has actually a wide variance where dosage peaks cannot be defined. If peaks have
+large variance, the CN reliability will be low and the estimation should not be trusted.
 
 Explore more parameters consulting `?hmm_estimate_CN`.
 

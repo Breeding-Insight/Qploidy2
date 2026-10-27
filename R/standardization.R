@@ -43,9 +43,9 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##'   - Chromosome: Chromosome names
 ##'   - Position: Base-pair positions on the genome
 ##'
-##' @param threshold.missing.geno Numeric (0–1). Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.
-##' @param threshold.missing.samples Numeric (0–1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed from both `data` and `genos`. Default is 1 (no filtering). Removed sample IDs are stored in `info$samples.rm.ids`.
-##' @param threshold.geno.prob Numeric (0–1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.
+##' @param threshold.missing.geno Numeric (0-1). Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.
+##' @param threshold.missing.samples Numeric (0-1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed from both `data` and `genos`. Default is 1 (no filtering). Removed sample IDs are stored in `info$samples.rm.ids`.
+##' @param threshold.geno.prob Numeric (0-1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.
 ##' @param ploidy.standardization Integer. The ploidy level of the reference panel used for standardization.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. For diploid data, this is typically 3 (corresponding to dosages 0, 1, and 2). Cannot exceed `ploidy.standardization + 1`.
 ##' @param min_samples_by_cluster Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Clusters below this count are dropped before center computation. Default is `1` (no filtering).
@@ -704,9 +704,9 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. Defaults to ploidy + 1.
 ##' @param min_samples_by_cluster Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Default is `1` (no filtering).
 ##' @param n.cores Integer. Number of cores for parallel computation. Default is 1.
-##' @param threshold.geno.prob Numeric (0–1). Minimum genotype call probability. Default is 0.5.
-##' @param threshold.missing.geno Numeric (0–1). Maximum fraction of missing datapoints per marker. Default is 0.90.
-##' @param threshold.missing.samples Numeric (0–1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed. Default is 1 (no filtering).
+##' @param threshold.geno.prob Numeric (0-1). Minimum genotype call probability. Default is 0.5.
+##' @param threshold.missing.geno Numeric (0-1). Maximum fraction of missing datapoints per marker. Default is 0.90.
+##' @param threshold.missing.samples Numeric (0-1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed. Default is 1 (no filtering).
 ##' @param out_filename Optional. Path to save the standardized dataset (CSV/TSV).
 ##' @param type Character. Data type for clustering: "intensities" (default), "counts", or "updog".
 ##' @param multidog_obj Optional. updog multidog object for cluster center estimation.

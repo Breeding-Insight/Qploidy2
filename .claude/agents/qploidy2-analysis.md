@@ -6,6 +6,8 @@ description: Step-by-step workflow for running Qploidy2: batch-effect check, sta
 
 This skill covers the full analysis pipeline after input preparation (see `qploidy2-input-prep` for creating `data`, `genos`, and `genos.pos`).
 
+See also the full narrative tutorials: `docs/Qploidy_alfalfa_tutorial.Rmd` (grid-based BAF model selection + HMM) and `docs/Qploidy2_nQuack_tutorial.Rmd` (nQuack EM-based alternative, sequencing data only).
+
 ## 1. Raw Data Quality Check
 
 Inspect raw allele intensities and heterozygosity before standardization:
@@ -143,6 +145,52 @@ head(selected_model$grid_results)
 
 Use a sample with known ploidy to validate model selection.
 
+## 4b. Alternative: nQuack EM-Based Route (sequencing data only)
+
+For sequencing-based data (WGS, DArTag, GTseq, AgriSeq) with allele read counts (`X`, `Y`, `R`), `hmm_estimate_CN_nQuack()` replaces the grid-based model selection + HMM (steps 4–5) with nQuack's EM mixture-model fitting (Normal/Beta/Beta-Binomial), selecting both ploidy and model by BIC in one call. **Not usable on intensity-based array data** (Axiom/Illumina have no read counts). Requires `remotes::install_github("mgaynor1/nQuack@updateGL")`.
+
+```r
+set.seed(42)  # allele sampling inside nQuack is stochastic — set a seed for reproducibility
+res_nq <- hmm_estimate_CN_nQuack(
+  qploidy_standarize_result = qploidy_std,
+  sample_id                 = "SampleName",
+  cn_grid                   = c(2, 3, 4, 5, 6),  # must be a subset of 2:6 — no CN=1/LOH, no template fallback
+  nQuack_cores              = 1,        # inner parallelism within a sample
+  nQuack_dists              = "normal", # "normal" (default, fastest) | "beta" | "beta-binomial" | NULL (all, slower)
+  min_snps_per_window       = 50,
+  verbose                   = TRUE
+)
+
+plot_karyotype(res_nq, sample_name = "SampleName", nrow = 2, color_by = "post_max_CN")
+p <- plot_cn_track(hmm_CN = res_nq, data = data, geno.pos = geno.pos, sample_id = "SampleName",
+                   show_window_lines = FALSE, z_by_mean = TRUE)
+p$arranged
+```
+
+For all samples, `hmm_estimate_CN_multi()` auto-dispatches to the nQuack route whenever `nQuack_cores` and/or `nQuack_dists` are passed via `...`:
+
+```r
+multi_esti_nq <- hmm_estimate_CN_multi(
+  qploidy_standarize_result = qploidy_std,
+  sample_ids                = "all",
+  n_cores                   = 3,             # outer parallelism across samples
+  cn_grid                   = c(2, 3, 4, 5, 6),
+  nQuack_dists              = "normal",
+  nQuack_cores              = 1              # prefer n_cores for parallelism; keep this at 1 on most machines
+)
+```
+
+**Grid vs. nQuack:**
+
+| Feature | Grid (`hmm_estimate_CN()`) | nQuack (`hmm_estimate_CN_nQuack()`) |
+|---|---|---|
+| Data requirement | Ratio/BAF only | Read counts (X, Y, R) — sequencing only |
+| Speed | Faster | Slower |
+| CN range | Any (incl. 0/1/LOH) | 2–6 only, no template fallback |
+| Reproducibility | Deterministic | Stochastic allele sampling — set `set.seed()` |
+
+To inspect or export the nQuack input matrix directly (e.g. to call `nQuack::quackNormal/quackBeta/quackBetaBinom` yourself), use `convert2nQuack(qploidy_standardization_object = qploidy_std)`.
+
 ## 5. HMM Copy Number Estimation — Single Sample
 
 ```r
@@ -213,6 +261,8 @@ p_summ <- compare_cn_track_summary(
 )
 p_summ
 ```
+
+`types_df$by_cn` groups sample IDs by sample-level CN and category (e.g. `types_df$by_cn$\`4x\`$euploid`), useful for picking representative samples to inspect with `plot_karyotype()`. Pass `add_ghost = FALSE` to drop a fully-missing chromosome placeholder from the plot.
 
 ## 9. Optional: Re-standardization
 
@@ -323,11 +373,21 @@ plot_raw()                          # raw data QC
 pca_plot()                          # batch effect check
 standardize()                       # standardize intensities
 plot_geno_by_marker()               # inspect standardization
-select_best_baf_model()             # choose BAF model (one sample)
+select_best_baf_model()             # choose BAF model (one sample); or hmm_estimate_CN_nQuack() for seq-data EM route
 hmm_estimate_CN_multi()             # run HMM for all samples
+plot_karyotype()                    # visualize per-chromosome CN calls for biological interpretation
+plot_cn_track()                     # detailed BAF/z-score/CN diagnostic track for a single sample
+compare_cn_track()                  # multi-sample CNV profile grid
 filter_hmm_CN()                     # quality filter
 count_types()                       # summarize euploid/aneuploid/segmental
+compare_cn_track_summary()          # population-level karyotype matrix (samples x chromosomes)
 re_standardize()  [optional]        # improve with euploid reference
 call_hmm_dosages()                  # call per-locus dosages
 export_VCF() / write_hmm_CN()       # export results
 ```
+
+Among the visualization functions, these four are particularly useful and complementary:
+- `plot_karyotype()` gives a genome-wide, per-chromosome view of called copy number for one sample (colorable by `post_max_CN`, `w_baf`, `CN_reliability`, or `dosage`) — the primary way to biologically interpret aneuploidy/segmental results.
+- `plot_cn_track()` overlays BAF, z-score, CN calls, and BAF distribution per window for one sample — the primary diagnostic to judge *why* the HMM made a call and whether it should be trusted or refined (see `CN_reliability`).
+- `compare_cn_track()` tiles CNV profiles for many samples at once — useful for spotting outliers across the population.
+- `compare_cn_track_summary()` condenses the whole population into a samples × chromosomes karyotype matrix, grouped by ploidy category — useful for a high-level population overview.
