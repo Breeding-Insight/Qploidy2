@@ -498,18 +498,16 @@ be reliably distinguished from highly inbred lines.
 On samples with very wide BAF distributions (high allele-frequency variance, often
 due to low sequencing depth or complex rearrangements), nQuack's fixed-mean normal
 mixture model may favour a higher ploidy by BIC simply because more components
-absorb variance better. Qploidy2 applies an internal variance sanity check: if
-the fitted sigma of the diploid normal model exceeds 0.10, the nQuack call is
-flagged as unreliable and the HMM falls back to the template `exp_ploidy`. A
-warning is printed when this override fires:
+absorb variance better. There is currently no reliable automated safeguard against
+this: a one-component "diploid sigma" check was previously used to flag and force
+such calls to diploid, but that check could not distinguish genuine noise from real
+separation between dosage peaks (a noiseless tetraploid sample, for example, can
+produce a sigma well above the override's threshold purely from its three distinct
+peaks at 0.25/0.5/0.75) and has been removed.
 
-```
->> nQuack: diploid sigma = 0.1823 > 0.10 threshold; BAF variance too high to
-   distinguish ploidy reliably. Overriding BIC winner ('hexaploid') to diploid.
-```
-
-If you see this warning frequently, consider improving sequencing depth or
-reviewing the standardization quality for those samples.
+If you suspect an inflated ploidy call, inspect the sample's BAF distribution
+directly (e.g. with `plot_baf_hist()`) and consider improving sequencing depth or
+reviewing the standardization quality for that sample.
 
 ## Reproducibility
 

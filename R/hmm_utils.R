@@ -179,14 +179,17 @@ viterbi_bidi <- function(ll_em, logA, logpi0) {
 #' @keywords internal
 #' @noRd
 worker <- function(sid, obj, dots, data = NULL, geno.pos = NULL, use_values = c("BAF", "zscore")) {
+  # Route to hmm_estimate_CN_nQuack when nQuack-specific params are present in dots
+  nq_params <- c("nQuack_cores", "nQuack_dists")
+  fn <- if (any(nq_params %in% names(dots))) hmm_estimate_CN_nQuack else hmm_estimate_CN
   collected_warnings <- character(0)
   result <- withCallingHandlers(
     tryCatch({
       if (!is.null(obj)) {
-        do.call(hmm_estimate_CN,
+        do.call(fn,
                 c(list(qploidy_standarize_result = obj, sample_id = sid, use_values = use_values), dots))
       } else {
-        do.call(hmm_estimate_CN,
+        do.call(fn,
                 c(list(qploidy_standarize_result = NULL, sample_id = sid, data = data, geno.pos = geno.pos, use_values = use_values), dots))
       }
     }, error = function(e) {

@@ -8,6 +8,7 @@ convert2nQuack(
   qploidy_standardization_object,
   min_depth = 10L,
   max_geno = NULL,
+  het_range = c(0.1, 0.9),
   seed = 123L,
   from_standardized_baf = TRUE
 )
@@ -26,7 +27,13 @@ a site to be retained. Default is \code{10}.}
 
 \item{max_geno}{Integer. Maximum genotype dosage considered homozygous
 (inclusive). Sites where \code{geno == 0} or \code{geno == max_geno} are
-filtered as homozygous. Default is \code{4} (tetraploid).}
+filtered as homozygous. Default is \code{NULL}, in which case it is
+derived from \code{qploidy_standardization_object$info["ploidy.standardization"]}.}
+
+\item{het_range}{Numeric vector of length 2. When \code{geno} is \code{NA}
+for a site, the site is kept as heterozygous only if its \code{ratio}
+falls within \code{[het_range[1], het_range[2]]}. Default is
+\code{c(0.1, 0.9)}.}
 
 \item{seed}{Integer. Random seed for reproducibility of the random allele selection. Default is \code{123L}.}
 
@@ -62,8 +69,12 @@ Filtering applied per site (per sample):
 \enumerate{
   \item Sites with \code{ratio == 0} or \code{ratio == 1} (homozygous by
     ratio) are removed.
-  \item Sites with \code{geno == 0} or \code{geno == max_geno}
-    (homozygous by genotype call) are removed.
+  \item For sites with a valid \code{geno} call: sites where
+    \code{geno == 0} or \code{geno == max_geno} (homozygous by genotype
+    call) are removed.
+  \item For sites where \code{geno} is \code{NA}: sites whose
+    \code{ratio} falls outside \code{het_range} are removed (treated as
+    homozygous by allele frequency).
   \item Sites with total depth \code{R < min_depth} or with a zero count on
     the randomly chosen allele are removed.
 }

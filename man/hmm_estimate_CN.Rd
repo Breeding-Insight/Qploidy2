@@ -44,10 +44,6 @@ hmm_estimate_CN(
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
   cn0_background_frac = 0,
-  nQuack_EM = FALSE,
-  nQuack_cores = 1L,
-  nQuack_dists = NULL,
-  nQuack_exp_ploidy = FALSE,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 )
@@ -132,35 +128,6 @@ mixture before renormalization. Default FALSE.}
 \item{hom_z_sigma_inflate}{Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.}
 
 \item{cn0_background_frac}{Numeric in [0, 1]. Array probes emit residual background signal even at CN=0, which elevates the z-score above the linear extrapolation. This parameter shifts the initial \code{mu[0]} upward by \code{cn0_background_frac * (mu[1] - mu[0])}, placing it at the expected background-elevated z rather than the theoretical zero-signal floor. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0} (no background correction; suitable for sequencing data).}
-
-\item{nQuack_EM}{Logical. If \code{TRUE}, use the \pkg{nQuack} package to estimate \code{exp_ploidy} from
-whole-sample read-coverage data (total depth and one randomly chosen allele count per heterozygous site).
-The three mixture-model distributions shipped with nQuack (\code{quackNormal}, \code{quackBeta},
-\code{quackBetaBinom}) are each fitted and the winner by BIC is used to determine the ploidal level, which
-becomes \code{exp_ploidy} for the HMM run. Per-window BAF likelihoods are also computed via nQuack's own
-EM (\code{.nquack_baf_likelihoods_by_window}), not the template method; there is no template fallback for
-CN states nQuack cannot model. Because nQuack only models CN 2:6, \code{cn_grid} (excluding \code{0}) must
-be a subset of \code{2:6} when \code{nQuack_EM = TRUE}; other values (including the default's CN=1) raise
-an error. Use \code{nQuack_exp_ploidy} instead if you need CN=1/LOH or ploidies outside 2:6. Requires
-nQuack to be installed (\code{remotes::install_github("mgaynor1/nQuack")}) and
-the input data to contain columns \code{R} (total depth), \code{X} (ref allele count), \code{Y} (alt
-allele count), \code{ratio}, and \code{geno}. Only takes effect when \code{selected_model} is \code{NULL}
-and \code{exp_ploidy} is \code{NA}/\code{NULL}. Default \code{FALSE}.}
-
-\item{nQuack_dists}{Character vector or \code{NULL}. Restricts which nQuack mixture-model
-families are evaluated when \code{nQuack_EM = TRUE}. Valid values are \code{"normal"},
-\code{"beta"}, and \code{"beta-binomial"}. Both the base family and its
-\code{+uniform} variant are automatically tested for each entry. If \code{NULL} (default),
-all three families are evaluated and the best by BIC is selected. Example:
-\code{nQuack_dists = "normal"} tests only Normal and Normal+Uniform.}
-
-\item{nQuack_exp_ploidy}{Logical. If \code{TRUE}, use the \pkg{nQuack} package to
-estimate \code{exp_ploidy} only (same as \code{nQuack_EM}), but then use the
-template BAF model (\code{select_best_baf_model}) for per-window BAF likelihoods
-and dosage assignment. This is a middle-ground option: nQuack provides a more
-robust ploidy estimate while the template method handles the window-level inference.
-Requires the same input columns as \code{nQuack_EM}. Ignored when \code{nQuack_EM
-= TRUE}. Default \code{FALSE}.}
 
 \item{rerun_overall_ploidy}{Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.}
 
