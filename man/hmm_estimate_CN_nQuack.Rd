@@ -27,15 +27,15 @@ hmm_estimate_CN_nQuack(
   exp_ploidy = NA,
   rm_outliers = TRUE,
   outlier_alpha = 0.05,
-  selected_model = NULL,
   correct_scale = TRUE,
   min_het_frac = 0.01,
   het_range = c(0.05, 0.95),
   dosage_threshold = 0,
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
-  nQuack_cores = 1L,
-  nQuack_dists = "normal"
+  nQuack_dists = "normal",
+  nQuack_type = "fixed",
+  nQuack_uniform = 0
 )
 }
 \arguments{
@@ -83,8 +83,6 @@ hmm_estimate_CN_nQuack(
 
 \item{outlier_alpha}{Numeric. Alpha threshold for outlier removal in z-scores. Default \code{0.05}.}
 
-\item{selected_model}{Optional. A list with a \code{best$best_cn} element giving a previously confirmed/trusted ploidy (e.g., the result of a prior call to this function's internal nQuack ploidy estimation). When supplied, nQuack skips the ploidy search and fits distributions directly for that known ploidy. If \code{NULL} (default), nQuack searches for the best-fitting ploidy.}
-
 \item{correct_scale}{Logical. If \code{TRUE} (default), the BAF log-likelihood is corrected by the number of markers with valid BAF values in each window, so that windows with different numbers of markers contribute equally to the combined emission. Prevents windows with many markers from dominating the HMM via the BAF term alone.}
 
 \item{min_het_frac}{Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded during nQuack BAF model selection and per-window likelihood computation, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default \code{0.01}.}
@@ -97,14 +95,23 @@ hmm_estimate_CN_nQuack(
 
 \item{hom_z_sigma_inflate}{Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.}
 
-\item{nQuack_cores}{Integer. Number of cores to use for nQuack's internal
-parallelism (default: 1).}
+\item{nQuack_dists}{Character scalar naming the single nQuack mixture-model
+family to evaluate: one of \code{"normal"} (default), \code{"beta"}, or
+\code{"beta-binomial"}. Only one family can be specified: nQuack's
+BIC/LL values are not comparable across distribution families, so testing
+several and picking the lowest BIC is not statistically valid. If you need
+to choose a family, follow nQuack's guidelines and validate candidate
+families on samples with known ploidy first, then pass that single
+family here.}
 
-\item{nQuack_dists}{Character vector or \code{"normal"}. Restricts which nQuack
-mixture-model families are evaluated. Valid values are \code{"normal"},
-\code{"beta"}, and \code{"beta-binomial"} (plus their \code{"-uniform"}
-variants). Default \code{"normal"}. Set to \code{NULL} to test all three
-families.}
+\item{nQuack_type}{Character scalar: the nQuack EM type to fit, one of
+\code{"fixed"} (default, recommended), \code{"fixed_2"}, or
+\code{"fixed_3"}. BIC/LL are not comparable across types, so only one can
+be evaluated per call.}
+
+\item{nQuack_uniform}{Integer, \code{0} (default) or \code{1}. If \code{1},
+an additional uniform mixture component is included in the nQuack model
+(\code{distribution}\code{-uniform}); if \code{0}, it is omitted.}
 }
 \value{
 An object of class \code{hmm_CN}. Unlike \code{hmm_estimate_CN()},

@@ -31,6 +31,45 @@ The `plot_raw` output shows (top to bottom):
 
 **Check heterozygosity:** Samples with < 5% heterozygosity are treated as haploid (CN = 1) and cannot be distinguished from inbred lines.
 
+### Special case: Sex chromosome analysis for sex determination
+
+When the goal is to classify samples as male or female using markers unique to the X chromosome (or another sex chromosome), **use raw data directly — skip standardization**. This applies to **sequencing data only** (WGS, DArTag, GTseq, AgriSeq), and only when `plot_raw` confirms that the raw data already shows well-defined peaks — **this must be verified before proceeding without standardization**.
+
+The rationale: in many dioecious species, males have one X copy (hemizygous, 1×) and females have two X copies (2×). This expected difference in copy number between sexes makes it impossible to choose a single ploidy for standardization — standardizing to one ploidy would distort the signal for the other sex. Raw allele ratios directly reflect the X-chromosome dosage difference, which is already interpretable in sequencing data when peaks are clear.
+
+**Recommended workflow for sex determination:**
+
+1. Filter `data` and `genos.pos` to markers on the X chromosome (or sex-specific scaffold) only:
+
+```r
+x_markers <- genos.pos$MarkerName[genos.pos$Chromosome == "X"]  # adapt chromosome label
+data_x    <- data[data$MarkerName %in% x_markers, ]
+```
+
+2. Use `madc2vcf_qploidy2_v1.21.0.R` (or equivalent conversion script) to prepare the input from raw counts for X-only markers.
+
+3. Run `plot_raw()` on the X-only dataset and confirm that males and females already separate into distinct peaks in the raw data. **Only proceed without standardization if peaks are well defined.**
+
+```r
+plot_raw(data = data_x, geno.pos = genos.pos, sample = samples[1])
+```
+
+4. Run `hmm_estimate_CN_multi()` on the raw (non-standardized) data using `use_values = c("ratio", "R")` to tell the function to use raw ratio and depth values. Set `cn_grid` to include all copy numbers expected in the dataset — not just 1 and 2, since polyploid samples may carry more X copies:
+
+```r
+multi_esti_sex <- hmm_estimate_CN_multi(
+  qploidy_standarize_result = qploidy_std,  # object built from raw data
+  sample_ids                = "all",
+  n_cores                   = 2,
+  cn_grid                   = c(1, 2, 3, 4),  # adjust to expected ploidy range
+  use_values                = c("ratio", "R")
+)
+```
+
+5. Classify sex based on the modal X-chromosome CN call per sample (e.g., CN = 1 → male, CN = 2 → female for diploids; higher CN expected for polyploids).
+
+> **Note:** This raw-data approach is valid for sequencing data **only when `plot_raw` confirms clear peaks**. It is **not appropriate for array data** (Axiom/Illumina), where standardization is always required before copy number inference.
+
 ## 2. Check for Batch Effects
 
 Batch effects arise from different DNA extraction dates, plate runs, or library preparation protocols. **Always check before standardizing.**
@@ -155,8 +194,9 @@ res_nq <- hmm_estimate_CN_nQuack(
   qploidy_standarize_result = qploidy_std,
   sample_id                 = "SampleName",
   cn_grid                   = c(2, 3, 4, 5, 6),  # must be a subset of 2:6 — no CN=1/LOH, no template fallback
-  nQuack_cores              = 1,        # inner parallelism within a sample
-  nQuack_dists              = "normal", # "normal" (default, fastest) | "beta" | "beta-binomial" | NULL (all, slower)
+  nQuack_dists              = "normal",  # "normal" (default) | "beta" | "beta-binomial" — exactly one, BIC isn't comparable across families
+  nQuack_type               = "fixed",   # "fixed" (default, recommended) | "fixed_2" | "fixed_3"
+  nQuack_uniform            = 0,         # 0 (default, no uniform mixture) | 1 (include a uniform mixture component)
   min_snps_per_window       = 50,
   verbose                   = TRUE
 )
@@ -167,16 +207,15 @@ p <- plot_cn_track(hmm_CN = res_nq, data = data, geno.pos = geno.pos, sample_id 
 p$arranged
 ```
 
-For all samples, `hmm_estimate_CN_multi()` auto-dispatches to the nQuack route whenever `nQuack_cores` and/or `nQuack_dists` are passed via `...`:
+For all samples, `hmm_estimate_CN_multi()` auto-dispatches to the nQuack route whenever `nQuack_dists`, `nQuack_type`, and/or `nQuack_uniform` are passed via `...`:
 
 ```r
 multi_esti_nq <- hmm_estimate_CN_multi(
   qploidy_standarize_result = qploidy_std,
   sample_ids                = "all",
-  n_cores                   = 3,             # outer parallelism across samples
+  n_cores                   = 3,             # parallelism across samples
   cn_grid                   = c(2, 3, 4, 5, 6),
-  nQuack_dists              = "normal",
-  nQuack_cores              = 1              # prefer n_cores for parallelism; keep this at 1 on most machines
+  nQuack_dists              = "normal"
 )
 ```
 
@@ -189,7 +228,7 @@ multi_esti_nq <- hmm_estimate_CN_multi(
 | CN range | Any (incl. 0/1/LOH) | 2–6 only, no template fallback |
 | Reproducibility | Deterministic | Stochastic allele sampling — set `set.seed()` |
 
-To inspect or export the nQuack input matrix directly (e.g. to call `nQuack::quackNormal/quackBeta/quackBetaBinom` yourself), use `convert2nQuack(qploidy_standardization_object = qploidy_std)`.
+To inspect or export the nQuack input matrix directly (e.g. to call `nQuack::bestquack()` yourself), use `convert2nQuack(qploidy_standardization_object = qploidy_std)`.
 
 ## 5. HMM Copy Number Estimation — Single Sample
 

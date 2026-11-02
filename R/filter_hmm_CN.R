@@ -136,6 +136,8 @@ filter_hmm_CN <- function(hmm_CN,
 #' @param hmm_CN  An object of class \code{hmm_CN}.
 #' @param chromosomes  Optional character vector. If supplied, only these
 #'   chromosomes are used for classification.
+#' @param samplesID  Optional character vector of sample IDs. If supplied,
+#'   only these samples are used for classification.
 #'
 #' @return Invisibly returns a named list.  The top-level names are
 #'   \code{"euploid"}, \code{"aneuploid"}, and \code{"segmental"}, each
@@ -145,14 +147,16 @@ filter_hmm_CN <- function(hmm_CN,
 #'
 #' @importFrom dplyr group_by summarise mutate left_join n_distinct
 #' @export
-count_types <- function(hmm_CN, chromosomes = NULL) {
+count_types <- function(hmm_CN, chromosomes = NULL, samplesID = NULL) {
 
   stopifnot(inherits(hmm_CN, "hmm_CN"))
   bw <- hmm_CN$by_window
 
   if (!is.null(chromosomes))
     bw <- bw[bw$Chr %in% chromosomes, ]
-  if (nrow(bw) == 0) stop("No data remaining after chromosome filter.")
+  if (!is.null(samplesID))
+    bw <- bw[bw$Sample %in% samplesID, ]
+  if (nrow(bw) == 0) stop("No data remaining after chromosome/sample filter.")
 
   # NA-safe mode: ignores NA values; returns NA_integer_ when all values are NA
   .mode <- function(x) {

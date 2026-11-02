@@ -304,25 +304,23 @@ convert2nQuack <- function(qploidy_standardization_object,
 # 1. Resolve BAF frequency column (baf preferred; ratio fallback).
 # 2. Apply depth filter (R >= min_depth).
 # 3. Apply het-range filter (het_range) to strip homozygous flanking sites --
-#    this is the primary guard before passing data to quackBeta/quackBetaBinom.
+#    this is the primary guard before passing data to bestquack().
 # 4. Build xm = cbind(R, allele_count), randomly flipping each site to its ref
 #    or alt count (P=0.5) to keep the BAF distribution symmetric for nQuack;
 #    nQuack divides col2/col1 internally.
 # 5. Derive ploidy name vector from cn_grid (2:6 only); warn for out-of-range.
-# 6. Fit quackNormal / quackBeta / quackBetaBinom; select the global minimum
-#    BIC across every evaluated (distribution, type, mixture) combination;
+# 6. Fit nQuack::bestquack() for the requested (distribution, type, uniform)
+#    combination; select the minimum BIC across the requested mixtures;
 #    map the winning mixture name to an integer CN.
 # ---------------------------------------------------------------------------
 #' @keywords internal
 .nquack_estimate_ploidy <- function(d, sample_id, cn_grid,
                                     baf_col          = "baf",
-                                    selected_model   = NULL,
-                                    nQuack_cores     = 1L,
                                     het_range        = c(0.05, 0.95),
-                                    dosage_threshold = 0,
                                     min_depth        = 10L,
-                                    fixed_dist       = NULL,
-                                    allowed_dists    = NULL,
+                                    distribution     = "normal",
+                                    type             = "fixed",
+                                    uniform          = 0,
                                     verbose          = TRUE) {
   if (!requireNamespace("nQuack", quietly = TRUE)) {
     stop("nQuack_EM = TRUE requires the 'nQuack' package. Install with:\n  remotes::install_github(\"mgaynor1/nQuack\")")
@@ -375,7 +373,7 @@ convert2nQuack <- function(qploidy_standardization_object,
   # --- 3. Primary het-range filter --------------------------------------
   # Strip homozygous flanking sites before model fitting.
   # This mirrors het_range used elsewhere in hmm_estimate_CN and is
-  # essential to prevent quackBeta from failing at initial parameters.
+  # essential to prevent the beta-family fits from failing at initial parameters.
   hr_keep <- xi_depth >= het_range[1L] & xi_depth <= het_range[2L]
   xi_het  <- xi_depth[hr_keep]
   R_het   <- R_depth[hr_keep]
@@ -422,80 +420,43 @@ convert2nQuack <- function(qploidy_standardization_object,
   vmsg("nQuack mixtures: %s", verbose = verbose, level = 1, type = ">>",
        paste(nQuack_mixtures, collapse = ", "))
 
-  # --- 6. Fit quackNormal / quackBeta / quackBetaBinom ------------------
-  # If fixed_dist is set (second pass reusing first-pass winner), only run that distribution.
-  # fixed_dist is the full out_nq$distribution value e.g. "beta-uniform", "normal", "beta-binomial"
-  # Gate each quack* call on whether fixed_dist (if set) matches that family.
-  fixed_base    <- if (!is.null(fixed_dist)) sub("-uniform$", "", fixed_dist) else NULL
-  # allowed_dists: user-supplied restriction on which families to evaluate
-  # e.g. c("normal") -> only Normal/Normal+Uniform; NULL -> all three families
-  allowed_lo <- if (!is.null(allowed_dists)) tolower(trimws(allowed_dists)) else NULL
-  run_normal    <- (is.null(fixed_base) || fixed_base == "normal") &&
-                   (is.null(allowed_lo)  || "normal" %in% allowed_lo)
-  run_beta      <- (is.null(fixed_base) || fixed_base == "beta") &&
-                   (is.null(allowed_lo)  || "beta" %in% allowed_lo)
-  run_betabinom <- (is.null(fixed_base) || fixed_base == "beta-binomial") &&
-                   (is.null(allowed_lo)  || "beta-binomial" %in% allowed_lo)
-  if (!run_normal && !run_beta && !run_betabinom)
-    stop(sprintf(
-      paste0("nQuack_EM = TRUE: nQuack_dists = c(%s) leaves no distribution to evaluate. ",
-             "Valid values: 'normal', 'beta', 'beta-binomial'."),
-      paste(dQuote(allowed_dists), collapse = ", ")
-    ))
-  if (!is.null(allowed_dists))
-    vmsg("nQuack: restricting distributions to: %s",
-         verbose = verbose, level = 1, type = ">>",
-         paste(intersect(allowed_lo, c("normal","beta","beta-binomial")), collapse = ", "))
-  if (!is.null(fixed_dist))
-    vmsg("nQuack: reusing winning distribution from first pass: %s",
-         verbose = verbose, level = 1, type = ">>", fixed_dist)
-  out_nq <- tryCatch({
-    out_parts <- list()
-    # quack*() always internally fits all three types (fixed/fixed_2/fixed_3);
-    # fixed_2/fixed_3 can hit degenerate near-zero-variance solutions and emit
-    # "NaNs produced" warnings even though those rows are discarded below
-    # (only type == "fixed" is used), so they are suppressed here.
-    if (run_normal)
-      out_parts$normal   <- suppressWarnings(nQuack::quackNormal(xm = xm_het, samplename = sample_id,
-                                                cores = nQuack_cores, parallel = (nQuack_cores > 1L),
-                                                verbose = FALSE))
-    if (run_beta)
-      out_parts$beta     <- suppressWarnings(nQuack::quackBeta(xm = xm_het, samplename = sample_id,
-                                              cores = nQuack_cores, parallel = (nQuack_cores > 1L),
-                                              verbose = FALSE))
-    if (run_betabinom)
-      out_parts$betabinom <- suppressWarnings(nQuack::quackBetaBinom(xm = xm_het, samplename = sample_id,
-                                                    cores = nQuack_cores, parallel = (nQuack_cores > 1L),
-                                                    verbose = FALSE))
-  out_all <- do.call(rbind, out_parts)
-  # Per nQuack's own documentation (?quackit): BIC/LL are only comparable
-  # *within* a given (distribution, type) combination, never across types.
-  # "fixed" (only alpha/mixing-proportions estimated; means and variance
-  # pinned at theoretical values) is the most constrained/stable type - unlike
-  # "fixed_2"/"fixed_3" (which also estimate variance), it cannot degenerate
-  # into a near-zero-variance boundary solution. That degeneracy is exactly
-  # what the "NaNs produced" warnings from emstepBBU indicate, and it can make
-  # fixed_2/fixed_3 BIC values spuriously very negative (artificially
-  # "winning"), especially for beta-binomial with few het sites. Restricting
-  # to a single type keeps the cross-distribution BIC comparison valid.
-  out_all[out_all$type == "fixed", ]
+  # --- 6. Fit via nQuack::bestquack() ------------------------------------
+  # bestquack() fits exactly one (distribution, type, uniform) combination,
+  # which is what keeps its BIC/LL comparable: nQuack's own documentation
+  # states BIC/LL are not comparable across distributions, across fixed /
+  # fixed_2 / fixed_3 types, or across uniform/non-uniform mixtures.
+  valid_dists <- c("normal", "beta", "beta-binomial")
+  if (length(distribution) != 1L || !tolower(trimws(distribution)) %in% valid_dists)
+    stop(sprintf("nQuack_EM = TRUE: distribution must be one of %s.",
+                paste(sQuote(valid_dists, q = FALSE), collapse = ", ")))
+  valid_types <- c("fixed", "fixed_2", "fixed_3")
+  if (length(type) != 1L || !tolower(trimws(type)) %in% valid_types)
+    stop(sprintf("nQuack_EM = TRUE: type must be one of %s.",
+                paste(sQuote(valid_types, q = FALSE), collapse = ", ")))
+  if (length(uniform) != 1L || !uniform %in% c(0, 1))
+    stop("nQuack_EM = TRUE: uniform must be 0 or 1.")
 
+  vmsg("nQuack: evaluating distribution = %s, type = %s, uniform = %d",
+       verbose = verbose, level = 1, type = ">>", distribution, type, uniform)
+
+  out_nq <- tryCatch({
+    # fixed_2/fixed_3 can hit degenerate near-zero-variance solutions and emit
+    # "NaNs produced" warnings; suppressed here since "fixed" is the default
+    # and recommended type (see @param type).
+    suppressWarnings(nQuack::bestquack(
+      xm           = xm_het,
+      distribution = distribution,
+      type         = type,
+      uniform      = uniform,
+      mixtures     = nQuack_mixtures,
+      samplename   = sample_id,
+      verbose      = FALSE
+    ))
   }, error = function(e) {
     stop(sprintf("nQuack_EM = TRUE: nQuack model fitting failed: %s", conditionMessage(e)))
   })
 
-  # --- 7. Select best model by BIC across all evaluated models ----------
-  # quackit() only ranks models WITHIN each distribution x type group (its
-  # source loops over unique(distribution) and unique(type), picking a local
-  # winner per group) - it never returns an overall cross-family winner.
-  # Taking winnerBIC[1L] from it just returns the first group's local winner
-  # (the Normal/fixed row whenever Normal is evaluated), regardless of every
-  # other fit. out_nq has already been restricted to type == "fixed" above
-  # (BIC is only comparable within a fixed type per nQuack's own docs), so the
-  # correct cross-family rule here is simply the global minimum BIC across
-  # every evaluated (distribution, mixture) combination for the requested
-  # mixtures - this also guarantees ploidy and distribution are read from the
-  # exact same winning row.
+  # --- 7. Select best ploidy by BIC within the evaluated combination -----
   candidates <- out_nq[out_nq$mixture %in% nQuack_mixtures & is.finite(out_nq$BIC), ]
   if (nrow(candidates) == 0L)
     stop("nQuack_EM = TRUE: no finite BIC values available across the evaluated nQuack models.")
@@ -763,20 +724,27 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #' @param exp_ploidy Numeric. Expected ploidy value. If \code{NA} or \code{NULL}, it is estimated by nQuack's global ploidy fit (or, if that fails, set to the middle value of \code{cn_grid}'s nQuack-supported range). Default \code{NA}.
 #' @param rm_outliers Logical. If \code{TRUE}, remove outliers from z-scores before HMM fitting. Default \code{TRUE}.
 #' @param outlier_alpha Numeric. Alpha threshold for outlier removal in z-scores. Default \code{0.05}.
-#' @param selected_model Optional. A list with a \code{best$best_cn} element giving a previously confirmed/trusted ploidy (e.g., the result of a prior call to this function's internal nQuack ploidy estimation). When supplied, nQuack skips the ploidy search and fits distributions directly for that known ploidy. If \code{NULL} (default), nQuack searches for the best-fitting ploidy.
 #' @param correct_scale Logical. If \code{TRUE} (default), the BAF log-likelihood is corrected by the number of markers with valid BAF values in each window, so that windows with different numbers of markers contribute equally to the combined emission. Prevents windows with many markers from dominating the HMM via the BAF term alone.
 #' @param min_het_frac Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded during nQuack BAF model selection and per-window likelihood computation, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default \code{0.01}.
 #' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.05, 0.95)}). Used by the \code{min_het_frac} filter and to strip homozygous flanking sites before nQuack fitting.
 #' @param dosage_threshold Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.
 #' @param z_no_baf_scale Numeric in [0,1]. Floor weight applied to \code{w_baf} when computing \code{CN_reliability} for windows with no BAF support (\code{w_baf == 0}). A value of 0 means z-only calls have \code{CN_reliability = 0}; 0.25 (default) allows z-only calls to reach at most 25\% of \code{post_max}. Does not affect the HMM emission or CN calling. Applies only when \code{z_only = FALSE}.
 #' @param hom_z_sigma_inflate Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.
-#' @param nQuack_cores Integer. Number of cores to use for nQuack's internal
-#'   parallelism (default: 1).
-#' @param nQuack_dists Character vector or \code{"normal"}. Restricts which nQuack
-#'   mixture-model families are evaluated. Valid values are \code{"normal"},
-#'   \code{"beta"}, and \code{"beta-binomial"} (plus their \code{"-uniform"}
-#'   variants). Default \code{"normal"}. Set to \code{NULL} to test all three
-#'   families.
+#' @param nQuack_dists Character scalar naming the single nQuack mixture-model
+#'   family to evaluate: one of \code{"normal"} (default), \code{"beta"}, or
+#'   \code{"beta-binomial"}. Only one family can be specified: nQuack's
+#'   BIC/LL values are not comparable across distribution families, so testing
+#'   several and picking the lowest BIC is not statistically valid. If you need
+#'   to choose a family, follow nQuack's guidelines and validate candidate
+#'   families on samples with known ploidy first, then pass that single
+#'   family here.
+#' @param nQuack_type Character scalar: the nQuack EM type to fit, one of
+#'   \code{"fixed"} (default, recommended), \code{"fixed_2"}, or
+#'   \code{"fixed_3"}. BIC/LL are not comparable across types, so only one can
+#'   be evaluated per call.
+#' @param nQuack_uniform Integer, \code{0} (default) or \code{1}. If \code{1},
+#'   an additional uniform mixture component is included in the nQuack model
+#'   (\code{distribution}\code{-uniform}); if \code{0}, it is omitted.
 #'
 #' @return An object of class \code{hmm_CN}. Unlike \code{hmm_estimate_CN()},
 #'   \code{params$bins} is always \code{NULL} and \code{params$bw} is always
@@ -806,15 +774,15 @@ hmm_estimate_CN_nQuack <- function(
   exp_ploidy = NA,
   rm_outliers = TRUE,
   outlier_alpha = 0.05,
-  selected_model = NULL,
   correct_scale = TRUE,
   min_het_frac = 0.01,
   het_range = c(0.05, 0.95),
   dosage_threshold = 0,
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
-  nQuack_cores = 1L,
-  nQuack_dists = "normal"
+  nQuack_dists = "normal",
+  nQuack_type = "fixed",
+  nQuack_uniform = 0
 ) {
   # ---- Input checks ----
   if (any(cn_grid < 0) | any(cn_grid > 10)) stop("All values in cn_grid must be between 0 and 10.")
@@ -823,6 +791,19 @@ hmm_estimate_CN_nQuack <- function(
   if (z_only && baf_only) stop("z_only and baf_only cannot both be TRUE.")
   if (!is.character(sample_id) || length(sample_id) != 1 || nchar(sample_id) == 0)
     stop("sample_id must be a non-empty character scalar.")
+  # nQuack's BIC/LL is only comparable within a single distribution family, so
+  # only one family can be evaluated per call -- never let users compare BIC
+  # across families here.
+  if (!z_only && (is.null(nQuack_dists) || length(nQuack_dists) != 1L ||
+                  !tolower(trimws(nQuack_dists)) %in% c("normal", "beta", "beta-binomial")))
+    stop(paste0(
+      "nQuack_dists must be a single distribution family: one of 'normal', 'beta', or ",
+      "'beta-binomial'. nQuack's BIC/LL values are not comparable across different ",
+      "distribution families (see nQuack's own documentation), so testing more than one ",
+      "family per sample and picking the lowest BIC is not statistically valid. Follow ",
+      "nQuack's guidelines to select the best-fitting family by testing candidate families ",
+      "on samples with known ploidy, then pass that single family here."
+    ))
 
   # nQuack only models CN 2:6 for BAF; CN outside that range should not be passed unless z_only
   nq_cn_valid <- cn_grid[cn_grid >= 2L & cn_grid <= 6L]
@@ -917,11 +898,10 @@ hmm_estimate_CN_nQuack <- function(
         sample_id        = sample_id,
         baf_col          = baf_col_nq,
         cn_grid          = nq_cn_valid,
-        selected_model   = selected_model,
-        nQuack_cores     = nQuack_cores,
         het_range        = het_range,
-        dosage_threshold = dosage_threshold,
-        allowed_dists    = nQuack_dists,
+        distribution     = nQuack_dists,
+        type             = nQuack_type,
+        uniform          = nQuack_uniform,
         verbose          = verbose
       ),
       error = function(e) {
@@ -1502,7 +1482,9 @@ hmm_estimate_CN_nQuack <- function(
     segment_zscore      = segment_zscore,
     snps_per_window     = snps_per_window,
     min_snps_per_window = min_snps_per_window,
-    nQuack_dists        = nQuack_dists
+    nQuack_dists        = nQuack_dists,
+    nQuack_type         = nQuack_type,
+    nQuack_uniform      = nQuack_uniform
   )
 
   if (!is.null(result) && !is.null(d)) {

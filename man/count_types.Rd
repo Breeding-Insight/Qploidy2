@@ -4,13 +4,16 @@
 \alias{count_types}
 \title{Count and classify samples by ploidy category}
 \usage{
-count_types(hmm_CN, chromosomes = NULL)
+count_types(hmm_CN, chromosomes = NULL, samplesID = NULL)
 }
 \arguments{
 \item{hmm_CN}{An object of class \code{hmm_CN}.}
 
 \item{chromosomes}{Optional character vector. If supplied, only these
 chromosomes are used for classification.}
+
+\item{samplesID}{Optional character vector of sample IDs. If supplied,
+only these samples are used for classification.}
 }
 \value{
 Invisibly returns a named list.  The top-level names are

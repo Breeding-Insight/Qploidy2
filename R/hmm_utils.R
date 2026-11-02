@@ -180,7 +180,7 @@ viterbi_bidi <- function(ll_em, logA, logpi0) {
 #' @noRd
 worker <- function(sid, obj, dots, data = NULL, geno.pos = NULL, use_values = c("BAF", "zscore")) {
   # Route to hmm_estimate_CN_nQuack when nQuack-specific params are present in dots
-  nq_params <- c("nQuack_cores", "nQuack_dists")
+  nq_params <- c("nQuack_dists", "nQuack_type", "nQuack_uniform")
   fn <- if (any(nq_params %in% names(dots))) hmm_estimate_CN_nQuack else hmm_estimate_CN
   collected_warnings <- character(0)
   result <- withCallingHandlers(

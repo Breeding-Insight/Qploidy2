@@ -193,7 +193,6 @@ test_that("hmm_estimate_CN_nQuack returns valid hmm_CN object", {
     sample_id    = sample,
     chr          = 1,
     cn_grid      = c(2, 3, 4, 5, 6),
-    nQuack_cores = 1L,
     verbose      = TRUE
   )
 
@@ -224,7 +223,6 @@ test_that("hmm_estimate_CN_nQuack with restricted nQuack_dists", {
     chr          = 1,
     cn_grid      = c(2, 3, 4),
     nQuack_dists = "normal",
-    nQuack_cores = 1L,
     verbose      = TRUE
   )
 
@@ -240,8 +238,7 @@ test_that("hmm_estimate_CN_nQuack with restricted nQuack_dists", {
     sample_id    = sample,
     chr          = 1,
     cn_grid      = c(2, 3, 4),
-    nQuack_dists = "normal",
-    nQuack_cores = 1L,
+    nQuack_dists = "normal", nQuack_uniform = 1,
     verbose      = TRUE, dosage_threshold = 0.6
   )
 
@@ -256,9 +253,9 @@ test_that("hmm_estimate_CN_nQuack with restricted nQuack_dists", {
     qploidy_standarize_result = std,
     sample_id    = sample,
     chr          = 1,
+    nQuack_uniform = 1,
     cn_grid      = c(2, 3, 4),
     nQuack_dists = "normal",
-    nQuack_cores = 1L,
     verbose      = TRUE
   )
 
@@ -282,7 +279,8 @@ test_that("hmm_estimate_CN_multi with nQuack runs without error", {
     n_cores      = 1,
     chr          = 1,
     cn_grid      = c(2, 3, 4),
-    nQuack_cores = 1L
+    nQuack_dists = "normal",
+    nQuack_uniform = 1
   )
 
   p <- plot_cn_track(multi_res, sample_id = "Diploid1")

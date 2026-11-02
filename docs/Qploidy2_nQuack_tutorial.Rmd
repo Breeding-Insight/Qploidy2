@@ -57,17 +57,18 @@ states 2 through 6, `cn_grid` must be a subset of `2:6`; use
 `hmm_estimate_CN()` instead for CN=0/1/LOH detection or ploidies outside 2:6.
 
 Its signature mirrors `hmm_estimate_CN()` for the shared windowing/HMM
-arguments (`cn_grid`, `chr`, `segment_zscore`, `exp_ploidy`, etc.), plus two
-arguments specific to nQuack:
+arguments (`cn_grid`, `chr`, `segment_zscore`, `exp_ploidy`, etc.), plus three
+arguments specific to nQuack, all forwarded to `nQuack::bestquack()`:
 
 | Argument | Default | Description |
 |---|---|---|
-| `nQuack_cores` | `1L` | Number of cores passed to nQuack's internal parallelism (the `cores` and `parallel` arguments of `quackNormal`, `quackBeta`, and `quackBetaBinom`). Setting this to a value greater than 1 enables parallel fitting of candidate ploidy models within a single call. Note that `hmm_estimate_CN_multi()` has its own `n_cores` argument that parallelises across samples; `nQuack_cores` parallelises the model fitting *within* a single sample. On most laptops, set `nQuack_cores = 1` and use `n_cores` in `hmm_estimate_CN_multi()` to gain parallelism across samples instead. |
-| `nQuack_dists` | `"normal"` | Restricts which distribution families nQuack evaluates. Valid values: `"normal"`, `"beta"`, `"beta-binomial"`. For each family listed, both the base model and its `+uniform` variant are tested. Defaults to `"normal"` only; set to `NULL` to evaluate all three families and pick the best by BIC (slower). |
+| `nQuack_dists` | `"normal"` | The single distribution family nQuack evaluates: one of `"normal"`, `"beta"`, or `"beta-binomial"`. nQuack's BIC/LL values are not comparable across distribution families, so only one family can be passed per call; providing more than one, or `NULL`, raises an error. To choose a family, follow nQuack's guidelines and validate candidates on samples with known ploidy first. |
+| `nQuack_type` | `"fixed"` | The nQuack EM type: one of `"fixed"` (recommended), `"fixed_2"`, or `"fixed_3"`. BIC/LL are not comparable across types, so only one can be evaluated per call. |
+| `nQuack_uniform` | `0` | `1` to include an additional uniform mixture component (`<distribution>-uniform`), or `0` to omit it. |
 
 `hmm_estimate_CN_multi()` auto-detects which function to run per sample: if
-either `nQuack_cores` or `nQuack_dists` is passed via `...`, it dispatches to
-`hmm_estimate_CN_nQuack()`; otherwise it runs `hmm_estimate_CN()`.
+any of `nQuack_dists`, `nQuack_type`, or `nQuack_uniform` is passed via `...`,
+it dispatches to `hmm_estimate_CN_nQuack()`; otherwise it runs `hmm_estimate_CN()`.
 
 `nQuack` must be installed before using this route:
 
@@ -244,9 +245,11 @@ Set `set.seed()` before calling `hmm_estimate_CN_nQuack()` for reproducibility.
 ## Single sample
 
 `hmm_estimate_CN_nQuack()` lets nQuack handle the entire BAF model selection step.
-By default it only fits the Normal family (fastest option) for each candidate
-ploidy; set `nQuack_dists = NULL` to also test Beta and Beta-Binomial and pick
-the best by BIC. Qploidy2 then uses the winning distribution and ploidy to
+It fits a single distribution family (default `"normal"`, the fastest option) for
+each candidate ploidy; nQuack's BIC/LL values are not comparable across
+distribution families, so only one family can be evaluated per call (see
+[Restricting distribution families with `nQuack_dists`](#restricting-distribution-families-with-nquack_dists)
+below). Qploidy2 then uses that distribution and the winning ploidy to
 build the HMM emission parameters.
 
 ```{r}
@@ -255,7 +258,6 @@ res_nq <- hmm_estimate_CN_nQuack(
   qploidy_standarize_result = qploidy_standardization,
   sample_id                 = "J432",
   cn_grid                   = c(2, 3, 4, 5, 6),
-  nQuack_cores              = 2, 
   nQuack_dists = "normal",
   min_snps_per_window = 50,
   verbose                   = TRUE
@@ -290,48 +292,45 @@ p$arranged
 
 ## Restricting distribution families with `nQuack_dists`
 
-By default, only the Normal family is tested. Set `nQuack_dists = NULL` to test
-all three families, or pass a subset once you know from a pilot run which
-families fit your data:
+`nQuack_dists` accepts exactly one distribution family: `"normal"` (default),
+`"beta"`, or `"beta-binomial"`. nQuack's own documentation states that BIC/LL
+values are not comparable across distribution families, so passing more than
+one family (or `NULL` to test all three) is rejected with an error. To choose
+a family, follow nQuack's guidelines: validate candidate families on samples
+with known ploidy first, then pass that single family here. `nQuack_type`
+(`"fixed"`, `"fixed_2"`, or `"fixed_3"`) and `nQuack_uniform` (`0` or `1`, to
+exclude/include a uniform mixture component) are similarly restricted to a
+single value per call:
 
 ```{r, eval=FALSE}
-# Test only the Normal family (Normal and Normal+Uniform variants)
+# Test only the Normal family, fixed type, no uniform component (defaults)
 res_nq_normal <- hmm_estimate_CN_nQuack(
   qploidy_standarize_result = qploidy_standardization,
   sample_id                 = "J432",
   cn_grid                   = c(2, 3, 4, 5, 6),
-  nQuack_dists              = "normal",
-  nQuack_cores              = 2
+  nQuack_dists              = "normal"
 )
 
-# Test Beta and Beta-Binomial only
+# Test only the Beta-Binomial family with a uniform mixture component
 res_nq_seq <- hmm_estimate_CN_nQuack(
   qploidy_standarize_result = qploidy_standardization,
   sample_id                 = "J432",
   cn_grid                   = c(2, 3, 4, 5, 6),
-  nQuack_dists              = c("beta", "beta-binomial"),
-  nQuack_cores              = 2
+  nQuack_dists              = "beta-binomial",
+  nQuack_uniform            = 1
 )
 ```
 
-Valid values for `nQuack_dists`: `"normal"`, `"beta"`, `"beta-binomial"`. Pass a
-character vector to test multiple families while excluding others.
-
 ## Multiple samples
 
-Run the nQuack route for all samples in parallel. Because nQuack fits multiple
-mixture models per sample, this takes longer than the grid route. The two
-parallelism arguments work at different levels:
+Run the nQuack route for all samples in parallel. Because nQuack fits a
+mixture model per sample, this takes longer than the grid route.
+`hmm_estimate_CN_multi()`'s `n_cores` argument controls how many samples are
+processed simultaneously.
 
-- `n_cores`: number of samples processed simultaneously (outer parallelism)
-- `nQuack_cores`: number of cores used by nQuack within each sample (inner parallelism)
-
-On most workstations, set `nQuack_cores = 1` and tune `n_cores` to balance
-memory and CPU usage across samples.
-
-`hmm_estimate_CN_multi()` detects the nQuack route automatically: passing
-`nQuack_cores` and/or `nQuack_dists` (via `...`) is enough to dispatch each
-sample to `hmm_estimate_CN_nQuack()` instead of `hmm_estimate_CN()`.
+`hmm_estimate_CN_multi()` detects the nQuack route automatically: passing any
+of `nQuack_dists`, `nQuack_type`, or `nQuack_uniform` (via `...`) is enough to
+dispatch each sample to `hmm_estimate_CN_nQuack()` instead of `hmm_estimate_CN()`.
 
 ```{r}
 set.seed(42)
@@ -340,8 +339,7 @@ multi_esti_nq <- hmm_estimate_CN_multi(
   sample_ids                = "all",
   n_cores                   = 3,
   cn_grid                   = c(2, 3, 4, 5, 6),
-  nQuack_dists              = c("normal"),
-  nQuack_cores              = 1
+  nQuack_dists              = "normal"
 )
 ```
 

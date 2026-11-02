@@ -1394,6 +1394,11 @@ hmm_estimate_CN_multi <- function(qploidy_standarize_result = NULL,
   # capture dots ONCE
   dots <- list(...)
 
+  # all samples use the same method, so report it once here rather than per worker
+  nq_params <- c("nQuack_dists", "nQuack_type", "nQuack_uniform")
+  use_nquack <- any(nq_params %in% names(dots))
+  message(sprintf("Using %s approach", if (use_nquack) "nQuack EM" else "grid"))
+
   cl <- makeCluster(n_cores, type = parallel_type)
   on.exit(stopCluster(cl), add = TRUE)
 
