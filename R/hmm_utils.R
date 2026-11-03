@@ -67,24 +67,6 @@ globalVariables(c(
   paste0(min(v), "-", max(v), " (by chr)")
 }
 
-# Report windows removed by min_snps_per_window; warns when whole chromosomes are lost
-.report_dropped_windows <- function(win_df, keep, min_snps_per_window, verbose = TRUE) {
-  if (all(keep)) return(invisible(NULL))
-  vmsg("Windows dropped by min_snps_per_window (%s): %d of %d",
-       verbose = verbose, level = 1, type = ">>",
-       .format_min_snps(.compact_min_snps(min_snps_per_window)), sum(!keep), length(keep))
-  lost <- setdiff(unique(win_df$Chr[!keep]), unique(win_df$Chr[keep]))
-  if (length(lost) > 0) {
-    n_lost <- tapply(win_df$n_snps, win_df$Chr, sum)[lost]
-    thr    <- min_snps_per_window[as.character(lost)]
-    warning(sprintf(
-      "Chromosome(s) removed from the analysis because all their windows have fewer markers than min_snps_per_window: %s. Lower min_snps_per_window (globally or for these chromosomes) to keep them.",
-      paste0(lost, " (", n_lost, " markers, min = ", thr, ")", collapse = ", ")
-    ), call. = FALSE)
-  }
-  invisible(NULL)
-}
-
 #' Numerically stable log-sum-exp
 #'
 #' Computes the logarithm of the sum of exponentials, \eqn{\log\left(\sum_i e^{x_i}\right)}, in a numerically stable way by subtracting the maximum element before exponentiating. This avoids overflow/underflow for large or small values in \code{x}.

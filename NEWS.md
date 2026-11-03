@@ -1,3 +1,7 @@
+# Qploidy2 1.23.1
+
+* `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()` no longer remove windows with fewer SNPs than `min_snps_per_window`. The argument now only sets the minimum segment length for z-score changepoint detection, so chromosomes with fewer markers than the minimum form a single window and stay in the results. The dropped-window message and warning added in 1.23.0 were removed.
+
 # Qploidy2 1.23.0
 
 * Fixed `standardize()` computing z-scores with the mean and SD of `R` across all samples in `data`, even when `genos` held only a subset of reference samples. The per-marker mean and SD now come only from the samples in `genos` that remain after filtering, and every sample is transformed against them, matching how BAF uses the reference samples. This changes z-score values whenever `genos` is a subset of `data`.
@@ -17,7 +21,7 @@
 
 * `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()` now report how many windows `min_snps_per_window` removes. If every window of a chromosome is removed, they warn and name the chromosome and its marker count. Previously, small chromosomes such as sex-specific contigs disappeared from the results silently. When `min_snps_per_window` is left at its default (`NULL`), the value chosen automatically is now printed.
 
-* `min_snps_per_window` in `hmm_estimate_CN()`, `hmm_estimate_CN_nQuack()`, and `hmm_estimate_CN_multi()` can now be set per chromosome with a vector named by chromosome ID, e.g. `c(Chr01 = 300, Xspecific = 20)`. Chromosomes left out of the vector use the automatic default. The per-chromosome value applies both to the minimum segment length in z-score changepoint detection and to the window filter. `add_changepoint_windows()` accepts the same named form for `minseglen`.
+* `min_snps_per_window` in `hmm_estimate_CN()`, `hmm_estimate_CN_nQuack()`, and `hmm_estimate_CN_multi()` can now be set per chromosome with a vector named by chromosome ID, e.g. `c(Chr01 = 300, Xspecific = 20)`. Chromosomes left out of the vector use the automatic default. The per-chromosome value applies both to the minimum segment length in z-score changepoint detection and to the window filter. `add_changepoint_windows()` accepts the same named form for `minseglen`. The `plot_cn_track()` parameter panel shows a per-chromosome value in short form: the most common value plus up to two exceptions, or the range when more chromosomes differ.
 
 # Qploidy2 1.22.2
 

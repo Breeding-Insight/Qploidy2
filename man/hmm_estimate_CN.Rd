@@ -71,7 +71,7 @@ mixture before renormalization. Default FALSE.}
 
 \item{snps_per_window}{Integer. Number of SNPs per window when windows are created. Default \code{50}.}
 
-\item{min_snps_per_window}{Minimum SNPs required to keep a window (also the minimum segment length for z-score changepoint detection). Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If NULL, a dynamic value is chosen based on the size of the smallest chromosome. Windows with fewer SNPs are dropped. Default: NULL.}
+\item{min_snps_per_window}{Minimum segment length (in SNPs) for z-score changepoint detection. Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If NULL, a dynamic value is chosen based on the size of the smallest chromosome. Windows are never removed: chromosomes with fewer markers than this value form a single window. Default: NULL.}
 
 \item{cn_grid}{Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 0-10. Include \code{0} to allow nullisomy calls; see also \code{cn0_background_frac}. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.}
 
@@ -179,7 +179,7 @@ ready for plotting (e.g., with \code{\link{plot_cn_track}}) or merging across
 chromosomes/batches.
 }
 \details{
-\strong{Windowing.} If \code{chr} is specified, only those chromosomes are analyzed. Windows are formed within each chromosome by grouping every \code{snps_per_window} consecutive SNPs. Windows with fewer than \code{min_snps_per_window} SNPs are removed.
+\strong{Windowing.} If \code{chr} is specified, only those chromosomes are analyzed. Windows are formed within each chromosome by grouping every \code{snps_per_window} consecutive SNPs.
 
 \strong{Emissions.} For state \code{c} (copy number), the z-emission is \eqn{\mathcal{N}(\mu_c, \sigma^2)}, where \eqn{\sigma} is a single standard deviation shared across all CN states (it is not scaled per state, even though depth variance is in reality expected to increase with copy number). The BAF emission is a multinomial log-likelihood comparing the observed BAF histogram to a state-specific template (a "comb" with peaks at \eqn{d/c}). Windows with few heterozygotes are down-weighted via \code{w_baf} (derived from \code{n_het}). The combined per-window, per-state log-likelihood is a tempered log-product, \code{llz + w_baf * llb}: the z emission always contributes fully, assuming conditional independence of z and BAF given the CN state, while the BAF emission's evidence is scaled down (tempered) by \code{w_baf} when fewer heterozygotes support it.
 

@@ -406,22 +406,17 @@ test_that("hmm_estimate_CN_nQuack falls back to the requested distribution when 
                "exp_ploidy")
 })
 
-test_that("hmm_estimate_CN_nQuack drops windows below min_snps_per_window", {
+test_that("hmm_estimate_CN_nQuack keeps windows below min_snps_per_window", {
   skip_if_not_installed("nQuack")
   std <- setup_simu()$std
 
-  # Fixed 9-SNP windows: only the last window of each chromosome (13-14 SNPs) passes
   for (s in c("Triploid1", "Tetraploid1")) {
     res <- run_nq(std, s, cn_grid = 2:4, segment_zscore = FALSE,
                   snps_per_window = 9, min_snps_per_window = 10)
-    expect_equal(nrow(res$by_window), 2L, info = s)
-    expect_true(all(res$by_window$n_snps >= 10), info = s)
+    expect_true(any(res$by_window$n_snps < 10), info = s)
+    expect_equal(sum(res$by_window$n_snps), nrow(res$by_marker), info = s)
     expect_equal(res$params$exp_ploidy, true_cn[[s]], info = s)
   }
-  # With only two short windows left, per-window calls are only stable for Triploid1
-  res <- run_nq(std, "Triploid1", cn_grid = 2:4, segment_zscore = FALSE,
-                snps_per_window = 9, min_snps_per_window = 10)
-  expect_true(all(res$by_window$CN_call == 3L))
 })
 
 test_that(".nquack_estimate_ploidy reports the correct ploidy for CN 2-6 (hexa/penta labels)", {
