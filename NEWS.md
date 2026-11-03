@@ -1,3 +1,31 @@
+# Qploidy2 1.22.2
+
+* `nQuack >= 1.0.5` is now available on CRAN, so installation/update instructions in error messages and documentation now point to `install.packages("nQuack")` instead of `remotes::install_github("mgaynor1/nQuack@updateGL")`. `DESCRIPTION` now requires `nQuack (>= 1.0.5)` and the `Remotes:` field was removed.
+
+* Changed the default `nQuack_uniform` in `hmm_estimate_CN_nQuack()` (and `.nquack_estimate_ploidy()`) from `0` to `1`, so a uniform mixture component is included by default.
+
+* Fixed mislabeled ploidy in `.nquack_estimate_ploidy()` caused by two issues in `nQuack::bestquack()` (nQuack 1.0.5): (1) passing a subset or reordered `mixtures` vector made it label output rows positionally against the caller's vector while fitting in its own canonical order; (2) its internal `mixturekey` has `"hexaploid"` and `"pentaploid"` swapped relative to their parameter sets. The full canonical mixture set is now always passed, the hexaploid/pentaploid labels are corrected, and filtering to `cn_grid` happens afterward.
+
+* `nQuack_type` is now forwarded to the per-window nQuack likelihood and dosage-calling steps in `hmm_estimate_CN_nQuack()` (previously hardcoded to `"fixed"`). `call_BAF_nQuack_dosages()` gains a `type` argument (default `"fixed"`).
+
+* Fixed `hmm_estimate_CN_nQuack()` ignoring `use_values` in the global ploidy fit: it re-picked the `baf` column even when `ratio` was requested. The global fit now uses the same resolved BAF column as the per-window likelihoods.
+
+* `hmm_estimate_CN_nQuack()` now stops when `cn_grid` contains any value outside `2:6` (unless `z_only = TRUE`). Previously, values such as CN=1 were padded with a log-likelihood of `0`, which could win the per-window argmax and then crash `call_BAF_nQuack_dosages()`.
+
+* Fixed a crash in `hmm_estimate_CN_nQuack()` when the global nQuack fit fails but `exp_ploidy` is supplied: per-window likelihoods now fall back to the requested `nQuack_dists`/`nQuack_uniform` combination instead of a `NULL` distribution.
+
+* Fixed `min_snps_per_window` in both `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()`: windows below the threshold are now removed from `win_df`, the BAF/R lists, and `z` before EM and decoding. Previously, `hmm_estimate_CN_nQuack()` computed the filter but never applied it.
+
+* `cn_grid` is now sorted and de-duplicated in both `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()`, since z-mean initialization and monotonicity pruning assume ascending CN order. Reordered grids now give the same calls as sorted ones.
+
+* Fixed `baf_only = TRUE` in both `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()`: the post-EM collapsed-state pruning step used the z/depth-derived `mu`/`sig` (frozen at their initial values under `baf_only`, since the EM M-step skips updating them). With near-constant depth, state means could collapse to a gap of ~1e-6 while `sig` falls back to its `0.1` floor, causing valid CN states with real BAF support to be dropped. This pruning step is now skipped entirely when `baf_only = TRUE`.
+
+* Fixed `baf_only = TRUE` in both functions: per-chromosome decoding still blended the z-score-derived prior (`logpi0_z`) into `logpi0_chr` with up to `(1 - baf_weight)` weight (at least 50% by default), so identical BAF evidence could produce different CN calls purely because z-scores changed. `logpi0_chr` now uses the BAF-derived prior (`logpi0_baf`) directly when `baf_only = TRUE`.
+
+* Updated the `Qploidy2_nQuack_tutorial` vignette: the CRAN install command, sample `85-126` in the examples, explicit `nQuack_type`/`nQuack_uniform` arguments, guidance on choosing one combination, the platform-compatibility table, and removal of the filtering section. Also restyled inline code in `BIcolors_template.css`.
+
+* Added tests that pin `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()` argument variants (`baf_only`, reordered `cn_grid`, `min_snps_per_window`, `use_values`, `nQuack_type`, fit-failure fallback, and hexaploid/pentaploid labels) to the simulated ploidy.
+
 # Qploidy2 1.22.1
 
 * Replaced the separate `nQuack::quackNormal()`/`quackBeta()`/`quackBetaBinom()` calls in `.nquack_estimate_ploidy()` with a single `nQuack::bestquack()` call, which fits exactly one `(distribution, type, uniform)` combination directly instead of fitting all three types and discarding `fixed_2`/`fixed_3` afterward.
@@ -7,7 +35,6 @@
 * Removed the unused `selected_model` and `nQuack_cores` arguments from `hmm_estimate_CN_nQuack()` and `.nquack_estimate_ploidy()`: `nQuack::bestquack()` has no parallelism option, and `selected_model` was never referenced on the nQuack code path. `hmm_estimate_CN_multi()`'s auto-dispatch to the nQuack route now keys off `nQuack_dists`, `nQuack_type`, or `nQuack_uniform` instead of `nQuack_cores`.
 
 # Qploidy2 1.22.0
-
 
 * Added `hmm_estimate_CN_nQuack()`, a self-contained analogue of `hmm_estimate_CN()` that uses the `nQuack` package for both whole-sample ploidy estimation and per-window BAF likelihoods/dosage calling. Requires `nQuack >= 1.0.5` (install with `remotes::install_github("mgaynor1/nQuack@updateGL")`). `cn_grid` must be a subset of `2:6` (nQuack's supported range); use `hmm_estimate_CN()` for CN=0/1/LOH detection.
 

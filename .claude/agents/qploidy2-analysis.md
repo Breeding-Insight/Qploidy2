@@ -186,7 +186,7 @@ Use a sample with known ploidy to validate model selection.
 
 ## 4b. Alternative: nQuack EM-Based Route (sequencing data only)
 
-For sequencing-based data (WGS, DArTag, GTseq, AgriSeq) with allele read counts (`X`, `Y`, `R`), `hmm_estimate_CN_nQuack()` replaces the grid-based model selection + HMM (steps 4–5) with nQuack's EM mixture-model fitting (Normal/Beta/Beta-Binomial), selecting both ploidy and model by BIC in one call. **Not usable on intensity-based array data** (Axiom/Illumina have no read counts). Requires `remotes::install_github("mgaynor1/nQuack@updateGL")`.
+For sequencing-based data (WGS, DArTag, GTseq, AgriSeq) with allele read counts (`X`, `Y`, `R`), `hmm_estimate_CN_nQuack()` replaces the grid-based model selection + HMM (steps 4–5) with nQuack's EM mixture-model fitting (Normal/Beta/Beta-Binomial), selecting both ploidy and model by BIC in one call. **Not usable on intensity-based array data** (Axiom/Illumina have no read counts). Requires `install.packages("nQuack")` (>= 1.0.5, on CRAN).
 
 ```r
 set.seed(42)  # allele sampling inside nQuack is stochastic — set a seed for reproducibility

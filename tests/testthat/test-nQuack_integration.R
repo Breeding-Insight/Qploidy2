@@ -293,3 +293,161 @@ test_that("hmm_estimate_CN_multi with nQuack runs without error", {
   expect_equal(summarize_cn_mode(multi_res)[,2], c(2,2,4,4,4,4,4,3,3))
 
 })
+
+# ---------------------------------------------------------------------------
+# hmm_estimate_CN_nQuack: argument variants, pinned to the simulated ploidy
+# ---------------------------------------------------------------------------
+# Simulated truth for setup_simu(): DiploidN = 2, TriploidN = 3, TetraploidN = 4.
+true_cn <- c(Diploid1 = 2L, Triploid1 = 3L, Tetraploid1 = 4L)
+
+run_nq <- function(std, sample, ...) {
+  set.seed(42)
+  suppressWarnings(suppressMessages(
+    hmm_estimate_CN_nQuack(qploidy_standarize_result = std, sample_id = sample,
+                           verbose = FALSE, ...)
+  ))
+}
+
+test_that("hmm_estimate_CN_nQuack input validation", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
+
+  expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 1:4),
+               "non-empty subset of 2:6")
+  expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 2:4,
+                      nQuack_dists = c("normal", "beta")),
+               "single distribution family")
+  expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 2:4, nQuack_dists = NULL),
+               "single distribution family")
+  # Invalid type/uniform make the global fit fail; without exp_ploidy this must stop
+  expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 2:4, nQuack_type = "free"),
+               "exp_ploidy")
+  expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 2:4, nQuack_uniform = 2),
+               "exp_ploidy")
+})
+
+test_that("hmm_estimate_CN_nQuack (normal, fixed, uniform = 1) recovers simulated ploidy", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
+
+  for (s in names(true_cn)) {
+    res <- run_nq(std, s, chr = 1, cn_grid = 2:4,
+                  nQuack_dists = "normal", nQuack_type = "fixed", nQuack_uniform = 1)
+    expect_true(all(res$by_window$CN_call == true_cn[[s]]), info = s)
+    expect_equal(res$params$exp_ploidy, true_cn[[s]], info = s)
+    expect_equal(res$params$distribution, "normal-uniform", info = s)
+    expect_equal(res$params$nQuack_type, "fixed", info = s)
+    expect_equal(res$params$nQuack_uniform, 1, info = s)
+  }
+})
+
+test_that("hmm_estimate_CN_nQuack baf_only = TRUE recovers simulated ploidy and ignores z", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
+
+  for (s in names(true_cn)) {
+    res <- run_nq(std, s, chr = 1, cn_grid = 2:4, baf_only = TRUE)
+    expect_true(all(res$by_window$CN_call == true_cn[[s]]), info = s)
+    expect_true(all(is.na(res$params$mu)), info = s)
+    # z-based collapsed-state pruning must not remove BAF-supported states
+    expect_equal(res$params$cn_grid, 2:4, info = s)
+  }
+})
+
+test_that("hmm_estimate_CN_nQuack use_values = c('ratio', 'zscore') uses ratio for the global fit", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
+
+  for (s in c("Diploid1", "Triploid1")) {
+    res <- run_nq(std, s, chr = 1, cn_grid = 2:4, use_values = c("ratio", "zscore"))
+    expect_true(all(res$by_window$CN_call == true_cn[[s]]), info = s)
+    expect_equal(res$params$exp_ploidy, true_cn[[s]], info = s)
+  }
+})
+
+test_that("hmm_estimate_CN_nQuack nQuack_type = 'fixed_2' recovers simulated ploidy", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
+
+  for (s in c("Triploid1", "Tetraploid1")) {
+    res <- run_nq(std, s, chr = 1, cn_grid = 2:4, nQuack_type = "fixed_2")
+    expect_true(all(res$by_window$CN_call == true_cn[[s]]), info = s)
+    expect_equal(res$params$nQuack_type, "fixed_2", info = s)
+  }
+})
+
+test_that("hmm_estimate_CN_nQuack gives the same calls for a reordered cn_grid", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
+
+  for (s in c("Diploid1", "Triploid1")) {
+    res_sorted    <- run_nq(std, s, chr = 1, cn_grid = 2:4)
+    res_reordered <- run_nq(std, s, chr = 1, cn_grid = c(4, 2, 3))
+    expect_true(all(res_reordered$by_window$CN_call == true_cn[[s]]), info = s)
+    expect_equal(res_reordered$by_window$CN_call, res_sorted$by_window$CN_call, info = s)
+  }
+})
+
+test_that("hmm_estimate_CN_nQuack falls back to the requested distribution when the global fit fails", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
+
+  # het_range this narrow leaves < 10 het sites, so the global nQuack fit fails
+  res <- run_nq(std, "Tetraploid1", chr = 1, cn_grid = 2:4,
+                het_range = c(0.49, 0.491), exp_ploidy = 4)
+  expect_true(all(res$by_window$CN_call == 4L))
+  expect_equal(res$params$distribution, "normal-uniform")
+
+  expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 2:4,
+                      het_range = c(0.49, 0.491)),
+               "exp_ploidy")
+})
+
+test_that("hmm_estimate_CN_nQuack drops windows below min_snps_per_window", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
+
+  # Fixed 9-SNP windows: only the last window of each chromosome (13-14 SNPs) passes
+  for (s in c("Triploid1", "Tetraploid1")) {
+    res <- run_nq(std, s, cn_grid = 2:4, segment_zscore = FALSE,
+                  snps_per_window = 9, min_snps_per_window = 10)
+    expect_equal(nrow(res$by_window), 2L, info = s)
+    expect_true(all(res$by_window$n_snps >= 10), info = s)
+    expect_equal(res$params$exp_ploidy, true_cn[[s]], info = s)
+  }
+  # With only two short windows left, per-window calls are only stable for Triploid1
+  res <- run_nq(std, "Triploid1", cn_grid = 2:4, segment_zscore = FALSE,
+                snps_per_window = 9, min_snps_per_window = 10)
+  expect_true(all(res$by_window$CN_call == 3L))
+})
+
+test_that(".nquack_estimate_ploidy reports the correct ploidy for CN 2-6 (hexa/penta labels)", {
+  skip_if_not_installed("nQuack")
+
+  # High-depth BAF drawn from dosages 1..(cn-1) of a CN-copy genome
+  sim_d <- function(cn, seed, n = 1500) {
+    set.seed(seed)
+    dos <- sample(seq_len(cn - 1), n, replace = TRUE)
+    R   <- sample(800:1000, n, replace = TRUE)
+    data.frame(baf = stats::rbinom(n, R, dos / cn) / R, R = R)
+  }
+
+  for (cn in 2:6) {
+    for (u in c(0, 1)) {
+      set.seed(1)
+      est <- .nquack_estimate_ploidy(sim_d(cn, cn), "s", cn_grid = 2:6,
+                                     uniform = u, verbose = FALSE)
+      expect_equal(est$cn, cn, info = sprintf("cn = %d, uniform = %d", cn, u))
+    }
+  }
+
+  # Subsets / reordered grids must not swap labels
+  for (g in list(c(5, 6), c(6, 5, 4))) {
+    set.seed(1)
+    expect_equal(.nquack_estimate_ploidy(sim_d(5, 5), "s", cn_grid = g, uniform = 0,
+                                         verbose = FALSE)$cn, 5L)
+    set.seed(1)
+    expect_equal(.nquack_estimate_ploidy(sim_d(6, 6), "s", cn_grid = g, uniform = 0,
+                                         verbose = FALSE)$cn, 6L)
+  }
+})

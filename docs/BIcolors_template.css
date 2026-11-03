@@ -280,15 +280,16 @@ pre code {
 
 /* Inline code styling */
 p code, li code, td code, span code {
-  background-color: var(--code-bg-dark) !important;
-  color: white !important;
-  padding: 2px 6px !important;
+  background-color: var(--background-light) !important;
+  color: var(--text-dark) !important;
+  padding: 1px 5px !important;
+  border: 1px solid #d5d5d5 !important;
   border-radius: 4px !important;
   font-family: 'Fira Code', 'Monaco', 'Consolas', monospace !important;
   font-size: 0.9em !important;
   font-weight: 500 !important;
   text-decoration: none !important;
-  border-bottom: none !important;
+  border-bottom: 1px solid #d5d5d5 !important;
 }
 
 /* Code in headers */

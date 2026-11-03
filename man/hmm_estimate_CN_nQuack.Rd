@@ -35,7 +35,7 @@ hmm_estimate_CN_nQuack(
   hom_z_sigma_inflate = 1.5,
   nQuack_dists = "normal",
   nQuack_type = "fixed",
-  nQuack_uniform = 0
+  nQuack_uniform = 1
 )
 }
 \arguments{
@@ -109,7 +109,7 @@ family here.}
 \code{"fixed_3"}. BIC/LL are not comparable across types, so only one can
 be evaluated per call.}
 
-\item{nQuack_uniform}{Integer, \code{0} (default) or \code{1}. If \code{1},
+\item{nQuack_uniform}{Integer, \code{0} or \code{1} (default). If \code{1},
 an additional uniform mixture component is included in the nQuack model
 (\code{distribution}\code{-uniform}); if \code{0}, it is omitted.}
 }

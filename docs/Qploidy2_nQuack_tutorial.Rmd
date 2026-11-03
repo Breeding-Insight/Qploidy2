@@ -73,7 +73,7 @@ it dispatches to `hmm_estimate_CN_nQuack()`; otherwise it runs `hmm_estimate_CN(
 `nQuack` must be installed before using this route:
 
 ```{r, eval=FALSE}
-remotes::install_github("mgaynor1/nQuack@updateGL")
+install.packages("nQuack")
 ```
 
 For full details on the grid-based route, see the
@@ -89,6 +89,7 @@ code below reproduces those steps for completeness.
 
 ```{r}
 library(Qploidy2)
+packageVersion("Qploidy2")
 ```
 
 ## Download the alfalfa dataset
@@ -245,21 +246,27 @@ Set `set.seed()` before calling `hmm_estimate_CN_nQuack()` for reproducibility.
 ## Single sample
 
 `hmm_estimate_CN_nQuack()` lets nQuack handle the entire BAF model selection step.
-It fits a single distribution family (default `"normal"`, the fastest option) for
-each candidate ploidy; nQuack's BIC/LL values are not comparable across
-distribution families, so only one family can be evaluated per call (see
+It accepts exactly one `(nQuack_dists, nQuack_type, nQuack_uniform)` combination per
+call — it does **not** test multiple distributions, types, or uniform settings and
+pick the best by BIC, since nQuack's BIC/LL values are not comparable across
+distribution families, EM types (`fixed`/`fixed_2`/`fixed_3`), or uniform/non-uniform
+mixtures (see
 [Restricting distribution families with `nQuack_dists`](#restricting-distribution-families-with-nquack_dists)
-below). Qploidy2 then uses that distribution and the winning ploidy to
-build the HMM emission parameters.
+below). If you are unsure which `nQuack_dists`/`nQuack_type`/`nQuack_uniform` to use,
+follow nQuack's own guidance: evaluate candidate combinations on samples with known
+ploidy, as described in the [nQuack tutorials](https://mlgaynor.com/nQuack/), and
+then pass the validated combination here. Qploidy2 uses that distribution and the
+winning ploidy to build the HMM emission parameters.
 
 ```{r}
 set.seed(42)
 res_nq <- hmm_estimate_CN_nQuack(
   qploidy_standarize_result = qploidy_standardization,
-  sample_id                 = "J432",
+  sample_id                 = "85-126",
   cn_grid                   = c(2, 3, 4, 5, 6),
-  nQuack_dists = "normal",
-  min_snps_per_window = 50,
+  nQuack_dists = "normal", 
+  nQuack_uniform = 1,
+  nQuack_type = "fixed",
   verbose                   = TRUE
 )
 
@@ -269,13 +276,13 @@ res_nq
 Inspect the karyotype:
 
 ```{r}
-plot_karyotype(res_nq, sample_name = "J432", nrow = 2)
+plot_karyotype(res_nq, sample_name = "85-126", nrow = 2)
 ```
 
 Color by HMM posterior confidence:
 
 ```{r}
-plot_karyotype(res_nq, sample_name = "J432", nrow = 2, color_by = "post_max_CN")
+plot_karyotype(res_nq, sample_name = "85-126", nrow = 2, color_by = "post_max_CN")
 ```
 
 Detailed diagnostic track:
@@ -284,7 +291,7 @@ Detailed diagnostic track:
 p <- plot_cn_track(hmm_CN      = res_nq,
                    data        = data,
                    geno.pos    = geno.pos,
-                   sample_id   = "J432",
+                   sample_id   = "85-126",
                    show_window_lines = FALSE,
                    z_by_mean   = TRUE)
 p$arranged
@@ -303,20 +310,23 @@ exclude/include a uniform mixture component) are similarly restricted to a
 single value per call:
 
 ```{r, eval=FALSE}
-# Test only the Normal family, fixed type, no uniform component (defaults)
+# Normal family, fixed type, with a uniform mixture component
 res_nq_normal <- hmm_estimate_CN_nQuack(
   qploidy_standarize_result = qploidy_standardization,
-  sample_id                 = "J432",
+  sample_id                 = "85-126",
   cn_grid                   = c(2, 3, 4, 5, 6),
-  nQuack_dists              = "normal"
+  nQuack_dists              = "normal",
+  nQuack_type               = "fixed",
+  nQuack_uniform            = 1
 )
 
-# Test only the Beta-Binomial family with a uniform mixture component
+# Beta-Binomial family, fixed type, with a uniform mixture component
 res_nq_seq <- hmm_estimate_CN_nQuack(
   qploidy_standarize_result = qploidy_standardization,
-  sample_id                 = "J432",
+  sample_id                 = "85-126",
   cn_grid                   = c(2, 3, 4, 5, 6),
   nQuack_dists              = "beta-binomial",
+  nQuack_type               = "fixed",
   nQuack_uniform            = 1
 )
 ```
@@ -339,14 +349,17 @@ multi_esti_nq <- hmm_estimate_CN_multi(
   sample_ids                = "all",
   n_cores                   = 3,
   cn_grid                   = c(2, 3, 4, 5, 6),
-  nQuack_dists              = "normal"
+  nQuack_dists              = "normal",
+  nQuack_type               = "fixed",
+  nQuack_uniform            = 1
 )
 ```
 
 ```{r}
 samples <- unique(qploidy_standardization$data$SampleName)
 compare_cn_track(hmm_CN          = multi_esti_nq,
-                 samples_to_plot = samples[1:30],
+                 samples_to_plot = samples[1:30], 
+                 gray_CN = 4,
                  facet_ncol      = 8)
 ```
 
@@ -360,32 +373,21 @@ below summarises their trade-offs:
 | BAF model selection | Grid search over KDE bandwidth | nQuack EM for ploidy + all BAF parameters |
 | Speed | Faster | Slower |
 | Mixture families tested | Parametric templates | Normal, Beta, Beta-Binomial |
-| Data requirement | Ratio/BAF only | Read counts (X, Y, R) |
+| Platform compatibility | Array (intensity-based BAF) and sequencing (read-count-derived ratio) | Sequencing only (requires raw `X`/`Y`/`R` read counts) |
 | CN range | Any (including 0/1/LOH) | 2–6 only |
 
-# Filter, Summarize, and Export
 
-All downstream steps are identical regardless of which route was used. The
-examples below use the nQuack route results (`multi_esti_nq`).
-
-## Filter by quality
+# Ploidy type summary
 
 ```{r}
-multi_esti_nq_filtered <- filter_hmm_CN(multi_esti_nq,
-                                        min_CN_reliability = 0.05,
-                                        min_post_max       = 0.4)
-```
-
-## Ploidy type summary
-
-```{r}
-types_df <- count_types(multi_esti_nq_filtered)
+types_df <- count_types(multi_esti_nq)
 types_df
 ```
 
 ```{r}
 compare_cn_track_summary(
-  multi_esti_nq_filtered,
+  multi_esti_nq, 
+  gray_CN = 4,
   samples_to_plot = c(types_df$aneuploid, types_df$segmental)
 )
 ```
@@ -393,8 +395,8 @@ compare_cn_track_summary(
 ## Per-sample, per-chromosome summaries
 
 ```{r}
-summ_chr    <- summarize_cn_mode(multi_esti_nq_filtered, level = "chromosome")
-summ_sample <- summarize_cn_mode(multi_esti_nq_filtered, level = "sample")
+summ_chr    <- summarize_cn_mode(multi_esti_nq, level = "chromosome")
+summ_sample <- summarize_cn_mode(multi_esti_nq, level = "sample")
 
 head(summ_chr)
 head(summ_sample)
@@ -403,13 +405,13 @@ head(summ_sample)
 ## Write results
 
 ```{r, eval=FALSE}
-write_hmm_CN(multi_esti_nq_filtered, prefix = "alfalfa_nQuack")
+write_hmm_CN(multi_esti_nq, prefix = "alfalfa_nQuack")
 ```
 
 Reload in a later session:
 
 ```{r, eval=FALSE}
-multi_esti_nq_filtered <- read_hmm_CN(
+multi_esti_nq <- read_hmm_CN(
   by_marker_file = "alfalfa_nQuack_by_marker.csv.gz",
   by_window_file = "alfalfa_nQuack_by_window.csv.gz",
   params_file    = "alfalfa_nQuack_params.rds"
@@ -419,7 +421,7 @@ multi_esti_nq_filtered <- read_hmm_CN(
 ## MAPpoly export
 
 ```{r}
-for_mappoly <- export_mappoly(multi_esti_nq_filtered)
+for_mappoly <- export_mappoly(multi_esti_nq)
 head(for_mappoly)
 ```
 
@@ -429,7 +431,7 @@ head(for_mappoly)
 
 ```
 Error: nQuack is not installed. Install with:
-  remotes::install_github("mgaynor1/nQuack")
+  install.packages("nQuack")
 ```
 
 Install nQuack and restart R before re-running.

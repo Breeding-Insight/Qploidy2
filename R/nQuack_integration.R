@@ -160,6 +160,8 @@ convert2nQuack <- function(qploidy_standardization_object,
 #   min_het_frac - minimum fraction of het sites required (below this, or with
 #                  fewer than 2 usable het sites, neutral equal log-likelihoods
 #                  are returned instead of fitting any model)
+#   type         - nQuack EM type ("fixed"/"fixed_2"/"fixed_3"), must match
+#                  the type used for the global ploidy fit
 #
 # Returns a list with:
 #   ll_vec   - named numeric vector of log-likelihoods, one per CN in cn_grid
@@ -174,7 +176,8 @@ convert2nQuack <- function(qploidy_standardization_object,
                                               cn_grid      = 2:6,
                                               nq_dist      = "beta",
                                               het_range    = c(0.05, 0.95),
-                                              min_het_frac = 0.01) {
+                                              min_het_frac = 0.01,
+                                              type         = "fixed") {
   # Derive base family and uniform flag from the winning distribution string
   nq_dist_lo  <- tolower(nq_dist)
   add_uniform <- grepl("-uniform$", nq_dist_lo)
@@ -265,15 +268,15 @@ convert2nQuack <- function(qploidy_standardization_object,
     ll <- tryCatch({
       if (base_family == "beta") {
         fn  <- if (add_uniform) nQuack::emstepBU else nQuack::emstepB
-        res <- fn(parms, xi_all, niter, epsilon, trunc, "fixed")
+        res <- fn(parms, xi_all, niter, epsilon, trunc, type)
         res$loglikelihood
       } else if (base_family == "normal") {
         fn  <- if (add_uniform) nQuack::emstepNU else nQuack::emstepN
-        res <- fn(parms, xi_all, niter, epsilon, trunc, "fixed")
+        res <- fn(parms, xi_all, niter, epsilon, trunc, type)
         res$loglikelihood
       } else if (base_family == "beta-binomial") {
         fn  <- if (add_uniform) nQuack::emstepBBU else nQuack::emstepBB
-        res <- fn(parms, xm_all, niter, epsilon, trunc, "fixed")
+        res <- fn(parms, xm_all, niter, epsilon, trunc, type)
         res$loglikelihood
       } else {
         -Inf
@@ -320,13 +323,13 @@ convert2nQuack <- function(qploidy_standardization_object,
                                     min_depth        = 10L,
                                     distribution     = "normal",
                                     type             = "fixed",
-                                    uniform          = 0,
+                                    uniform          = 1,
                                     verbose          = TRUE) {
   if (!requireNamespace("nQuack", quietly = TRUE)) {
-    stop("nQuack_EM = TRUE requires the 'nQuack' package. Install with:\n  remotes::install_github(\"mgaynor1/nQuack\")")
+    stop("nQuack_EM = TRUE requires the 'nQuack' package. Install with:\n  install.packages(\"nQuack\")")
   }
   if (utils::packageVersion("nQuack") < "1.0.5") {
-    stop("nQuack_EM = TRUE requires nQuack >= 1.0.5 ('glreturn' argument to emstepNA/emstep* was added in 1.0.5). Update with:\n  remotes::install_github(\"mgaynor1/nQuack@updateGL\")")
+    stop("nQuack_EM = TRUE requires nQuack >= 1.0.5 ('glreturn' argument to emstepNA/emstep* was added in 1.0.5). Update with:\n  install.packages(\"nQuack\")")
   }
 
   # --- warn if cn_grid is outside nQuack's supported range (2:6) ---
@@ -439,6 +442,24 @@ convert2nQuack <- function(qploidy_standardization_object,
   vmsg("nQuack: evaluating distribution = %s, type = %s, uniform = %d",
        verbose = verbose, level = 1, type = ">>", distribution, type, uniform)
 
+  # nQuack::bestquack()'s own `mixtures` argument must always be passed as the
+  # full, canonically-ordered set of 5 names. Verified against nQuack 1.0.5:
+  # (1) when `mixtures` is a subset/reordering, bestquack() internally
+  #     reorders its parameter sets to its own fixed canonical order via
+  #     `which(mixturekey %in% mixtures)`, but then labels output rows using
+  #     the caller's original (unreordered) `mixtures` vector positionally --
+  #     silently mislabeling models (e.g. requesting c("tetraploid","diploid")
+  #     fits diploid's parameters but reports them as "tetraploid").
+  # (2) independent of subsetting, nQuack's own `mixturekey` vector has
+  #     "hexaploid" and "pentaploid" transposed relative to their actual
+  #     parameter sets (set[[4]]'s peaks are CN=5-shaped but labelled
+  #     "hexaploid"; set[[5]]'s peaks are CN=6-shaped but labelled
+  #     "pentaploid") -- confirmed empirically with low-noise simulations.
+  # Passing the full canonical set avoids bug (1); the label swap below
+  # corrects bug (2). Filtering to the samples's requested cn_grid still
+  # happens afterward via `candidates`.
+  nQuack_mixturekey <- c("diploid", "triploid", "tetraploid", "hexaploid", "pentaploid")
+
   out_nq <- tryCatch({
     # fixed_2/fixed_3 can hit degenerate near-zero-variance solutions and emit
     # "NaNs produced" warnings; suppressed here since "fixed" is the default
@@ -448,13 +469,17 @@ convert2nQuack <- function(qploidy_standardization_object,
       distribution = distribution,
       type         = type,
       uniform      = uniform,
-      mixtures     = nQuack_mixtures,
+      mixtures     = nQuack_mixturekey,
       samplename   = sample_id,
       verbose      = FALSE
     ))
   }, error = function(e) {
     stop(sprintf("nQuack_EM = TRUE: nQuack model fitting failed: %s", conditionMessage(e)))
   })
+
+  # Correct nQuack's intrinsic hexaploid/pentaploid label swap (see note above)
+  swap_idx <- out_nq$mixture %in% c("hexaploid", "pentaploid")
+  out_nq$mixture[swap_idx] <- ifelse(out_nq$mixture[swap_idx] == "hexaploid", "pentaploid", "hexaploid")
 
   # --- 7. Select best ploidy by BIC within the evaluated combination -----
   candidates <- out_nq[out_nq$mixture %in% nQuack_mixtures & is.finite(out_nq$BIC), ]
@@ -512,6 +537,9 @@ convert2nQuack <- function(qploidy_standardization_object,
 #'   returned by \code{call_BAF_dosages}.
 #' @param niter     EM maximum iterations.  Default 1000.
 #' @param epsilon   EM convergence tolerance.  Default 0.1.
+#' @param type      nQuack EM type (\code{"fixed"}, \code{"fixed_2"}, or
+#'   \code{"fixed_3"}); should match the type used for the global ploidy fit.
+#'   Default \code{"fixed"}.
 #'
 #' @return A list of class \code{"BAF_dosage_calls"} with element \code{$data},
 #'   a \code{data.frame} with the same column layout as \code{call_BAF_dosages}:
@@ -526,11 +554,12 @@ call_BAF_nQuack_dosages <- function(baf_vec,
                                     R_vec      = NULL,
                                     max_cn     = NULL,
                                     niter      = 1000L,
-                                    epsilon    = 0.1) {
+                                    epsilon    = 0.1,
+                                    type       = "fixed") {
   if (!requireNamespace("nQuack", quietly = TRUE))
     stop("call_BAF_nQuack_dosages requires the 'nQuack' package.")
   if (utils::packageVersion("nQuack") < "1.0.5")
-    stop("call_BAF_nQuack_dosages requires nQuack >= 1.0.5 ('glreturn' argument to emstep* was added in 1.0.5). Update with:\n  remotes::install_github(\"mgaynor1/nQuack@updateGL\")")
+    stop("call_BAF_nQuack_dosages requires nQuack >= 1.0.5 ('glreturn' argument to emstep* was added in 1.0.5). Update with:\n  install.packages(\"nQuack\")")
 
   cn <- as.integer(cn)
   stopifnot(is.numeric(baf_vec), cn >= 2L, cn <= 6L)
@@ -606,11 +635,11 @@ call_BAF_nQuack_dosages <- function(baf_vec,
     pir <- tryCatch({
       if (base_family == "beta") {
         fn  <- if (add_uniform) nQuack::emstepBU else nQuack::emstepB
-        res <- fn(parms, xi_het, niter, epsilon, trunc, "fixed", glreturn = TRUE)
+        res <- fn(parms, xi_het, niter, epsilon, trunc, type, glreturn = TRUE)
         res$pir
       } else if (base_family == "normal") {
         fn  <- if (add_uniform) nQuack::emstepNU else nQuack::emstepN
-        res <- fn(parms, xi_het, niter, epsilon, trunc, "fixed", glreturn = TRUE)
+        res <- fn(parms, xi_het, niter, epsilon, trunc, type, glreturn = TRUE)
         res$pir
       } else if (base_family == "beta-binomial") {
         if (is.null(R_vec))
@@ -623,7 +652,7 @@ call_BAF_nQuack_dosages <- function(baf_vec,
         alt_het <- round(xi_het * R_het)
         xm_het <- cbind(R_het[ok], alt_het[ok])
         fn  <- if (add_uniform) nQuack::emstepBBU else nQuack::emstepBB
-        res <- fn(parms, xm_het, niter, epsilon, trunc, "fixed", glreturn = TRUE)
+        res <- fn(parms, xm_het, niter, epsilon, trunc, type, glreturn = TRUE)
         # pir rows align only to ok-subset; expand back
         pir_full <- matrix(NA_real_, nrow = length(het_idx), ncol = ncol(res$pir))
         pir_full[ok, ] <- res$pir
@@ -742,7 +771,7 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #'   \code{"fixed"} (default, recommended), \code{"fixed_2"}, or
 #'   \code{"fixed_3"}. BIC/LL are not comparable across types, so only one can
 #'   be evaluated per call.
-#' @param nQuack_uniform Integer, \code{0} (default) or \code{1}. If \code{1},
+#' @param nQuack_uniform Integer, \code{0} or \code{1} (default). If \code{1},
 #'   an additional uniform mixture component is included in the nQuack model
 #'   (\code{distribution}\code{-uniform}); if \code{0}, it is omitted.
 #'
@@ -782,10 +811,12 @@ hmm_estimate_CN_nQuack <- function(
   hom_z_sigma_inflate = 1.5,
   nQuack_dists = "normal",
   nQuack_type = "fixed",
-  nQuack_uniform = 0
+  nQuack_uniform = 1
 ) {
   # ---- Input checks ----
   if (any(cn_grid < 0) | any(cn_grid > 10)) stop("All values in cn_grid must be between 0 and 10.")
+  # z-mean initialization and monotonicity pruning assume ascending CN order
+  cn_grid <- sort(unique(cn_grid))
   if (0 %in% cn_grid)
     stop("cn_grid cannot include 0 (nullisomy/CN=0): nQuack only models CN 2:6. Use hmm_estimate_CN() for CN=0/LOH detection.")
   if (z_only && baf_only) stop("z_only and baf_only cannot both be TRUE.")
@@ -805,10 +836,14 @@ hmm_estimate_CN_nQuack <- function(
       "on samples with known ploidy, then pass that single family here."
     ))
 
-  # nQuack only models CN 2:6 for BAF; CN outside that range should not be passed unless z_only
+  # nQuack only models CN 2:6 for BAF; every requested state must be in that
+  # range when BAF is enabled -- a mixed grid like c(1,2,3,4) would otherwise
+  # pass through with CN=1 padded to log-likelihood 0, which can beat the
+  # (negative) real log-likelihoods of the valid states in the per-window
+  # argmax and get passed to call_BAF_nQuack_dosages(), which asserts cn >= 2.
   nq_cn_valid <- cn_grid[cn_grid >= 2L & cn_grid <= 6L]
-  if (!z_only && length(nq_cn_valid) == 0)
-    stop("cn_grid must contain at least one value in 2:6 for nQuack BAF estimation.")
+  if (!z_only && (length(nq_cn_valid) == 0L || any(!cn_grid %in% 2:6)))
+    stop("cn_grid must be a non-empty subset of 2:6 for nQuack BAF estimation.")
 
   vmsg("Preparing inputs and applying initial filters", verbose = verbose, level = 0, type = ">>")
 
@@ -889,8 +924,10 @@ hmm_estimate_CN_nQuack <- function(
   nq_dist_win <- NULL  # nQuack distribution string for per-window calls
 
   if (!isTRUE(z_only)) {
-    baf_candidates <- c("baf", "BAF", "ratio")
-    baf_col_nq  <- baf_candidates[baf_candidates %in% colnames(d)][1]
+    # Use the already-resolved baf_col (from use_values) so the global ploidy
+    # fit reads the same signal as the per-window likelihoods, instead of
+    # re-picking "baf" even when the caller requested "ratio".
+    baf_col_nq <- baf_col
 
     nq_result <- tryCatch(
       .nquack_estimate_ploidy(
@@ -927,6 +964,14 @@ hmm_estimate_CN_nQuack <- function(
            verbose = verbose, level = 1, type = ">>")
       if (is.null(exp_ploidy) || (length(exp_ploidy) == 1 && is.na(exp_ploidy)))
         stop("nQuack failed and exp_ploidy is not set. Provide exp_ploidy or check nQuack installation.")
+      # exp_ploidy was supplied despite the failed fit: fall back to the
+      # requested (distribution, uniform) combination instead of leaving
+      # nq_dist_win = NULL, which crashes the per-window nQuack helpers
+      # (tolower(NULL) -> character(0) -> "argument is of length zero" on the
+      # subsequent base_family == ... comparisons).
+      nq_dist_win <- paste0(tolower(nQuack_dists), if (isTRUE(nQuack_uniform == 1)) "-uniform" else "")
+      vmsg("nQuack: falling back to dist = %s for per-window BAF likelihoods (ploidy fit failed, exp_ploidy supplied)",
+           verbose = verbose, level = 1, type = ">>", nq_dist_win)
     }
   }
 
@@ -1029,6 +1074,11 @@ hmm_estimate_CN_nQuack <- function(
 
   keep <- win_df$n_snps >= min_snps_per_window
   if (!any(keep)) stop("All windows dropped by min_snps_per_window filter.")
+  win_df   <- win_df[keep, , drop = FALSE]
+  baf_list <- baf_list[keep]
+  R_list   <- R_list[keep]
+  z        <- z[keep]
+  W        <- nrow(win_df)
 
   # ---- nQuack per-window BAF likelihoods ----
   if (!z_only) {
@@ -1042,7 +1092,8 @@ hmm_estimate_CN_nQuack <- function(
         cn_grid  = nq_cn_valid,
         nq_dist  = nq_dist_win,
         het_range    = het_range,
-        min_het_frac = min_het_frac
+        min_het_frac = min_het_frac,
+        type         = nQuack_type
       )
     })
 
@@ -1083,7 +1134,8 @@ hmm_estimate_CN_nQuack <- function(
           cn        = cn_win,
           nq_dist   = nq_dist_win,
           het_range = het_range,
-          R_vec     = if (length(rv) == length(bv)) rv else NULL
+          R_vec     = if (length(rv) == length(bv)) rv else NULL,
+          type      = nQuack_type
         )
       },
       baf_list, R_list, ploidies_temp,
@@ -1234,9 +1286,12 @@ hmm_estimate_CN_nQuack <- function(
     list2env(rm_res, envir = environment())
   }
 
-  # Collapsed-state pruning
+  # Collapsed-state pruning: mu/sig are z-only and frozen (never updated) under
+  # baf_only, so a near-constant z/depth signal can collapse all gaps to ~1e-6,
+  # wrongly dropping CN states that have legitimate BAF support. Skip entirely
+  # when z is excluded from the model.
   collapse_frac <- 0.10
-  if (K > 1) {
+  if (!baf_only && K > 1) {
     mu_sorted  <- sort(mu)
     gaps       <- diff(mu_sorted)
     keep_names <- names(mu_sorted)
@@ -1354,7 +1409,9 @@ hmm_estimate_CN_nQuack <- function(
       chr_baf_sum <- chr_baf_sum - max(chr_baf_sum)
       lse_baf     <- logsumexp(chr_baf_sum)
       logpi0_baf  <- if (is.finite(lse_baf)) chr_baf_sum - lse_baf else log(pi0 / sum(pi0))
-      logpi0_chr  <- log(
+      # baf_only: use the BAF-derived prior directly -- blending in logpi0_z
+      # would reintroduce z-score influence that baf_only promises to exclude.
+      logpi0_chr  <- if (baf_only) logpi0_baf else log(
         (1 - mean_w_baf_chr) * exp(logpi0_z) + mean_w_baf_chr * exp(logpi0_baf)
       )
       max_lp     <- max(logpi0_chr)

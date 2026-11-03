@@ -12,7 +12,8 @@ call_BAF_nQuack_dosages(
   R_vec = NULL,
   max_cn = NULL,
   niter = 1000L,
-  epsilon = 0.1
+  epsilon = 0.1,
+  type = "fixed"
 )
 }
 \arguments{
@@ -42,6 +43,10 @@ returned by \code{call_BAF_dosages}.}
 \item{niter}{EM maximum iterations.  Default 1000.}
 
 \item{epsilon}{EM convergence tolerance.  Default 0.1.}
+
+\item{type}{nQuack EM type (\code{"fixed"}, \code{"fixed_2"}, or
+\code{"fixed_3"}); should match the type used for the global ploidy fit.
+Default \code{"fixed"}.}
 }
 \value{
 A list of class \code{"BAF_dosage_calls"} with element \code{$data},

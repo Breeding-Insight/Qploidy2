@@ -176,6 +176,8 @@ hmm_estimate_CN <- function(
     vmsg("Preparing inputs and applying initial filters", verbose = verbose, level = 0, type = ">>")
 
     if(any(cn_grid < 0) | any(cn_grid > 10)) stop("All values in cn_grid must be between 0 and 10.")
+    # z-mean initialization and monotonicity pruning assume ascending CN order
+    cn_grid <- sort(unique(cn_grid))
     if (z_only && baf_only) stop("z_only and baf_only cannot both be TRUE.")
 
     if (!is.character(sample_id) || length(sample_id) != 1 || nchar(sample_id) == 0) {
@@ -422,13 +424,17 @@ hmm_estimate_CN <- function(
 
   keep <- win_df$n_snps >= min_snps_per_window
   if (!any(keep)) stop("All windows dropped by min_snps_per_window filter. Try lowering min_snps_per_window or check input data.")
+  win_df   <- win_df[keep, , drop = FALSE]
+  baf_list <- baf_list[keep]
+  z        <- z[keep]
+  W        <- nrow(win_df)
   # n_het is now filled later using vectorized dosages
   # Handle single-window case: assign CN by BAF likelihood only, skip HMM/EM
-  if (sum(keep) == 1) {
+  if (W == 1) {
     vmsg("Only one window remains after filtering. Assigning CN by BAF likelihood only", verbose = verbose, level = 1, type = ">>")
     # BAF is undefined at CN=0, so it must be excluded from the grid used here
     cn_grid_baf <- cn_grid[cn_grid >= 1L]
-    ll_baf_matrix <- compute_baf_likelihoods(baf_list[keep][[1]],
+    ll_baf_matrix <- compute_baf_likelihoods(baf_list[[1]],
       cn_grid_baf,
       M = M,
       bw = selected_model$best$bw,
@@ -456,18 +462,18 @@ hmm_estimate_CN <- function(
         add_uniform = selected_model$best$add_uniform,
         uniform_weight = selected_model$best$uniform_weight
       )
-    }, baf_list[keep], cn_call, SIMPLIFY = FALSE)
+    }, baf_list, cn_call, SIMPLIFY = FALSE)
     n_het <- sum(dosages[[1]]$dosage != 0 & dosages[[1]]$dosage != cn_call[1], na.rm = TRUE)
     result <- cbind(
       data.frame(
         Sample = sample_id,
-        Chr = win_df$Chr[keep],
-        WindowID = win_df$WindowID[keep],
-        Start = win_df$Start[keep],
-        End = win_df$End[keep],
-        n_snps = win_df$n_snps[keep],
+        Chr = win_df$Chr,
+        WindowID = win_df$WindowID,
+        Start = win_df$Start,
+        End = win_df$End,
+        n_snps = win_df$n_snps,
         n_het = n_het,
-        z = win_df$z_mean[keep],
+        z = win_df$z_mean,
         w_baf = 1,
         CN_call = cn_call,
         CN_reliability = post_max,
@@ -880,8 +886,11 @@ hmm_estimate_CN <- function(
   # two means to the same value (gap ~ 0.02sigma) without touching states that are
   # genuinely close due to low z_range (gap ~ 0.3sigma is real signal).
   # The exp_ploidy state is never dropped regardless of gap.
+  # mu/sig are z-only and frozen (never updated) under baf_only, so a near-constant
+  # z/depth signal can collapse all gaps to ~1e-6, wrongly dropping CN states that
+  # have legitimate BAF support. Skip entirely when z is excluded from the model.
   collapse_frac <- 0.10  # min gap as fraction of sigma; only truly degenerate pairs
-  if (K > 1) {
+  if (!baf_only && K > 1) {
     mu_sorted   <- sort(mu)  # ascending: CN1 < CN2 < ...
     gaps        <- diff(mu_sorted)  # gap[i] = mu[i+1] - mu[i]
     keep_names  <- names(mu_sorted)
@@ -1053,7 +1062,9 @@ hmm_estimate_CN <- function(
 
       # Blend: weight BAF pi0 by mean_w_baf_chr, z pi0 by (1 - mean_w_baf_chr)
       # so chromosomes with little BAF data are anchored by depth, not BAF noise.
-      logpi0_chr <- log(
+      # baf_only: use the BAF-derived prior directly -- blending in logpi0_z
+      # would reintroduce z-score influence that baf_only promises to exclude.
+      logpi0_chr <- if (baf_only) logpi0_baf else log(
         (1 - mean_w_baf_chr) * exp(logpi0_z) + mean_w_baf_chr * exp(logpi0_baf)
       )
       logpi0_chr <- logpi0_chr - max(logpi0_chr)  # numeric stability

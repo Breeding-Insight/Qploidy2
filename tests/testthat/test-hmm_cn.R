@@ -294,3 +294,54 @@ test_that("hmm_estimate_CN additional argument coverage", {
     )
   )
 })
+
+# ---------------------------------------------------------------------------
+# hmm_estimate_CN: argument variants, pinned to the simulated ploidy
+# ---------------------------------------------------------------------------
+test_that("hmm_estimate_CN baf_only, reordered cn_grid and window filter recover simulated ploidy", {
+  set.seed(123)
+  vcf_file <- tempfile(fileext = ".vcf")
+  simulate_vcf(seed = 123, file_path = vcf_file,
+               n_tetraploid = 5, n_diploid = 2, n_triploid = 2, n_markers = 50)
+  data      <- qploidy_read_vcf(vcf_file)
+  genos     <- qploidy_read_vcf(vcf_file, geno = TRUE)
+  genos     <- genos[grep("Tetraploid", genos$SampleName), ]
+  genos.pos <- qploidy_read_vcf(vcf_file, geno.pos = TRUE)
+  simu_std  <- standardize(data = data, genos = genos, geno.pos = genos.pos,
+                           ploidy.standardization = 4, threshold.n.clusters = 3,
+                           n.cores = 1, out_filename = tempfile(fileext = ".tsv.gz"),
+                           verbose = FALSE)
+
+  # Simulated truth. Diploids are not pinned here: the grid route standardized
+  # on tetraploid genotypes currently calls them CN = 4.
+  true_cn <- c(Triploid1 = 3L, Tetraploid1 = 4L)
+
+  run_grid <- function(sample, ...) {
+    set.seed(42)
+    suppressWarnings(suppressMessages(
+      hmm_estimate_CN(qploidy_standarize_result = simu_std, sample_id = sample,
+                      verbose = FALSE, ...)
+    ))
+  }
+
+  for (s in names(true_cn)) {
+    # baf_only: BAF-only emission and prior, z-based pruning skipped
+    res <- run_grid(s, chr = 1, cn_grid = 2:4, baf_only = TRUE)
+    expect_true(all(res$by_window$CN_call == true_cn[[s]]), info = paste("baf_only", s))
+    expect_true(all(is.na(res$params$mu)), info = paste("baf_only", s))
+
+    # Reordered cn_grid gives the same calls as the sorted one
+    res_sorted    <- run_grid(s, chr = 1, cn_grid = 2:4)
+    res_reordered <- run_grid(s, chr = 1, cn_grid = c(4, 2, 3))
+    expect_true(all(res_sorted$by_window$CN_call == true_cn[[s]]), info = paste("sorted", s))
+    expect_equal(res_reordered$by_window$CN_call, res_sorted$by_window$CN_call,
+                 info = paste("reordered", s))
+
+    # Fixed 9-SNP windows: only the last window of each chromosome passes min 10
+    res <- run_grid(s, cn_grid = 2:4, segment_zscore = FALSE,
+                    snps_per_window = 9, min_snps_per_window = 10)
+    expect_equal(nrow(res$by_window), 2L, info = paste("min_snps", s))
+    expect_true(all(res$by_window$n_snps >= 10), info = paste("min_snps", s))
+    expect_true(all(res$by_window$CN_call == true_cn[[s]]), info = paste("min_snps", s))
+  }
+})
