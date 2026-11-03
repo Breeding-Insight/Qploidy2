@@ -1,3 +1,24 @@
+# Qploidy2 1.23.0
+
+* Fixed `standardize()` computing z-scores with the mean and SD of `R` across all samples in `data`, even when `genos` held only a subset of reference samples. The per-marker mean and SD now come only from the samples in `genos` that remain after filtering, and every sample is transformed against them, matching how BAF uses the reference samples. This changes z-score values whenever `genos` is a subset of `data`.
+
+* `get_zscore()` gains a `reference.samples` argument. Its default, `NULL`, uses all samples as before.
+
+* `filter_R = TRUE` in `standardize()` now limits z-scores to markers that passed all BAF filters (missing data and number of clusters). Previously it applied only the missing-data filter.
+
+* `karyotype_notation()` and `plot_karyotype()` gain `sex_system` (`"none"`, `"XY"`, `"ZW"`, `"X0"`, `"haplodiploid"`) and `sex_chr` (a named list of chromosome IDs for `X`/`Y`/`PAR` or `Z`/`W`/`PAR`) arguments. When set, `karyotype_notation()` adds `Sex`, `SexChr` (e.g. `"XY"`, `"XXXY"`, `"ZW"`, `"X0"`), `SexChrConsistent`, `ChrType`, and `ExpectedCN` columns:
+  * In XY, Y present means male. In ZW, W present means female.
+  * In X0, sex comes from X copy number relative to the ploidy. In haplodiploid systems, sex comes from the sample ploidy.
+  * When X-specific or Y-specific markers are missing, their copy number is derived from the PAR (Y = PAR − X). When all three groups are present, X + Y = PAR is checked.
+  * Sex chromosomes are excluded from the sample ploidy.
+  * Segments on sex chromosomes are flagged against the expected sex-chromosome complement instead of the ploidy.
+  
+  `plot_karyotype()` uses the expected complement for ghost copies, labels sex-chromosome strips, and adds the sex to the subtitle.
+
+* `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()` now report how many windows `min_snps_per_window` removes. If every window of a chromosome is removed, they warn and name the chromosome and its marker count. Previously, small chromosomes such as sex-specific contigs disappeared from the results silently. When `min_snps_per_window` is left at its default (`NULL`), the value chosen automatically is now printed.
+
+* `min_snps_per_window` in `hmm_estimate_CN()`, `hmm_estimate_CN_nQuack()`, and `hmm_estimate_CN_multi()` can now be set per chromosome with a vector named by chromosome ID, e.g. `c(Chr01 = 300, Xspecific = 20)`. Chromosomes left out of the vector use the automatic default. The per-chromosome value applies both to the minimum segment length in z-score changepoint detection and to the window filter. `add_changepoint_windows()` accepts the same named form for `minseglen`.
+
 # Qploidy2 1.22.2
 
 * `nQuack >= 1.0.5` is now available on CRAN, so installation/update instructions in error messages and documentation now point to `install.packages("nQuack")` instead of `remotes::install_github("mgaynor1/nQuack@updateGL")`. `DESCRIPTION` now requires `nQuack (>= 1.0.5)` and the `Remotes:` field was removed.

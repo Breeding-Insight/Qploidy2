@@ -1,6 +1,6 @@
 globalVariables(c("theta", "R", "geno", "Var1", "array.id",
                   "ids", "sd", "median", "z", "lm", "sd",
-                  "snp", "centers_theta", "pnorm"))
+                  "snp", "centers_theta", "pnorm", "is_ref"))
 
 
 ##' Standardize allelic ratio data and compute BAF and Z-scores
@@ -57,7 +57,7 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##' @param verbose Logical. If TRUE, prints progress and filtering information to the console.
 ##' @param rm_outlier Logical. If TRUE, uses Bonferroni-Holm corrected residuals to remove outliers before estimating cluster centers.
 ##' @param cluster_median Logical. If TRUE, uses the median of theta values to estimate cluster centers. If FALSE, uses the mean.
-##' @param filter_R Logical. If TRUE, calculates Z-scores only for markers that passed missing data filter (default: FALSE).
+##' @param filter_R Logical. If TRUE, calculates Z-scores only for markers that passed the BAF filters (missing data and number of clusters) (default: FALSE).
 ##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
 ##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
 ##'
@@ -401,9 +401,11 @@ standardize <- function(data = NULL,
 
   # Z score
   vmsg("Generating z scores", verbose = verbose, level = 0, type = ">>")
+  # Z-score mean/sd come from the reference samples in genos only
+  reference.samples <- unique(genos$SampleName)
   if(filter_R)
-    zscore <- get_zscore(data_filt, geno.pos) # z score is calculated only for markers that passed missing data filter
-  else zscore <- get_zscore(data, geno.pos)
+    zscore <- get_zscore(data[which(data$MarkerName %in% keep.mks),], geno.pos, reference.samples)
+  else zscore <- get_zscore(data, geno.pos, reference.samples)
 
   vmsg("Z scores ready!", verbose = verbose, level = 1, type = ">>")
   n.markers.zscore.end <- length(unique(zscore$MarkerName[!is.na(zscore$z)]))

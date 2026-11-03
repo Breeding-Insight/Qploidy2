@@ -135,7 +135,7 @@ test_that("hmm_estimate_CN, plot_cn_track, and other HMM functions work as expec
   expect_type(multi_res, "list")
   expect_true(length(multi_res) >= 1)
   expect_true(inherits(multi_res, "hmm_CN"))
-  expect_equal(mean(multi_res$by_window$CN_call), 3.27, tolerance = 1e-3)
+  expect_equal(mean(multi_res$by_window$CN_call), 3.14, tolerance = 1e-3)
   expect_equal(mean(multi_res$by_marker$CN_call), 3.333, tolerance = 1e-3)
 
   # Test summarize_cn_mode
@@ -156,7 +156,7 @@ test_that("hmm_estimate_CN, plot_cn_track, and other HMM functions work as expec
   expect_type(multi_res, "list")
   expect_true(length(multi_res) >= 1)
   expect_true(inherits(multi_res, "hmm_CN"))
-  expect_equal(mean(multi_res$by_window$CN_call), 3.27, tolerance = 1e-3)
+  expect_equal(mean(multi_res$by_window$CN_call), 3.14, tolerance = 1e-3)
   expect_equal(mean(multi_res$by_marker$CN_call), 3.333, tolerance = 1e-3)
 
   oneCN <- hmm_estimate_CN(
@@ -344,4 +344,30 @@ test_that("hmm_estimate_CN baf_only, reordered cn_grid and window filter recover
     expect_true(all(res$by_window$n_snps >= 10), info = paste("min_snps", s))
     expect_true(all(res$by_window$CN_call == true_cn[[s]]), info = paste("min_snps", s))
   }
+
+  # Per-chromosome min_snps_per_window: strict on the first chromosome only
+  chrs <- sort(unique(as.character(simu_std$data$Chr)))
+  res_all <- run_grid("Tetraploid1", cn_grid = 2:4, segment_zscore = FALSE,
+                      snps_per_window = 9, min_snps_per_window = 1)
+  res_chr <- run_grid("Tetraploid1", cn_grid = 2:4, segment_zscore = FALSE,
+                      snps_per_window = 9,
+                      min_snps_per_window = stats::setNames(c(10, 1), chrs[1:2]))
+  n_all <- table(res_all$by_window$Chr)
+  n_chr <- table(res_chr$by_window$Chr)
+  expect_equal(unname(n_chr[chrs[1]]), 1L)
+  expect_equal(unname(n_chr[chrs[2]]), unname(n_all[chrs[2]]))
+  expect_equal(res_chr$params$min_snps_per_window, stats::setNames(c(10L, 1L), chrs[1:2]))
+})
+
+test_that(".resolve_min_snps handles NULL, scalar and named inputs", {
+  d <- data.frame(Chr = rep(c("A", "B", "X"), c(100, 60, 20)))
+
+  expect_equal(.resolve_min_snps(NULL, d, verbose = FALSE), c(A = 5L, B = 5L, X = 5L))
+  expect_equal(.resolve_min_snps(30, d, verbose = FALSE), c(A = 30L, B = 30L, X = 30L))
+  expect_equal(.resolve_min_snps(c(A = 30, X = 3), d, verbose = FALSE),
+               c(A = 30L, B = 5L, X = 3L))
+  expect_warning(.resolve_min_snps(c(Y = 3), d, verbose = FALSE), "not found")
+  expect_silent(.resolve_min_snps(c(Y = 3), d, chr_subset = "A", verbose = FALSE))
+  expect_error(.resolve_min_snps(c(10, 20), d, verbose = FALSE), "single value")
+  expect_error(.resolve_min_snps(0, d, verbose = FALSE), "positive")
 })

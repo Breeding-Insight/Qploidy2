@@ -55,7 +55,7 @@ hmm_estimate_CN_nQuack(
 
 \item{snps_per_window}{Integer. Number of SNPs per window when windows are created with fixed-size windowing (\code{segment_zscore = FALSE}). Default \code{50}.}
 
-\item{min_snps_per_window}{Integer. Minimum SNPs required to keep a window. If \code{NULL}, a dynamic value is chosen based on chromosome size. Windows with fewer SNPs are dropped. Default: \code{NULL} (dynamic), or user-specified value.}
+\item{min_snps_per_window}{Minimum SNPs required to keep a window. Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If \code{NULL}, a dynamic value is chosen based on the size of the smallest chromosome. Windows with fewer SNPs are dropped. Default: \code{NULL}.}
 
 \item{cn_grid}{Integer vector of copy-number states to consider. Must contain at least one value in \code{2:6} (nQuack's supported range) unless \code{z_only = TRUE}; \code{0} is not allowed (use \code{\link{hmm_estimate_CN}} for CN=0/LOH detection). Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.}
 

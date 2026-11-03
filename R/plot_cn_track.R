@@ -599,7 +599,7 @@ plot_cn_track <- function(hmm_CN,
   cn_grid <- if (!is.null(params$cn_grid)) paste(params$cn_grid, collapse = ", ") else "NA"
   dist <- if (!is.null(params$distribution)) as.character(params$distribution) else "NA"
   sample_name <- if (!is.null(sample_id)) as.character(sample_id) else "NA"
-  min_snps <- if (!is.null(params$min_snps_per_window)) round(params$min_snps_per_window, 3) else "NA"
+  min_snps <- .format_min_snps(params$min_snps_per_window, short = TRUE)
   param_text <- paste0(
     "Sample Name: ", sample_name, "\n",
     "Mean total depth/Z CN: ", if (!is.null(params$exp_ploidy)) params$exp_ploidy else "NA", "\n",

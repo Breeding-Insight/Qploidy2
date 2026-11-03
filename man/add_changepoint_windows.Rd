@@ -11,7 +11,9 @@ add_changepoint_windows(dat, minseglen = NULL, verbose = TRUE, plot = FALSE)
 Must include z-scores, chromosome labels, and genomic positions.}
 
 \item{minseglen}{Integer giving the minimum number of markers allowed per
-segment. Larger values produce fewer, broader segments.}
+segment, or an integer vector named by chromosome to set it per
+chromosome (unnamed chromosomes use the dynamic default). Larger values
+produce fewer, broader segments.}
 
 \item{verbose}{Logical indicating whether to print progress messages.}
 

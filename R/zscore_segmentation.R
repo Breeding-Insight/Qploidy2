@@ -18,7 +18,9 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("start", "end", "mean_z"
 #'   Must include z-scores, chromosome labels, and genomic positions.
 #'
 #' @param minseglen Integer giving the minimum number of markers allowed per
-#'   segment. Larger values produce fewer, broader segments.
+#'   segment, or an integer vector named by chromosome to set it per
+#'   chromosome (unnamed chromosomes use the dynamic default). Larger values
+#'   produce fewer, broader segments.
 #'
 #' @param verbose Logical indicating whether to print progress messages.
 #'
@@ -122,13 +124,16 @@ add_changepoint_windows <- function(dat,
     }
     if (any(!is.finite(z))) z[!is.finite(z)] <- mean(finite_z)
 
-    if(is.null(minseglen)){
+    chr_minseglen <- if (!is.null(names(minseglen))) {
+      if (as.character(chr) %in% names(minseglen)) minseglen[[as.character(chr)]] else NULL
+    } else minseglen
+    if(is.null(chr_minseglen)){
       floor <- 5 # hard default
       frac <- 0.1 # hard default
       m <- max(floor, floor(length(z) * frac))
-      minseglen <- min(m, floor(length(z) / 2))
+      chr_minseglen <- min(m, floor(length(z) / 2))
     }
-    seg_len <- min(minseglen, floor(length(z) / 2))
+    seg_len <- min(chr_minseglen, floor(length(z) / 2))
     if (!is.finite(seg_len) || seg_len < 1) seg_len <- 1L
 
     fit <- tryCatch(

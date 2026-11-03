@@ -164,3 +164,129 @@ test_that("plot_karyotype errors when nrow is invalid", {
   expect_error(plot_karyotype(df, "S1", nrow = 1.5), "positive integer")
 })
 
+# ---------------------------------------------------------------------------
+# Sex chromosomes
+# ---------------------------------------------------------------------------
+
+# Diploid samples with 2 autosomes plus X, Y and PAR contigs.
+# cn is a named list per sample: list(X = , Y = , PAR = )
+make_sex_df <- function(cn, hom = "X", het = "Y") {
+  chrs <- c("Chr01", "Chr02", paste0("Chr", hom), paste0("Chr", het), "ChrPAR")
+  do.call(rbind, lapply(names(cn), function(s) {
+    v <- cn[[s]]
+    data.frame(
+      SampleName = s,
+      Chr        = rep(chrs, each = 10),
+      Position   = rep(seq(1e6, 10e6, length.out = 10), length(chrs)),
+      CN_call    = rep(c(2L, 2L, v[[hom]], v[[het]], v$PAR), each = 10),
+      stringsAsFactors = FALSE
+    )
+  }))
+}
+xy_chr <- list(X = "ChrX", Y = "ChrY", PAR = "ChrPAR")
+
+test_that("karyotype_notation XY infers sex and complement", {
+  df  <- make_sex_df(list(F = list(X = 2L, Y = 0L, PAR = 2L),
+                          M = list(X = 1L, Y = 1L, PAR = 2L)))
+  out <- karyotype_notation(df, sex_system = "XY", sex_chr = xy_chr)
+
+  expect_true(all(c("Sex", "SexChr", "SexChrConsistent", "ChrType", "ExpectedCN") %in% names(out)))
+  sex <- unique(out[, c("SampleName", "Sex", "SexChr", "SexChrConsistent")])
+  expect_equal(sex$Sex[sex$SampleName == "F"], "female")
+  expect_equal(sex$Sex[sex$SampleName == "M"], "male")
+  expect_equal(sex$SexChr[sex$SampleName == "M"], "XY")
+  expect_true(all(sex$SexChrConsistent))
+  # Expected sex-chromosome dosages are not reported as deviations
+  expect_true(all(is.na(out$Segment)))
+  expect_true(all(out$Ploidy == 2L))
+})
+
+test_that("karyotype_notation XY flags sex chromosome aneuploidy", {
+  df  <- make_sex_df(list(K = list(X = 2L, Y = 1L, PAR = 3L)))
+  out <- karyotype_notation(df, sex_system = "XY", sex_chr = xy_chr)
+
+  expect_equal(unique(out$SexChr), "XXY")
+  expect_equal(unique(out$Sex), "male")
+  expect_false(is.na(out$Segment[out$ChrID == "ChrX"]))
+  expect_false(is.na(out$Segment[out$ChrID == "ChrY"]))
+})
+
+test_that("karyotype_notation XY derives missing groups from PAR", {
+  df <- make_sex_df(list(M = list(X = 3L, Y = 1L, PAR = 4L)))
+
+  no_y <- karyotype_notation(df[df$Chr != "ChrY", ], sex_system = "XY",
+                             sex_chr = list(X = "ChrX", PAR = "ChrPAR"))
+  expect_equal(unique(no_y$SexChr), "XXXY")
+  expect_equal(unique(no_y$Sex), "male")
+  expect_true(all(is.na(no_y$SexChrConsistent)))
+
+  no_x <- karyotype_notation(df[df$Chr != "ChrX", ], sex_system = "XY",
+                             sex_chr = list(Y = "ChrY", PAR = "ChrPAR"))
+  expect_equal(unique(no_x$SexChr), "XXXY")
+})
+
+test_that("karyotype_notation XY reports PAR inconsistency", {
+  df  <- make_sex_df(list(M = list(X = 1L, Y = 1L, PAR = 3L)))
+  out <- karyotype_notation(df, sex_system = "XY", sex_chr = xy_chr)
+  expect_false(unique(out$SexChrConsistent))
+})
+
+test_that("karyotype_notation ZW: W present is female", {
+  df  <- make_sex_df(list(F = list(Z = 1L, W = 1L, PAR = 2L),
+                          M = list(Z = 2L, W = 0L, PAR = 2L)),
+                     hom = "Z", het = "W")
+  out <- karyotype_notation(df, sex_system = "ZW",
+                            sex_chr = list(Z = "ChrZ", W = "ChrW", PAR = "ChrPAR"))
+  sex <- unique(out[, c("SampleName", "Sex", "SexChr")])
+  expect_equal(sex$Sex[sex$SampleName == "F"], "female")
+  expect_equal(sex$SexChr[sex$SampleName == "F"], "ZW")
+  expect_equal(sex$Sex[sex$SampleName == "M"], "male")
+})
+
+test_that("karyotype_notation X0 infers sex from X dosage", {
+  df <- make_sex_df(list(F = list(X = 2L, Y = 0L, PAR = 2L),
+                         M = list(X = 1L, Y = 0L, PAR = 2L)))
+  df <- df[df$Chr %in% c("Chr01", "Chr02", "ChrX"), ]
+  out <- karyotype_notation(df, sex_system = "X0", sex_chr = list(X = "ChrX"))
+  sex <- unique(out[, c("SampleName", "Sex", "SexChr")])
+  expect_equal(sex$SexChr[sex$SampleName == "M"], "X0")
+  expect_equal(sex$Sex[sex$SampleName == "M"], "male")
+  expect_equal(sex$Sex[sex$SampleName == "F"], "female")
+  expect_true(all(is.na(out$Segment)))
+})
+
+test_that("karyotype_notation haplodiploid infers sex from ploidy", {
+  df <- make_marker_df()
+  df$CN_call[df$SampleName == "S1"] <- 1L
+  df$CN_call[df$SampleName == "S2"] <- 2L
+  out <- karyotype_notation(df, sex_system = "haplodiploid")
+  expect_equal(unique(out$Sex[out$SampleName == "S1"]), "male")
+  expect_equal(unique(out$Sex[out$SampleName == "S2"]), "female")
+})
+
+test_that("karyotype_notation validates sex_chr", {
+  df <- make_sex_df(list(M = list(X = 1L, Y = 1L, PAR = 2L)))
+  expect_error(karyotype_notation(df, sex_system = "XY", sex_chr = list(Z = "ChrX")),
+               "Invalid")
+  expect_error(karyotype_notation(df, sex_system = "XY", sex_chr = list(X = "ChrX")),
+               "requires")
+  expect_error(karyotype_notation(df, sex_system = "XY",
+                                  sex_chr = list(X = "ChrX", Y = "ChrX")),
+               "more than one")
+  expect_error(karyotype_notation(df, sex_system = "XY"), "named list")
+})
+
+test_that("plot_karyotype supports sex chromosomes", {
+  df <- make_sex_df(list(M = list(X = 1L, Y = 1L, PAR = 2L)))
+  p  <- plot_karyotype(df, sample_name = "M", sex_system = "XY", sex_chr = xy_chr)
+  expect_s3_class(p, "gg")
+  expect_match(p$labels$subtitle, "Sex: male \\(XY\\)")
+  # No ghost second copy for the male X
+  ghost_x <- vapply(p$layers, function(l) {
+    d <- l$data
+    is.data.frame(d) && all(c("grey_type", "Chr") %in% names(d)) &&
+      any(d$grey_type == "Expected (ghost)" & d$Chr == "ChrX")
+  }, logical(1))
+  expect_false(any(ghost_x))
+})
+

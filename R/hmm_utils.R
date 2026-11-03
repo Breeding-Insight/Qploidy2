@@ -5,6 +5,86 @@ globalVariables(c(
   "n_vlines", "n_regions", "region_id"
 ))
 
+# Resolve min_snps_per_window into one threshold per chromosome in `d`.
+# Accepts NULL (dynamic), a single value, or a vector named by chromosome
+# (unnamed chromosomes fall back to the dynamic default).
+.resolve_min_snps <- function(min_snps_per_window, d, chr_subset = NULL, verbose = TRUE) {
+  chrs  <- unique(as.character(d$Chr))
+  n_chr <- table(as.character(d$Chr))[chrs]
+
+  x <- min(n_chr)
+  dyn <- as.integer(min(max(5L, floor(x * 0.20)), floor(x / 2)))
+
+  if (is.null(min_snps_per_window)) {
+    vmsg("min_snps_per_window not provided, using: %d (based on the smallest chromosome, %d markers)",
+         verbose = verbose, level = 1, type = ">>", dyn, as.integer(x))
+    return(stats::setNames(rep(dyn, length(chrs)), chrs))
+  }
+
+  if (!is.numeric(min_snps_per_window) || any(is.na(min_snps_per_window)) ||
+      any(min_snps_per_window < 1))
+    stop("`min_snps_per_window` must be NULL, a positive number, or a positive numeric vector named by chromosome.")
+
+  nms <- names(min_snps_per_window)
+  if (is.null(nms)) {
+    if (length(min_snps_per_window) != 1)
+      stop("An unnamed `min_snps_per_window` must be a single value; name the elements by chromosome to set it per chromosome.")
+    return(stats::setNames(rep(as.integer(min_snps_per_window), length(chrs)), chrs))
+  }
+  if (any(nms == "") || anyDuplicated(nms))
+    stop("All elements of `min_snps_per_window` must have unique chromosome names.")
+
+  unknown <- setdiff(nms, chrs)
+  if (length(unknown) > 0 && is.null(chr_subset))
+    warning("`min_snps_per_window` names not found in the data: ",
+            paste(unknown, collapse = ", "), call. = FALSE)
+
+  out <- stats::setNames(rep(dyn, length(chrs)), chrs)
+  given <- intersect(nms, chrs)
+  out[given] <- as.integer(min_snps_per_window[given])
+  default_chrs <- setdiff(chrs, given)
+  if (length(default_chrs) > 0)
+    vmsg("min_snps_per_window not provided for %s; using: %d (based on the smallest chromosome, %d markers)",
+         verbose = verbose, level = 1, type = ">>",
+         paste(default_chrs, collapse = ", "), dyn, as.integer(x))
+  out
+}
+
+# Compact form for params/printing: a single value when all chromosomes share it
+.compact_min_snps <- function(v) {
+  if (length(unique(v)) == 1) unname(v[1]) else v
+}
+
+.format_min_snps <- function(v, short = FALSE, max_exceptions = 2L) {
+  if (is.null(v)) return("NA")
+  if (length(v) == 1) return(as.character(v))
+  if (!short) return(paste(names(v), v, sep = "=", collapse = ", "))
+  # Most common value, listing only the few chromosomes that differ
+  common <- as.integer(names(which.max(table(v))))
+  exc <- v[v != common]
+  if (length(exc) <= max_exceptions)
+    return(paste0(common, " (", paste(names(exc), exc, sep = "=", collapse = ", "), ")"))
+  paste0(min(v), "-", max(v), " (by chr)")
+}
+
+# Report windows removed by min_snps_per_window; warns when whole chromosomes are lost
+.report_dropped_windows <- function(win_df, keep, min_snps_per_window, verbose = TRUE) {
+  if (all(keep)) return(invisible(NULL))
+  vmsg("Windows dropped by min_snps_per_window (%s): %d of %d",
+       verbose = verbose, level = 1, type = ">>",
+       .format_min_snps(.compact_min_snps(min_snps_per_window)), sum(!keep), length(keep))
+  lost <- setdiff(unique(win_df$Chr[!keep]), unique(win_df$Chr[keep]))
+  if (length(lost) > 0) {
+    n_lost <- tapply(win_df$n_snps, win_df$Chr, sum)[lost]
+    thr    <- min_snps_per_window[as.character(lost)]
+    warning(sprintf(
+      "Chromosome(s) removed from the analysis because all their windows have fewer markers than min_snps_per_window: %s. Lower min_snps_per_window (globally or for these chromosomes) to keep them.",
+      paste0(lost, " (", n_lost, " markers, min = ", thr, ")", collapse = ", ")
+    ), call. = FALSE)
+  }
+  invisible(NULL)
+}
+
 #' Numerically stable log-sum-exp
 #'
 #' Computes the logarithm of the sum of exponentials, \eqn{\log\left(\sum_i e^{x_i}\right)}, in a numerically stable way by subtracting the maximum element before exponentiating. This avoids overflow/underflow for large or small values in \code{x}.

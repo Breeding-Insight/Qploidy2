@@ -10,7 +10,9 @@ plot_karyotype(
   color_by = NULL,
   nrow = 1,
   notation = TRUE,
-  add_ghost = TRUE
+  add_ghost = TRUE,
+  sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
+  sex_chr = NULL
 )
 }
 \arguments{
@@ -59,6 +61,12 @@ in a given segment. For example, if the ploidy is 5 but a chromosome has
 segmental gain gives \code{CN = 6} in one region but \code{CN = 5}
 elsewhere on the same chromosome, the 6th column is drawn as a dashed
 ghost in the lower-CN region.}
+
+\item{sex_system, sex_chr}{Sex-determination system and sex-chromosome IDs,
+passed to \code{\link{karyotype_notation}}. When set, ghost copies of sex
+chromosomes follow the expected sex-chromosome complement (e.g. no ghost
+second X in an XY male), sex-chromosome strips are labelled with their
+type, and the inferred sex is added to the subtitle.}
 }
 \value{
 A \code{\link[ggplot2]{ggplot}} object. The y-axis is reversed so
@@ -88,6 +96,10 @@ plot_karyotype(hmm_CN, sample_name = "S1", color_by = NULL, notation = FALSE)
 
 # Two rows of chromosome panels
 plot_karyotype(hmm_CN, sample_name = "S1", color_by = "w_baf", nrow = 2)
+
+# XY system
+plot_karyotype(hmm_CN, sample_name = "S1", sex_system = "XY",
+               sex_chr = list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR"))
 }
 
 }

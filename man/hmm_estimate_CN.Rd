@@ -71,7 +71,7 @@ mixture before renormalization. Default FALSE.}
 
 \item{snps_per_window}{Integer. Number of SNPs per window when windows are created. Default \code{50}.}
 
-\item{min_snps_per_window}{Integer. Minimum SNPs required to keep a window. If NULL, a dynamic value is chosen based on chromosome size (see code for details). Windows with fewer SNPs are dropped. Default: NULL (dynamic), or user-specified value.}
+\item{min_snps_per_window}{Minimum SNPs required to keep a window (also the minimum segment length for z-score changepoint detection). Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If NULL, a dynamic value is chosen based on the size of the smallest chromosome. Windows with fewer SNPs are dropped. Default: NULL.}
 
 \item{cn_grid}{Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 0-10. Include \code{0} to allow nullisomy calls; see also \code{cn0_background_frac}. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.}
 

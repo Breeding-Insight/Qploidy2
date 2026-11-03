@@ -739,7 +739,7 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #' @param chr Optional. Character or integer vector specifying chromosomes to include. If \code{NULL}, all chromosomes are used.
 #' @param segment_zscore Logical. If \code{TRUE}, segment z-scores using changepoint detection to define windows instead of fixed SNP counts. Default \code{TRUE}.
 #' @param snps_per_window Integer. Number of SNPs per window when windows are created with fixed-size windowing (\code{segment_zscore = FALSE}). Default \code{50}.
-#' @param min_snps_per_window Integer. Minimum SNPs required to keep a window. If \code{NULL}, a dynamic value is chosen based on chromosome size. Windows with fewer SNPs are dropped. Default: \code{NULL} (dynamic), or user-specified value.
+#' @param min_snps_per_window Minimum SNPs required to keep a window. Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If \code{NULL}, a dynamic value is chosen based on the size of the smallest chromosome. Windows with fewer SNPs are dropped. Default: \code{NULL}.
 #' @param cn_grid Integer vector of copy-number states to consider. Must contain at least one value in \code{2:6} (nQuack's supported range) unless \code{z_only = TRUE}; \code{0} is not allowed (use \code{\link{hmm_estimate_CN}} for CN=0/LOH detection). Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.
 #' @param max_iter Integer. Maximum EM iterations. Default \code{60}.
 #' @param het_quantile Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.
@@ -985,16 +985,8 @@ hmm_estimate_CN_nQuack <- function(
   d[["Position"]] <- as.numeric(d[["Position"]])
   d <- d[order(d[["Chr"]], d[["Position"]]), ]
 
-  if (is.null(min_snps_per_window)) {
-    floor_val <- 5L
-    frac      <- 0.20
-    mk_by_chrom <- d %>%
-      group_by(Chr) %>%
-      summarize(n = n())
-    x <- min(mk_by_chrom$n)
-    m <- max(floor_val, floor(x * frac))
-    min_snps_per_window <- min(m, floor(x / 2))
-  }
+  min_snps_chr <- .resolve_min_snps(min_snps_per_window, d, chr_subset = chr, verbose = verbose)
+  min_snps_per_window <- .compact_min_snps(min_snps_chr)
 
   if (segment_zscore) {
     vmsg("Using z-scores changepoint detection to define windows", verbose = verbose, level = 1, type = ">>")
@@ -1002,7 +994,7 @@ hmm_estimate_CN_nQuack <- function(
       if ("z" %in% names(d)) names(d)[names(d) == "z"] <- ".__z_stash__."
       names(d)[names(d) == z_col] <- "z"
     }
-    d <- add_changepoint_windows(dat = d, minseglen = min_snps_per_window)
+    d <- add_changepoint_windows(dat = d, minseglen = min_snps_chr)
     if (z_col != "z") {
       names(d)[names(d) == "z"] <- z_col
       if (".__z_stash__." %in% names(d)) names(d)[names(d) == ".__z_stash__."] <- "z"
@@ -1072,8 +1064,9 @@ hmm_estimate_CN_nQuack <- function(
   if (length(z) == 0 || all(is.na(z))) stop("No valid z values found in any window.")
   vmsg("Windows ready", verbose = verbose, level = 1, type = ">>")
 
-  keep <- win_df$n_snps >= min_snps_per_window
+  keep <- win_df$n_snps >= min_snps_chr[as.character(win_df$Chr)]
   if (!any(keep)) stop("All windows dropped by min_snps_per_window filter.")
+  .report_dropped_windows(win_df, keep, min_snps_chr, verbose)
   win_df   <- win_df[keep, , drop = FALSE]
   baf_list <- baf_list[keep]
   R_list   <- R_list[keep]

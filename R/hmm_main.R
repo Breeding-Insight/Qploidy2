@@ -21,7 +21,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #'   kernels to keep mass within [0,1] (useful for gaussian).
 #' @param add_uniform Logical. If TRUE, add a uniform noise component to the
 #'   mixture before renormalization. Default FALSE.
-#' @param min_snps_per_window Integer. Minimum SNPs required to keep a window. If NULL, a dynamic value is chosen based on chromosome size (see code for details). Windows with fewer SNPs are dropped. Default: NULL (dynamic), or user-specified value.
+#' @param min_snps_per_window Minimum SNPs required to keep a window (also the minimum segment length for z-score changepoint detection). Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If NULL, a dynamic value is chosen based on the size of the smallest chromosome. Windows with fewer SNPs are dropped. Default: NULL.
 #' @param cn_grid Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 0-10. Include \code{0} to allow nullisomy calls; see also \code{cn0_background_frac}. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.
 #' @param cn0_background_frac Numeric in [0, 1]. Array probes emit residual background signal even at CN=0, which elevates the z-score above the linear extrapolation. This parameter shifts the initial \code{mu[0]} upward by \code{cn0_background_frac * (mu[1] - mu[0])}, placing it at the expected background-elevated z rather than the theoretical zero-signal floor. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0} (no background correction; suitable for sequencing data).
 #' @param M Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.
@@ -324,17 +324,8 @@ hmm_estimate_CN <- function(
   d[["Position"]] <- as.numeric(d[["Position"]])
   d <- d[order(d[["Chr"]], d[["Position"]]), ]
 
-  if (is.null(min_snps_per_window)) {
-    # If min_snp_per_window is not defined, the minimum will be set based on the smaller chromosome number
-    floor <- 5 # hard default
-    frac <- 0.20 # hard default
-    mk_by_chrom <- d %>%
-      group_by(Chr) %>%
-      summarize(n = n())
-    x <- min(mk_by_chrom$n)
-    m <- max(floor, floor(x * frac))
-    min_snps_per_window <- min(m, floor(x / 2))
-  }
+  min_snps_chr <- .resolve_min_snps(min_snps_per_window, d, chr_subset = chr, verbose = verbose)
+  min_snps_per_window <- .compact_min_snps(min_snps_chr)
 
   # Segmented z-score
   if (segment_zscore) {
@@ -344,7 +335,7 @@ hmm_estimate_CN <- function(
       if ("z" %in% names(d)) names(d)[names(d) == "z"] <- ".__z_stash__."
       names(d)[names(d) == z_col] <- "z"
     }
-    d <- add_changepoint_windows(dat = d, minseglen = min_snps_per_window)
+    d <- add_changepoint_windows(dat = d, minseglen = min_snps_chr)
     if (z_col != "z") {
       names(d)[names(d) == "z"] <- z_col
       if (".__z_stash__." %in% names(d)) names(d)[names(d) == ".__z_stash__."] <- "z"
@@ -422,8 +413,9 @@ hmm_estimate_CN <- function(
 
   vmsg("Windows ready", verbose = verbose, level = 1, type = ">>")
 
-  keep <- win_df$n_snps >= min_snps_per_window
+  keep <- win_df$n_snps >= min_snps_chr[as.character(win_df$Chr)]
   if (!any(keep)) stop("All windows dropped by min_snps_per_window filter. Try lowering min_snps_per_window or check input data.")
+  .report_dropped_windows(win_df, keep, min_snps_chr, verbose)
   win_df   <- win_df[keep, , drop = FALSE]
   baf_list <- baf_list[keep]
   z        <- z[keep]
@@ -1488,7 +1480,7 @@ print.hmm_CN <- function(x, ...) {
   cat("hmm_CN result\n")
   cat("  Copy-number grid:", paste(params$cn_grid, collapse = ", "), "\n")
   cat("  Expected ploidy:", params$exp_ploidy, "\n")
-  cat("  Minimum SNPs per window:", params$min_snps_per_window, "\n")
+  cat("  Minimum SNPs per window:", .format_min_snps(params$min_snps_per_window), "\n")
   cat("  Initial state probabilities (pi0):", paste(round(params$pi0, 3), collapse = ", "), "\n")
   if (!isTRUE(params$baf_only)) {
     cat("  Estimated z means per CN:", paste(round(params$mu, 3), collapse = ", "), "\n")

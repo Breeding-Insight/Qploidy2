@@ -300,13 +300,17 @@ get_centers <- function(ratio_geno,
 #'   \item{Position}{Genomic position (base-pair coordinate) of the marker.}
 #' }
 #'
+#' @param reference.samples Optional character vector of sample IDs used to compute the
+#'   per-marker mean and standard deviation of `R`. Z-scores are returned for all samples.
+#'   If `NULL` (default), all samples are used as reference.
+#'
 #' @return A data.frame containing the following columns:
 #' \describe{
 #'   \item{MarkerName}{Marker ID.}
 #'   \item{Chr}{Chromosome corresponding to the marker.}
 #'   \item{Position}{Genomic position (bp).}
 #'   \item{SampleName}{Sample ID.}
-#'   \item{z}{Z-score computed per marker across all samples.}
+#'   \item{z}{Z-score computed per marker relative to the reference samples.}
 #' }
 #' Markers with missing chromosome or position information are excluded from the final output.
 #'
@@ -328,14 +332,18 @@ get_centers <- function(ratio_geno,
 #'
 #' @export
 get_zscore <- function(data = NULL,
-                       geno.pos = NULL){
+                       geno.pos = NULL,
+                       reference.samples = NULL){
 
   stopifnot(all(c("MarkerName", "SampleName", "R") %in% colnames(data)))
 
   data$R[data$R == 0] <- NA
 
+  data$is_ref <- if (is.null(reference.samples)) TRUE else data$SampleName %in% reference.samples
+
   zscore <- data %>% group_by(MarkerName) %>%
-    mutate(z = (R - mean(R, na.rm = TRUE))/sd(R, na.rm = TRUE)) %>% select(MarkerName, SampleName, z)
+    mutate(z = (R - mean(R[is_ref], na.rm = TRUE))/sd(R[is_ref], na.rm = TRUE)) %>%
+    ungroup() %>% select(MarkerName, SampleName, z)
 
   colnames(geno.pos)[1] <- c("MarkerName")
 
