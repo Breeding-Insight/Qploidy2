@@ -1,3 +1,13 @@
+# Qploidy2 1.24.0
+
+* `hmm_estimate_CN_nQuack()` now accepts CN 0 and 1 in `cn_grid` (any subset of `0:6` with at least one value in `1:6`):
+  * CN 0 is detected from z-scores alone, through a `z_only = TRUE` pre-pass as in `hmm_estimate_CN()`, and returned as `NA`. A new `cn0_background_frac` argument handles array background signal.
+  * CN 1 has no nQuack model. In windows whose heterozygous fraction reaches `min_het_frac`, its BAF log-likelihood is set to the lowest of the other states. Otherwise BAF is neutral and z decides.
+  * When the sample-wide heterozygous fraction is at most `min_het_frac` and `exp_ploidy` is not given, the sample is treated as haploid (`exp_ploidy = 1`) and the nQuack global fit is skipped.
+  * Windows called CN 1 get homozygous-only dosages.
+
+* Fixed "missing value where TRUE/FALSE needed" in `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()` when every window of a chromosome was called CN 0 (`NA`). The post-decoding override took the mode of an all-`NA` chromosome; it now skips such chromosomes.
+
 # Qploidy2 1.23.1
 
 * `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()` no longer remove windows with fewer SNPs than `min_snps_per_window`. The argument now only sets the minimum segment length for z-score changepoint detection, so chromosomes with fewer markers than the minimum form a single window and stay in the results. The dropped-window message and warning added in 1.23.0 were removed.

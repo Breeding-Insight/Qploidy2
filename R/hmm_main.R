@@ -1089,7 +1089,8 @@ hmm_estimate_CN <- function(
   if (!z_only && !baf_only && hom_z_sigma_inflate > 1) {
     baf_gate_post   <- 0.1  # same gate as in gating block above
     het_idx         <- w_baf > 0
-    mode_cn         <- as.integer(if (any(het_idx)) mode(cn_call[het_idx]) else round(exp_ploidy))
+    mode_cn         <- .mode_or_na(cn_call[which(het_idx)])
+    if (is.na(mode_cn)) mode_cn <- as.integer(round(exp_ploidy))
     mode_col        <- which(cn_grid == mode_cn)
     baseline_mu_val <- if (length(mode_col) == 1) mu[mode_col] else mu[which.min(abs(cn_grid - mode_cn))]
     threshold       <- sig * hom_z_sigma_inflate
@@ -1098,11 +1099,12 @@ hmm_estimate_CN <- function(
       idx            <- which(win_df$Chr == chr_i)
       mean_w_baf_chr <- mean(w_baf[idx], na.rm = TRUE)
       chr_z_mean     <- mean(z[idx], na.rm = TRUE)
-      chr_cn_mode    <- as.integer(mode(cn_call[idx]))
+      chr_cn_mode    <- .mode_or_na(cn_call[idx])
 
       # Only act when chromosome CN differs from sample mode and z is within threshold
       if (!is.finite(chr_z_mean)) next
-      if (chr_cn_mode == mode_cn) next
+      # all-NA chromosomes were called CN=0
+      if (is.na(chr_cn_mode) || chr_cn_mode == mode_cn) next
       if (abs(chr_z_mean - baseline_mu_val) >= threshold) next  # genuine z deviation
 
       # Override regardless of BAF weight: the z deviation is within noise of the

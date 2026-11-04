@@ -33,6 +33,7 @@ hmm_estimate_CN_nQuack(
   dosage_threshold = 0,
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
+  cn0_background_frac = 0,
   nQuack_dists = "normal",
   nQuack_type = "fixed",
   nQuack_uniform = 1,
@@ -59,7 +60,7 @@ hmm_estimate_CN_nQuack(
 
 \item{min_snps_per_window}{Minimum segment length (in SNPs) for z-score changepoint detection. Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If \code{NULL}, a dynamic value is chosen based on the size of the smallest chromosome. Windows are never removed: chromosomes with fewer markers than this value form a single window. Default: \code{NULL}.}
 
-\item{cn_grid}{Integer vector of copy-number states to consider. Must contain at least one value in \code{2:6} (nQuack's supported range) unless \code{z_only = TRUE}; \code{0} is not allowed (use \code{\link{hmm_estimate_CN}} for CN=0/LOH detection). Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.}
+\item{cn_grid}{Integer vector of copy-number states to consider, a subset of \code{0:6} with at least one value in \code{1:6} (any value up to 10 when \code{z_only = TRUE}). nQuack models CN \code{2:6}. CN \code{0} is detected from z-scores only, through a \code{z_only = TRUE} pre-pass, and returned as \code{NA}. CN \code{1} has no nQuack model: in windows with a heterozygous fraction of at least \code{min_het_frac} its BAF log-likelihood is set to the lowest of the other states, otherwise BAF is neutral and z decides. When \code{1} is in \code{cn_grid}, \code{exp_ploidy} is not given, and the sample-wide heterozygous fraction is at most \code{min_het_frac}, the sample is treated as haploid (\code{exp_ploidy = 1}) and the nQuack global fit is skipped. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.}
 
 \item{max_iter}{Integer. Maximum EM iterations. Default \code{60}.}
 
@@ -96,6 +97,8 @@ hmm_estimate_CN_nQuack(
 \item{z_no_baf_scale}{Numeric in [0,1]. Floor weight applied to \code{w_baf} when computing \code{CN_reliability} for windows with no BAF support (\code{w_baf == 0}). A value of 0 means z-only calls have \code{CN_reliability = 0}; 0.25 (default) allows z-only calls to reach at most 25\% of \code{post_max}. Does not affect the HMM emission or CN calling. Applies only when \code{z_only = FALSE}.}
 
 \item{hom_z_sigma_inflate}{Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.}
+
+\item{cn0_background_frac}{Numeric in [0, 1]. Shifts the initial CN=0 z mean upward by \code{cn0_background_frac * (mu[1] - mu[0])} to account for residual array background signal. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0}.}
 
 \item{nQuack_dists}{Character scalar naming the single nQuack mixture-model
 family to evaluate: one of \code{"normal"} (default), \code{"beta"}, or
@@ -143,6 +146,6 @@ An object of class \code{hmm_CN}. Unlike \code{hmm_estimate_CN()},
 Self-contained analogue of \code{\link{hmm_estimate_CN}} that always uses
 \pkg{nQuack} for both the overall sample ploidy estimate and per-window BAF
 likelihoods/dosage calling (the "full nQuack" path); it does not call
-\code{hmm_estimate_CN} internally. \code{cn_grid} must contain at least one
-value in \code{2:6} (nQuack's supported range) unless \code{z_only = TRUE}.
+\code{hmm_estimate_CN} internally. nQuack models CN \code{2:6}; CN \code{0}
+and \code{1} are supported without an nQuack model (see \code{cn_grid}).
 }

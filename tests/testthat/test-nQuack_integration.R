@@ -312,8 +312,8 @@ test_that("hmm_estimate_CN_nQuack input validation", {
   skip_if_not_installed("nQuack")
   std <- setup_simu()$std
 
-  expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 1:4),
-               "non-empty subset of 2:6")
+  expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 2:8),
+               "subset of 0:6")
   expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 2:4,
                       nQuack_dists = c("normal", "beta")),
                "single distribution family")
@@ -417,6 +417,41 @@ test_that("hmm_estimate_CN_nQuack keeps windows below min_snps_per_window", {
     expect_equal(sum(res$by_window$n_snps), nrow(res$by_marker), info = s)
     expect_equal(res$params$exp_ploidy, true_cn[[s]], info = s)
   }
+})
+
+test_that("hmm_estimate_CN_nQuack supports CN = 1 in cn_grid", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
+
+  # Heterozygous samples: CN1 is ruled out by min_het_frac and calls are unchanged
+  for (s in c("Diploid1", "Tetraploid1")) {
+    res <- run_nq(std, s, chr = 1, cn_grid = 1:4)
+    expect_equal(res$params$exp_ploidy, true_cn[[s]], info = s)
+    expect_false(any(res$by_window$CN_call == 1L, na.rm = TRUE), info = s)
+  }
+
+  # Haploid-like sample (no heterozygous BAF): exp_ploidy falls back to 1
+  hap <- std
+  idx <- hap$data$SampleName == "Diploid1"
+  hap$data$baf[idx] <- round(hap$data$baf[idx])
+  res <- run_nq(hap, "Diploid1", chr = 1, cn_grid = 1:4)
+  expect_equal(res$params$exp_ploidy, 1L)
+  expect_true(all(!is.na(res$by_window$CN_call)))
+})
+
+test_that("hmm_estimate_CN_nQuack supports CN = 0 via a z-only pre-pass", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
+  chrs <- sort(unique(as.character(std$data$Chr)))
+
+  # Collapse depth on the second chromosome to mimic nullisomy
+  idx <- std$data$SampleName == "Tetraploid1" & std$data$Chr == chrs[2]
+  std$data$z[idx] <- std$data$z[idx] - 20
+
+  res <- run_nq(std, "Tetraploid1", cn_grid = 0:4)
+  expect_true(all(is.na(res$by_window$CN_call[res$by_window$Chr == chrs[2]])))
+  expect_true(all(res$by_window$CN_call[res$by_window$Chr == chrs[1]] == 4L))
+  expect_true(chrs[2] %in% res$by_window$Chr)
 })
 
 test_that(".nquack_estimate_ploidy reports the correct ploidy for CN 2-6 (hexa/penta labels)", {
