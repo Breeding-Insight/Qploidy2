@@ -58,11 +58,19 @@ utils::globalVariables(c(
 ##'   segmental gain gives \code{CN = 6} in one region but \code{CN = 5}
 ##'   elsewhere on the same chromosome, the 6th column is drawn as a dashed
 ##'   ghost in the lower-CN region.
-##' @param sex_system,sex_chr Sex-determination system and sex-chromosome IDs,
-##'   passed to \code{\link{karyotype_notation}}. When set, ghost copies of sex
-##'   chromosomes follow the expected sex-chromosome complement (e.g. no ghost
-##'   second X in an XY male), sex-chromosome strips are labelled with their
-##'   type, and the inferred sex is added to the subtitle.
+##' @param sex_system Character or \code{NULL}. Sex-determination system:
+##'   \code{"none"}, \code{"XY"}, \code{"ZW"}, \code{"X0"}, or
+##'   \code{"haplodiploid"} (see \code{\link{karyotype_notation}}). When
+##'   \code{NULL} (default), the value stored in the \code{hmm_CN}
+##'   \code{params} is used, falling back to \code{"none"}. When set, ghost
+##'   copies of sex chromosomes follow the expected sex-chromosome complement
+##'   (e.g. no ghost second X in an XY male), sex-chromosome strips are
+##'   labelled with their type, and the inferred sex is added to the subtitle.
+##' @param sex_chr Named list mapping sex-chromosome groups to chromosome IDs,
+##'   e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")} (see
+##'   \code{\link{karyotype_notation}} for the allowed names per system). When
+##'   \code{NULL} (default), the value stored in the \code{hmm_CN}
+##'   \code{params} is used if its \code{sex_system} matches.
 ##'
 ##' @importFrom ggplot2 ggplot aes geom_rect geom_segment geom_point scale_color_viridis_c scale_color_viridis_d scale_color_identity scale_fill_manual scale_y_reverse scale_x_continuous facet_wrap labeller label_value labs theme_minimal theme element_blank element_text unit margin guide_legend
 ##' @importFrom scales squish
@@ -96,9 +104,11 @@ plot_karyotype <- function(df, sample_name,
                            nrow = 1,
                            notation = TRUE,
                            add_ghost = TRUE,
-                           sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
+                           sex_system = NULL,
                            sex_chr = NULL) {
-    sex_system <- match.arg(sex_system)
+    sex <- .resolve_sex_args(df, sex_system, sex_chr)
+    sex_system <- sex$sex_system
+    sex_chr    <- sex$sex_chr
     if (is.null(color_by) || (length(color_by) == 1 && is.na(color_by))) {
         color_by <- NULL
     } else {
@@ -346,7 +356,7 @@ plot_karyotype <- function(df, sample_name,
             vapply(levels(df_sample$Chr), function(chr) {
                 row <- notation_sample[notation_sample$ChrID == chr, ]
                 if (nrow(row) == 0) return(as.character(chr))
-                chr_title <- if (!is.null(row$ChrType) && row$ChrType != "autosome")
+                chr_title <- if ("ChrType" %in% names(row) && row$ChrType != "autosome")
                     paste0(chr, " (", row$ChrType, ")") else chr
                 cn_line <- paste0("CN: ", row$ChrCN)
                 if (!is.na(row$Segment)) {

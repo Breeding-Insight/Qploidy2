@@ -35,7 +35,9 @@ hmm_estimate_CN_nQuack(
   hom_z_sigma_inflate = 1.5,
   nQuack_dists = "normal",
   nQuack_type = "fixed",
-  nQuack_uniform = 1
+  nQuack_uniform = 1,
+  sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
+  sex_chr = NULL
 )
 }
 \arguments{
@@ -112,6 +114,25 @@ be evaluated per call.}
 \item{nQuack_uniform}{Integer, \code{0} or \code{1} (default). If \code{1},
 an additional uniform mixture component is included in the nQuack model
 (\code{distribution}\code{-uniform}); if \code{0}, it is omitted.}
+
+\item{sex_system}{Character. Sex-determination system of the species:
+\code{"none"} (default, all chromosomes treated as autosomes),
+\code{"XY"}, \code{"ZW"}, \code{"X0"}, or \code{"haplodiploid"} (see
+\code{\link{karyotype_notation}} for how sex is inferred in each system).
+It does not change the HMM; it is stored in \code{params} so that
+\code{\link{karyotype_notation}}, \code{\link{plot_karyotype}}, and
+\code{\link{count_types}} use it by default.}
+
+\item{sex_chr}{Named list mapping sex-chromosome groups to chromosome IDs
+in the data, e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")}.
+Allowed names: \code{X}, \code{Y}, \code{PAR} for \code{"XY"}; \code{Z},
+\code{W}, \code{PAR} for \code{"ZW"}; \code{X} for \code{"X0"}; not used
+for \code{"none"} or \code{"haplodiploid"}. \code{X}/\code{Z} and
+\code{Y}/\code{W} hold markers specific to that chromosome; \code{PAR}
+holds pseudoautosomal markers. For \code{"XY"}/\code{"ZW"}, \code{Y} (or
+\code{W}) or both \code{X} (or \code{Z}) and \code{PAR} are required.
+Stored in \code{params} together with \code{sex_system}. Default
+\code{NULL}.}
 }
 \value{
 An object of class \code{hmm_CN}. Unlike \code{hmm_estimate_CN()},

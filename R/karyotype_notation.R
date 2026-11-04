@@ -18,9 +18,13 @@ utils::globalVariables(c(
 ##'   in which case the \code{by_marker} slot is used automatically.
 ##' @param sample_name Character vector of sample names to include, or
 ##'   \code{NULL} (default) to return notation for all samples in \code{df}.
-##' @param sex_system Character. Sex-determination system of the species:
+##' @param sex_system Character or \code{NULL}. Sex-determination system of the species.
+##'   When \code{NULL} (default), the value stored in the \code{params} of an
+##'   \code{hmm_CN} input (set through \code{sex_system} in
+##'   \code{\link{hmm_estimate_CN}}) is used, falling back to \code{"none"}.
+##'   Supplying a value overrides the stored one. Options:
 ##'   \describe{
-##'     \item{\code{"none"}}{(default) All chromosomes are treated as autosomes.}
+##'     \item{\code{"none"}}{All chromosomes are treated as autosomes.}
 ##'     \item{\code{"XY"}}{Females XX, males XY. A sample carrying at least one
 ##'       Y is reported as male.}
 ##'     \item{\code{"ZW"}}{Males ZZ, females ZW (e.g. birds, Lepidoptera). A
@@ -33,7 +37,8 @@ utils::globalVariables(c(
 ##'       distinguished from females.}
 ##'   }
 ##' @param sex_chr Named list mapping sex-chromosome groups to chromosome IDs
-##'   in \code{df$Chr}. Allowed names: \code{X}, \code{Y}, \code{PAR} for
+##'   in \code{df$Chr}. When \code{NULL}, the value stored in the \code{hmm_CN}
+##'   \code{params} is used if its \code{sex_system} matches. Allowed names: \code{X}, \code{Y}, \code{PAR} for
 ##'   \code{"XY"}; \code{Z}, \code{W}, \code{PAR} for \code{"ZW"}; \code{X} for
 ##'   \code{"X0"}. \code{X}/\code{Z} and \code{Y}/\code{W} hold markers
 ##'   specific to that chromosome; \code{PAR} holds pseudoautosomal markers
@@ -92,10 +97,12 @@ utils::globalVariables(c(
 ##'
 ##' @export
 karyotype_notation <- function(df, sample_name = NULL,
-                               sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
+                               sex_system = NULL,
                                sex_chr = NULL) {
 
-    sex_system <- match.arg(sex_system)
+    sex <- .resolve_sex_args(df, sex_system, sex_chr)
+    sex_system <- sex$sex_system
+    sex_chr    <- sex$sex_chr
     sex_roles  <- .sex_chr_roles(sex_system, sex_chr)
 
     if (inherits(df, "hmm_CN")) {
@@ -215,6 +222,39 @@ karyotype_notation <- function(df, sample_name = NULL,
   }
 
   return(result)
+}
+
+# Resolve sex_system/sex_chr: explicit arguments win, then hmm_CN params, then "none"
+.resolve_sex_args <- function(x, sex_system = NULL, sex_chr = NULL) {
+  choices <- c("none", "XY", "ZW", "X0", "haplodiploid")
+
+  plist <- NULL
+  if (inherits(x, "hmm_CN")) {
+    plist <- if (!is.null(x$params_samples)) x$params_samples else list(x$params)
+  } else if (is.list(x) && !is.data.frame(x) &&
+             length(x) > 0 && all(vapply(x, inherits, logical(1L), "hmm_CN"))) {
+    plist <- lapply(x, `[[`, "params")
+  }
+
+  stored_sys <- NULL
+  stored_chr <- NULL
+  if (!is.null(plist)) {
+    sys <- unique(unlist(lapply(plist, `[[`, "sex_system")))
+    if (length(sys) > 1)
+      warning("Samples in the hmm_CN object have different `sex_system` values (",
+              paste(sys, collapse = ", "), "); using \"", sys[1], "\".", call. = FALSE)
+    if (length(sys) > 0) {
+      stored_sys <- sys[1]
+      hit <- Filter(function(p) identical(p$sex_system, stored_sys), plist)
+      stored_chr <- hit[[1]]$sex_chr
+    }
+  }
+
+  if (is.null(sex_system)) sex_system <- if (is.null(stored_sys)) "none" else stored_sys
+  sex_system <- match.arg(sex_system, choices)
+  if (is.null(sex_chr) && identical(sex_system, stored_sys)) sex_chr <- stored_chr
+
+  list(sex_system = sex_system, sex_chr = sex_chr)
 }
 
 # Validate `sex_chr` against `sex_system`; returns data.frame(Chr, ChrType) or NULL

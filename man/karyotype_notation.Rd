@@ -4,12 +4,7 @@
 \alias{karyotype_notation}
 \title{Build ISCN-style karyotype notation from HMM copy-number calls}
 \usage{
-karyotype_notation(
-  df,
-  sample_name = NULL,
-  sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
-  sex_chr = NULL
-)
+karyotype_notation(df, sample_name = NULL, sex_system = NULL, sex_chr = NULL)
 }
 \arguments{
 \item{df}{A \code{data.frame} with at least the columns \code{SampleName},
@@ -20,9 +15,13 @@ in which case the \code{by_marker} slot is used automatically.}
 \item{sample_name}{Character vector of sample names to include, or
 \code{NULL} (default) to return notation for all samples in \code{df}.}
 
-\item{sex_system}{Character. Sex-determination system of the species:
+\item{sex_system}{Character or \code{NULL}. Sex-determination system of the species.
+When \code{NULL} (default), the value stored in the \code{params} of an
+\code{hmm_CN} input (set through \code{sex_system} in
+\code{\link{hmm_estimate_CN}}) is used, falling back to \code{"none"}.
+Supplying a value overrides the stored one. Options:
 \describe{
-  \item{\code{"none"}}{(default) All chromosomes are treated as autosomes.}
+  \item{\code{"none"}}{All chromosomes are treated as autosomes.}
   \item{\code{"XY"}}{Females XX, males XY. A sample carrying at least one
     Y is reported as male.}
   \item{\code{"ZW"}}{Males ZZ, females ZW (e.g. birds, Lepidoptera). A
@@ -36,7 +35,8 @@ in which case the \code{by_marker} slot is used automatically.}
 }}
 
 \item{sex_chr}{Named list mapping sex-chromosome groups to chromosome IDs
-in \code{df$Chr}. Allowed names: \code{X}, \code{Y}, \code{PAR} for
+in \code{df$Chr}. When \code{NULL}, the value stored in the \code{hmm_CN}
+\code{params} is used if its \code{sex_system} matches. Allowed names: \code{X}, \code{Y}, \code{PAR} for
 \code{"XY"}; \code{Z}, \code{W}, \code{PAR} for \code{"ZW"}; \code{X} for
 \code{"X0"}. \code{X}/\code{Z} and \code{Y}/\code{W} hold markers
 specific to that chromosome; \code{PAR} holds pseudoautosomal markers

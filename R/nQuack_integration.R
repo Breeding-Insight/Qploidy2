@@ -774,6 +774,23 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #' @param nQuack_uniform Integer, \code{0} or \code{1} (default). If \code{1},
 #'   an additional uniform mixture component is included in the nQuack model
 #'   (\code{distribution}\code{-uniform}); if \code{0}, it is omitted.
+#' @param sex_system Character. Sex-determination system of the species:
+#'   \code{"none"} (default, all chromosomes treated as autosomes),
+#'   \code{"XY"}, \code{"ZW"}, \code{"X0"}, or \code{"haplodiploid"} (see
+#'   \code{\link{karyotype_notation}} for how sex is inferred in each system).
+#'   It does not change the HMM; it is stored in \code{params} so that
+#'   \code{\link{karyotype_notation}}, \code{\link{plot_karyotype}}, and
+#'   \code{\link{count_types}} use it by default.
+#' @param sex_chr Named list mapping sex-chromosome groups to chromosome IDs
+#'   in the data, e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")}.
+#'   Allowed names: \code{X}, \code{Y}, \code{PAR} for \code{"XY"}; \code{Z},
+#'   \code{W}, \code{PAR} for \code{"ZW"}; \code{X} for \code{"X0"}; not used
+#'   for \code{"none"} or \code{"haplodiploid"}. \code{X}/\code{Z} and
+#'   \code{Y}/\code{W} hold markers specific to that chromosome; \code{PAR}
+#'   holds pseudoautosomal markers. For \code{"XY"}/\code{"ZW"}, \code{Y} (or
+#'   \code{W}) or both \code{X} (or \code{Z}) and \code{PAR} are required.
+#'   Stored in \code{params} together with \code{sex_system}. Default
+#'   \code{NULL}.
 #'
 #' @return An object of class \code{hmm_CN}. Unlike \code{hmm_estimate_CN()},
 #'   \code{params$bins} is always \code{NULL} and \code{params$bw} is always
@@ -811,9 +828,13 @@ hmm_estimate_CN_nQuack <- function(
   hom_z_sigma_inflate = 1.5,
   nQuack_dists = "normal",
   nQuack_type = "fixed",
-  nQuack_uniform = 1
+  nQuack_uniform = 1,
+  sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
+  sex_chr = NULL
 ) {
   # ---- Input checks ----
+  sex_system <- match.arg(sex_system)
+  .sex_chr_roles(sex_system, sex_chr)
   if (any(cn_grid < 0) | any(cn_grid > 10)) stop("All values in cn_grid must be between 0 and 10.")
   # z-mean initialization and monotonicity pruning assume ascending CN order
   cn_grid <- sort(unique(cn_grid))
@@ -1525,7 +1546,9 @@ hmm_estimate_CN_nQuack <- function(
     min_snps_per_window = min_snps_per_window,
     nQuack_dists        = nQuack_dists,
     nQuack_type         = nQuack_type,
-    nQuack_uniform      = nQuack_uniform
+    nQuack_uniform      = nQuack_uniform,
+    sex_system          = sex_system,
+    sex_chr             = sex_chr
   )
 
   if (!is.null(result) && !is.null(d)) {

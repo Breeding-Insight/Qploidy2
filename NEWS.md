@@ -2,6 +2,12 @@
 
 * `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()` no longer remove windows with fewer SNPs than `min_snps_per_window`. The argument now only sets the minimum segment length for z-score changepoint detection, so chromosomes with fewer markers than the minimum form a single window and stay in the results. The dropped-window message and warning added in 1.23.0 were removed.
 
+* `count_types()` gains `sex_system` and `sex_chr` arguments (as in `karyotype_notation()`). When set, sex chromosomes are compared to the copy number expected for each sample's inferred sex complement, so a single X in an XY male is no longer counted as aneuploidy. Sex chromosomes are also excluded from the sample-level CN. The result gains a `$sex` table, and the printed summary shows how many samples are female, male, or unknown.
+
+* Fixed an "Unknown or uninitialised column: `ChrType`" warning in `plot_karyotype()` when `sex_system = "none"`.
+
+* `hmm_estimate_CN()`, `hmm_estimate_CN_nQuack()`, and `hmm_estimate_CN_multi()` (through `...`) gain `sex_system` and `sex_chr` arguments. They don't change the HMM; they are validated and stored in `params`. `karyotype_notation()`, `plot_karyotype()`, and `count_types()` now default to `sex_system = NULL` and `sex_chr = NULL`, which means they use the values stored in the `hmm_CN` object. Passing the arguments explicitly overrides the stored values, and objects without stored values keep the previous behaviour. `print.hmm_CN()` shows the sex system when set.
+
 # Qploidy2 1.23.0
 
 * Fixed `standardize()` computing z-scores with the mean and SD of `R` across all samples in `data`, even when `genos` held only a subset of reference samples. The per-marker mean and SD now come only from the samples in `genos` that remain after filtering, and every sample is transformed against them, matching how BAF uses the reference samples. This changes z-score values whenever `genos` is a subset of `data`.

@@ -276,6 +276,54 @@ test_that("karyotype_notation validates sex_chr", {
   expect_error(karyotype_notation(df, sex_system = "XY"), "named list")
 })
 
+test_that("count_types does not count XY males as aneuploid", {
+  # Two windows per chromosome; F = XX female, M = XY male, K = XXY diploid
+  mk <- function(s, cn) data.frame(
+    Sample = s, Chr = rep(names(cn), each = 2), WindowID = rep(1:2, length(cn)),
+    Start = rep(c(1, 5e6), length(cn)), End = rep(c(4e6, 9e6), length(cn)),
+    CN_call = rep(unlist(cn), each = 2), stringsAsFactors = FALSE)
+  bw <- rbind(
+    mk("F", list(Chr01 = 2L, Chr02 = 2L, ChrX = 2L, ChrY = 0L, ChrPAR = 2L)),
+    mk("M", list(Chr01 = 2L, Chr02 = 2L, ChrX = 1L, ChrY = 1L, ChrPAR = 2L)),
+    mk("K", list(Chr01 = 2L, Chr02 = 2L, ChrX = 2L, ChrY = 1L, ChrPAR = 3L)))
+  hmm <- structure(list(by_window = bw), class = "hmm_CN")
+
+  plain <- count_types(hmm)
+  expect_true("M" %in% plain$aneuploid)
+
+  sexed <- count_types(hmm, sex_system = "XY", sex_chr = xy_chr)
+  expect_setequal(sexed$euploid, c("F", "M"))
+  expect_equal(sexed$aneuploid, "K")
+  expect_equal(sexed$sex$Sex[match(c("F", "M", "K"), sexed$sex$Sample)],
+               c("female", "male", "male"))
+  expect_output(print(sexed), "Sex: female 1 \\| male 2")
+})
+
+test_that("sex settings stored in hmm_CN params are used by default", {
+  df <- make_sex_df(list(F = list(X = 2L, Y = 0L, PAR = 2L),
+                         M = list(X = 1L, Y = 1L, PAR = 2L)))
+  bw <- data.frame(Sample = df$SampleName, Chr = df$Chr, WindowID = 1L,
+                   Start = df$Position, End = df$Position, CN_call = df$CN_call)
+  p  <- list(sex_system = "XY", sex_chr = xy_chr)
+  hmm <- structure(list(by_window = bw, by_marker = df,
+                        params_samples = list(F = p, M = p)), class = "hmm_CN")
+
+  kn <- karyotype_notation(hmm)
+  expect_true("Sex" %in% names(kn))
+  expect_equal(unique(kn$Sex[kn$SampleName == "M"]), "male")
+
+  ct <- count_types(hmm)
+  expect_setequal(ct$euploid, c("F", "M"))
+
+  # Explicit argument overrides the stored setting
+  expect_false("Sex" %in% names(karyotype_notation(hmm, sex_system = "none")))
+  expect_true("M" %in% count_types(hmm, sex_system = "none")$aneuploid)
+
+  # No stored setting keeps the previous behaviour
+  hmm$params_samples <- list(F = list(), M = list())
+  expect_false("Sex" %in% names(karyotype_notation(hmm)))
+})
+
 test_that("plot_karyotype supports sex chromosomes", {
   df <- make_sex_df(list(M = list(X = 1L, Y = 1L, PAR = 2L)))
   p  <- plot_karyotype(df, sample_name = "M", sex_system = "XY", sex_chr = xy_chr)

@@ -44,6 +44,8 @@ hmm_estimate_CN(
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
   cn0_background_frac = 0,
+  sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
+  sex_chr = NULL,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 )
@@ -128,6 +130,10 @@ mixture before renormalization. Default FALSE.}
 \item{hom_z_sigma_inflate}{Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.}
 
 \item{cn0_background_frac}{Numeric in [0, 1]. Array probes emit residual background signal even at CN=0, which elevates the z-score above the linear extrapolation. This parameter shifts the initial \code{mu[0]} upward by \code{cn0_background_frac * (mu[1] - mu[0])}, placing it at the expected background-elevated z rather than the theoretical zero-signal floor. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0} (no background correction; suitable for sequencing data).}
+
+\item{sex_system}{Character. Sex-determination system of the species: \code{"none"} (default, all chromosomes treated as autosomes), \code{"XY"}, \code{"ZW"}, \code{"X0"}, or \code{"haplodiploid"} (see \code{\link{karyotype_notation}} for how sex is inferred in each system). It does not change the HMM; it is stored in \code{params} so that \code{\link{karyotype_notation}}, \code{\link{plot_karyotype}}, and \code{\link{count_types}} use it by default.}
+
+\item{sex_chr}{Named list mapping sex-chromosome groups to chromosome IDs in the data, e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")}. Allowed names: \code{X}, \code{Y}, \code{PAR} for \code{"XY"}; \code{Z}, \code{W}, \code{PAR} for \code{"ZW"}; \code{X} for \code{"X0"}; not used for \code{"none"} or \code{"haplodiploid"}. \code{X}/\code{Z} and \code{Y}/\code{W} hold markers specific to that chromosome; \code{PAR} holds pseudoautosomal markers. For \code{"XY"}/\code{"ZW"}, \code{Y} (or \code{W}) or both \code{X} (or \code{Z}) and \code{PAR} are required. Stored in \code{params} together with \code{sex_system}. Default \code{NULL}.}
 
 \item{rerun_overall_ploidy}{Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.}
 

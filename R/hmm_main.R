@@ -50,6 +50,8 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param dosage_threshold Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.
 #' @param z_no_baf_scale Numeric in [0,1]. Floor weight applied to \code{w_baf} when computing \code{CN_reliability} for windows with no BAF support (\code{w_baf == 0}). A value of 0 means z-only calls have \code{CN_reliability = 0}; 0.25 (default) allows z-only calls to reach at most 25\% of \code{post_max}. Does not affect the HMM emission or CN calling. Applies only when \code{z_only = FALSE}.
 #' @param hom_z_sigma_inflate Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.
+#' @param sex_system Character. Sex-determination system of the species: \code{"none"} (default, all chromosomes treated as autosomes), \code{"XY"}, \code{"ZW"}, \code{"X0"}, or \code{"haplodiploid"} (see \code{\link{karyotype_notation}} for how sex is inferred in each system). It does not change the HMM; it is stored in \code{params} so that \code{\link{karyotype_notation}}, \code{\link{plot_karyotype}}, and \code{\link{count_types}} use it by default.
+#' @param sex_chr Named list mapping sex-chromosome groups to chromosome IDs in the data, e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")}. Allowed names: \code{X}, \code{Y}, \code{PAR} for \code{"XY"}; \code{Z}, \code{W}, \code{PAR} for \code{"ZW"}; \code{X} for \code{"X0"}; not used for \code{"none"} or \code{"haplodiploid"}. \code{X}/\code{Z} and \code{Y}/\code{W} hold markers specific to that chromosome; \code{PAR} holds pseudoautosomal markers. For \code{"XY"}/\code{"ZW"}, \code{Y} (or \code{W}) or both \code{X} (or \code{Z}) and \code{PAR} are required. Stored in \code{params} together with \code{sex_system}. Default \code{NULL}.
 #' @param rerun_overall_ploidy Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.
 #' @param recycled_obj_rerun_overall_ploidy Named list for internal use during the recursive call triggered by
 #'   \code{rerun_overall_ploidy = TRUE}. Contains two elements:
@@ -162,10 +164,14 @@ hmm_estimate_CN <- function(
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
   cn0_background_frac = 0,
+  sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
+  sex_chr = NULL,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 ) {
   # --- input checks ---
+  sex_system <- match.arg(sex_system)
+  .sex_chr_roles(sex_system, sex_chr)
   # If second cycle of rerun_overall_ploidy, check that recycled_obj_rerun_overall_ploidy is provided
   if (!rerun_overall_ploidy && !is.null(recycled_obj_rerun_overall_ploidy)) {
     d <- recycled_obj_rerun_overall_ploidy$recycled_d
@@ -489,7 +495,9 @@ hmm_estimate_CN <- function(
       snps_per_window = snps_per_window,
       min_snps_per_window = min_snps_per_window,
       add_uniform = add_uniform,
-      uniform_weight = selected_model$best$uniform_weight
+      uniform_weight = selected_model$best$uniform_weight,
+      sex_system = sex_system,
+      sex_chr = sex_chr
     )
     window_map <- match(d$.__w__, result$WindowID)
     d$w_baf          <- result$w_baf[window_map]
@@ -1227,7 +1235,9 @@ hmm_estimate_CN <- function(
     min_snps_per_window = min_snps_per_window,
     add_uniform = add_uniform,
     uniform_weight = selected_model$best$uniform_weight,
-    cn0_background_frac = cn0_background_frac
+    cn0_background_frac = cn0_background_frac,
+    sex_system = sex_system,
+    sex_chr = sex_chr
   )
 
   if (!is.null(result) && !is.null(d)) {
@@ -1284,6 +1294,8 @@ hmm_estimate_CN <- function(
       z_no_baf_scale = z_no_baf_scale,
       hom_z_sigma_inflate = hom_z_sigma_inflate,
       cn0_background_frac = cn0_background_frac,
+      sex_system = sex_system,
+      sex_chr = sex_chr,
       rerun_overall_ploidy = FALSE,
       recycled_obj_rerun_overall_ploidy = list(rm_mks = rm_markers,
                                                recycled_d = keep_d,
@@ -1334,7 +1346,7 @@ hmm_estimate_CN <- function(
 #' @param sample_ids Character vector of sample IDs to analyze, or "all" for all samples in the data.
 #' @param n_cores Number of cores to use (default: 2).
 #' @param parallel_type Character. Parallel backend to use: \code{"FORK"}, \code{"PSOCK"}, or \code{"auto"} (default). \code{"auto"} selects \code{"FORK"} on Unix/macOS (faster; workers inherit the parent environment automatically) and \code{"PSOCK"} on Windows (the only option available there). Use \code{"PSOCK"} explicitly if you need cross-platform reproducibility or are debugging worker crashes.
-#' @param ... Additional arguments passed to hmm_estimate_CN (e.g., chr, snps_per_window, etc).
+#' @param ... Additional arguments passed to hmm_estimate_CN (e.g., chr, snps_per_window, sex_system, sex_chr, etc).
 #' @return A data.frame with results for all samples, as returned by hmm_estimate_CN$by_window, combined.
 #'
 #' @importFrom parallel makeCluster parLapply stopCluster clusterExport
@@ -1474,6 +1486,10 @@ print.hmm_CN <- function(x, ...) {
   cat("  Copy-number grid:", paste(params$cn_grid, collapse = ", "), "\n")
   cat("  Expected ploidy:", params$exp_ploidy, "\n")
   cat("  Minimum SNPs per window:", .format_min_snps(params$min_snps_per_window), "\n")
+  if (!is.null(params$sex_system) && params$sex_system != "none")
+    cat("  Sex system:", params$sex_system,
+        if (length(params$sex_chr)) paste0("(", paste(names(params$sex_chr), vapply(params$sex_chr, paste, character(1), collapse = "/"), sep = ": ", collapse = "; "), ")") else "",
+        "\n")
   cat("  Initial state probabilities (pi0):", paste(round(params$pi0, 3), collapse = ", "), "\n")
   if (!isTRUE(params$baf_only)) {
     cat("  Estimated z means per CN:", paste(round(params$mu, 3), collapse = ", "), "\n")
