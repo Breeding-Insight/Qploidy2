@@ -52,9 +52,13 @@ there (`standardize()`).
 The nQuack integration is a separate, self-contained function,
 `hmm_estimate_CN_nQuack()`. It implements the same HMM structure as `hmm_estimate_CN`
 but using nQuack EM models to estimate both the overall sample ploidy estimate and per-window BAF
-likelihoods/dosage calling. Because nQuack only models copy-number
-states 2 through 6, `cn_grid` must be a subset of `2:6`; use
-`hmm_estimate_CN()` instead for CN=0/1/LOH detection or ploidies outside 2:6.
+likelihoods/dosage calling. nQuack itself only models copy-number states 2
+through 6, so `cn_grid` must be a subset of `1:6`. CN 1 is handled without an
+nQuack model (see
+[CN 1 on the nQuack route](#cn-1-on-the-nquack-route)); CN 0 is not supported
+(it is only meaningful for array data). Use
+`hmm_estimate_CN()` for ploidies above 6 or for BAF-template-based CN 1/LOH
+detection.
 
 Its signature mirrors `hmm_estimate_CN()` for the shared windowing/HMM
 arguments (`cn_grid`, `chr`, `segment_zscore`, `exp_ploidy`, etc.), plus three
@@ -374,7 +378,7 @@ below summarises their trade-offs:
 | Speed | Faster | Slower |
 | Mixture families tested | Parametric templates | Normal, Beta, Beta-Binomial |
 | Platform compatibility | Array (intensity-based BAF) and sequencing (read-count-derived ratio) | Sequencing only (requires raw `X`/`Y`/`R` read counts) |
-| CN range | Any (including 0/1/LOH) | 2–6 only |
+| CN range | 0–10 (CN 1 scored with a BAF template; CN 0 for arrays) | 1–6; nQuack models 2–6, CN 1 via the `min_het_frac` rule; no CN 0 |
 
 
 # Ploidy type summary
@@ -447,11 +451,10 @@ counts, and the nQuack model assumptions will not hold. Use `hmm_estimate_CN()`
 
 nQuack needs a minimum number of heterozygous sites (at least 10 after
 filtering) to fit mixture models. If a sample has too few informative sites,
-`hmm_estimate_CN_nQuack()` stops with an error instead of estimating ploidy —
-there is no template fallback on this route. Either supply `exp_ploidy`
-explicitly, or use `hmm_estimate_CN()` (which does support a grid-based
-template fallback) for such samples. Low heterozygosity samples (< 5 %) are
-typically consistent with haploid (CN = 1) or highly inbred lines.
+the global ploidy fit fails and `hmm_estimate_CN_nQuack()` stops unless
+`exp_ploidy` is supplied. Low heterozygosity samples (< 5 %) are typically
+consistent with haploid (CN = 1) or highly inbred lines: include `1` in
+`cn_grid` and such samples are detected automatically (see below).
 
 ## nQuack calls an unexpected ploidy (high-variance samples)
 
@@ -480,17 +483,52 @@ set.seed(42)
 res <- hmm_estimate_CN_nQuack(...)
 ```
 
-## nQuack supports copy numbers 2–6 only
+## CN 1 on the nQuack route
 
-`hmm_estimate_CN_nQuack()` only models CN states 2 through 6 (nQuack's internal
-`emstep*` functions have no representation for CN=1/LOH or CN > 6), and it has
-**no template fallback** for out-of-range states: `cn_grid` (excluding `0`,
-which is also rejected) must be a subset of `2:6`, or the function stops with
-an informative error — including the default `cn_grid`, which includes CN=1
-and must be restricted explicitly.
+nQuack's `emstep*` functions only model CN states 2 through 6. CN 1 can still
+be included in `cn_grid` (e.g. `cn_grid = 1:6`) and is handled without an
+nQuack model. CN 0 is not allowed on this route: it is only meaningful for
+array data, whose probes keep background signal without copies; use
+`hmm_estimate_CN()` for CN 0.
 
-If you need CN=1/LOH detection or ploidies outside 2:6, use `hmm_estimate_CN()`
-(the grid/template route) instead — it has no such restriction.
+- **CN 1 (haploid / LOH).** There is no nQuack haploid mixture. In each window,
+  if the heterozygous fraction (BAF within `het_range`) reaches `min_het_frac`,
+  CN 1 is ruled out (it gets the lowest BAF log-likelihood of the other
+  states). Otherwise BAF is neutral for every state and the z-score decides.
+  Windows called CN 1 get homozygous-only dosages.
+- **Haploid samples.** If `1` is in `cn_grid`, `exp_ploidy` is not supplied,
+  and the sample-wide heterozygous fraction is at most `min_het_frac`, the
+  sample is treated as haploid (`exp_ploidy = 1`) and the nQuack global fit is
+  skipped. This covers e.g. haplodiploid males, which would otherwise fail
+  the minimum of 10 heterozygous sites.
+
+```{r, eval=FALSE}
+set.seed(42)
+res_nq01 <- hmm_estimate_CN_nQuack(
+  qploidy_standarize_result = qploidy_standardization,
+  sample_id                 = "85-126",
+  cn_grid                   = 1:6,
+  max_cn_dev                = 2,
+  min_het_frac              = 0.05,
+  nQuack_dists              = "normal",
+  nQuack_type               = "fixed",
+  nQuack_uniform            = 1
+)
+```
+
+Compared with `hmm_estimate_CN()`, CN 1 evidence on this route is limited to
+the `min_het_frac` rule rather than a fitted BAF template, so in windows with
+few heterozygous sites the CN 1 call relies more on the z-score. Ploidies above
+6 still require `hmm_estimate_CN()`.
+
+## Wide CN grids in mixed-ploidy populations
+
+A `cn_grid` wide enough for the whole population (e.g. `1:6` when haploids and
+pentaploids coexist) compresses the z-score spacing between states, so small
+depth deviations can be called as a different CN. `max_cn_dev` restricts the
+grid of each sample to states within that distance of its `exp_ploidy`, which
+is still estimated on the full grid: with `cn_grid = 1:6` and
+`max_cn_dev = 2`, a 2x sample tests `1:4` and a 5x sample tests `3:6`.
 
 # How to Cite
 

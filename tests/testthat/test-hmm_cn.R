@@ -350,6 +350,12 @@ test_that("hmm_estimate_CN baf_only, reordered cn_grid and window filter recover
                       min_snps_per_window = stats::setNames(c(40, 5), chrs[1:2]))
   expect_setequal(unique(res_chr$by_window$Chr), chrs[1:2])
   expect_equal(res_chr$params$min_snps_per_window, stats::setNames(c(40L, 5L), chrs[1:2]))
+
+  # max_cn_dev keeps only CN states near exp_ploidy (CN 0 always kept)
+  res_dev <- run_grid("Tetraploid1", chr = 1, cn_grid = 0:6, max_cn_dev = 1)
+  expect_equal(res_dev$params$max_cn_dev, 1)
+  expect_true(all(res_dev$params$cn_grid %in% c(0, 3:5)))
+  expect_true(all(res_dev$by_window$CN_call %in% c(3:5, NA)))
 })
 
 test_that(".resolve_min_snps handles NULL, scalar and named inputs", {

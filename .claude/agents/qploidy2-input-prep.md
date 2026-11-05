@@ -72,6 +72,8 @@ known_tetraploids <- c("Sample1", "Sample2", ...)  # your known-ploidy sample na
 genos <- genos_full[which(genos_full$SampleName %in% known_tetraploids), ]
 ```
 
+The samples in `genos` are the reference for **both** standardized signals: BAF cluster centers and the per-marker mean/SD of `R` used for z-scores. All other samples are transformed against them.
+
 ### Path (2): Use All Samples (most common ploidy unknown)
 
 Run Qploidy2 on all samples first, then after identifying euploid individuals, re-standardize:
@@ -174,3 +176,4 @@ Proceed to the Qploidy2 analysis workflow (`qploidy2-analysis` skill).
 - **Path (2) users**: After the first run, go back and re-run dosage calling using only the identified euploids, then re-standardize.
 - **Compute tip**: Dosage calling (updog / fitPoly) is slow — run on HPC with multiple cores.
 - **Recommended dosage callers**: `updog` or `polyRAD` for sequencing; `fitPoly` for arrays.
+- **Sex chromosomes**: keep X-specific, Y-specific (or Z/W), and pseudoautosomal (PAR) markers under separate `Chromosome` IDs in `genos.pos` (e.g. `"ChrX"`, `"ChrY"`, `"ChrX_PAR"`). These IDs are passed later as `sex_chr` (see `qploidy2-analysis`). For the reference in `genos`, prefer samples of a single sex, or only autosomal/PAR markers, so the different sex-chromosome dosages between males and females don't distort standardization.

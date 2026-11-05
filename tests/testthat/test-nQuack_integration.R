@@ -313,7 +313,7 @@ test_that("hmm_estimate_CN_nQuack input validation", {
   std <- setup_simu()$std
 
   expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 2:8),
-               "subset of 0:6")
+               "subset of 1:6")
   expect_error(run_nq(std, "Tetraploid1", chr = 1, cn_grid = 2:4,
                       nQuack_dists = c("normal", "beta")),
                "single distribution family")
@@ -439,19 +439,25 @@ test_that("hmm_estimate_CN_nQuack supports CN = 1 in cn_grid", {
   expect_true(all(!is.na(res$by_window$CN_call)))
 })
 
-test_that("hmm_estimate_CN_nQuack supports CN = 0 via a z-only pre-pass", {
+test_that("hmm_estimate_CN_nQuack rejects CN = 0", {
   skip_if_not_installed("nQuack")
   std <- setup_simu()$std
-  chrs <- sort(unique(as.character(std$data$Chr)))
+  expect_error(run_nq(std, "Tetraploid1", cn_grid = 0:4), "cannot include 0")
+  expect_error(run_nq(std, "Tetraploid1", cn_grid = 0:4, z_only = TRUE, exp_ploidy = 4),
+               "cannot include 0")
+})
 
-  # Collapse depth on the second chromosome to mimic nullisomy
-  idx <- std$data$SampleName == "Tetraploid1" & std$data$Chr == chrs[2]
-  std$data$z[idx] <- std$data$z[idx] - 20
+test_that("hmm_estimate_CN_nQuack max_cn_dev restricts cn_grid around exp_ploidy", {
+  skip_if_not_installed("nQuack")
+  std <- setup_simu()$std
 
-  res <- run_nq(std, "Tetraploid1", cn_grid = 0:4)
-  expect_true(all(is.na(res$by_window$CN_call[res$by_window$Chr == chrs[2]])))
-  expect_true(all(res$by_window$CN_call[res$by_window$Chr == chrs[1]] == 4L))
-  expect_true(chrs[2] %in% res$by_window$Chr)
+  res <- run_nq(std, "Diploid1", chr = 1, cn_grid = 2:6, max_cn_dev = 1)
+  expect_equal(res$params$exp_ploidy, 2L)
+  expect_true(all(res$params$cn_grid %in% 2:3))
+  expect_equal(res$params$max_cn_dev, 1)
+  expect_true(all(res$by_window$CN_call %in% 2:3))
+
+  expect_error(run_nq(std, "Diploid1", chr = 1, cn_grid = 2:6, max_cn_dev = -1), "non-negative")
 })
 
 test_that(".nquack_estimate_ploidy reports the correct ploidy for CN 2-6 (hexa/penta labels)", {

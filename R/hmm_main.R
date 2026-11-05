@@ -23,6 +23,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #'   mixture before renormalization. Default FALSE.
 #' @param min_snps_per_window Minimum segment length (in SNPs) for z-score changepoint detection. Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If NULL, a dynamic value is chosen based on the size of the smallest chromosome. Windows are never removed: chromosomes with fewer markers than this value form a single window. Default: NULL.
 #' @param cn_grid Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 0-10. Include \code{0} to allow nullisomy calls; see also \code{cn0_background_frac}. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.
+#' @param max_cn_dev Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from BAF model selection on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}; CN \code{0} is kept whenever it is in \code{cn_grid}. For example, \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. \code{NULL} (default) keeps the full grid.
 #' @param cn0_background_frac Numeric in [0, 1]. Array probes emit residual background signal even at CN=0, which elevates the z-score above the linear extrapolation. This parameter shifts the initial \code{mu[0]} upward by \code{cn0_background_frac * (mu[1] - mu[0])}, placing it at the expected background-elevated z rather than the theoretical zero-signal floor. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0} (no background correction; suitable for sequencing data).
 #' @param M Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.
 #' @param max_iter Integer. Maximum EM iterations. Default \code{60}.
@@ -137,6 +138,7 @@ hmm_estimate_CN <- function(
   snps_per_window = 50,
   min_snps_per_window = NULL,
   cn_grid = 1:4,
+  max_cn_dev = NULL,
   M = 100,
   max_iter = 60,
   het_quantile = 0.8, # increase this value to reduce the weight of baf when few hets
@@ -172,6 +174,7 @@ hmm_estimate_CN <- function(
   # --- input checks ---
   sex_system <- match.arg(sex_system)
   .sex_chr_roles(sex_system, sex_chr)
+  .check_max_cn_dev(max_cn_dev)
   # If second cycle of rerun_overall_ploidy, check that recycled_obj_rerun_overall_ploidy is provided
   if (!rerun_overall_ploidy && !is.null(recycled_obj_rerun_overall_ploidy)) {
     d <- recycled_obj_rerun_overall_ploidy$recycled_d
@@ -323,6 +326,8 @@ hmm_estimate_CN <- function(
   } else {
     vmsg("exp_ploidy provided by user: %s", verbose = verbose, level = 1, type = ">>", exp_ploidy)
   }
+
+  cn_grid <- .restrict_cn_grid(cn_grid, exp_ploidy, max_cn_dev, keep_zero = TRUE, verbose = verbose)
 
   vmsg("Parameters ready", verbose = verbose, level = 1, type = ">>")
   # --- build windows ---
@@ -496,6 +501,7 @@ hmm_estimate_CN <- function(
       min_snps_per_window = min_snps_per_window,
       add_uniform = add_uniform,
       uniform_weight = selected_model$best$uniform_weight,
+      max_cn_dev = max_cn_dev,
       sex_system = sex_system,
       sex_chr = sex_chr
     )
@@ -525,6 +531,7 @@ hmm_estimate_CN <- function(
       add_uniform     = add_uniform,
       min_snps_per_window = min_snps_per_window,
       cn_grid         = cn_grid,
+      max_cn_dev      = max_cn_dev,
       cn0_background_frac = cn0_background_frac,
       M               = M,
       max_iter        = max_iter,
@@ -1238,6 +1245,7 @@ hmm_estimate_CN <- function(
     add_uniform = add_uniform,
     uniform_weight = selected_model$best$uniform_weight,
     cn0_background_frac = cn0_background_frac,
+    max_cn_dev = max_cn_dev,
     sex_system = sex_system,
     sex_chr = sex_chr
   )
@@ -1269,6 +1277,7 @@ hmm_estimate_CN <- function(
       snps_per_window = snps_per_window,
       min_snps_per_window = min_snps_per_window,
       cn_grid = cn_grid,
+      max_cn_dev = max_cn_dev,
       M = M,
       max_iter = max_iter,
       het_quantile = het_quantile, # increase this value to reduce the weight of baf when few hets

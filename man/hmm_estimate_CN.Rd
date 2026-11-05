@@ -17,6 +17,7 @@ hmm_estimate_CN(
   snps_per_window = 50,
   min_snps_per_window = NULL,
   cn_grid = 1:4,
+  max_cn_dev = NULL,
   M = 100,
   max_iter = 60,
   het_quantile = 0.8,
@@ -76,6 +77,8 @@ mixture before renormalization. Default FALSE.}
 \item{min_snps_per_window}{Minimum segment length (in SNPs) for z-score changepoint detection. Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If NULL, a dynamic value is chosen based on the size of the smallest chromosome. Windows are never removed: chromosomes with fewer markers than this value form a single window. Default: NULL.}
 
 \item{cn_grid}{Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 0-10. Include \code{0} to allow nullisomy calls; see also \code{cn0_background_frac}. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.}
+
+\item{max_cn_dev}{Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from BAF model selection on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}; CN \code{0} is kept whenever it is in \code{cn_grid}. For example, \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. \code{NULL} (default) keeps the full grid.}
 
 \item{M}{Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.}
 

@@ -324,6 +324,30 @@ test_that("sex settings stored in hmm_CN params are used by default", {
   expect_false("Sex" %in% names(karyotype_notation(hmm)))
 })
 
+test_that("compare_cn_track_summary adds a Sex column from stored settings", {
+  df <- make_sex_df(list(F = list(X = 2L, Y = 0L, PAR = 2L),
+                         M = list(X = 1L, Y = 1L, PAR = 2L)))
+  bw <- data.frame(Sample = df$SampleName, Chr = df$Chr, WindowID = 1L,
+                   Start = df$Position, End = df$Position + 1, CN_call = df$CN_call)
+  p  <- list(sex_system = "XY", sex_chr = xy_chr)
+  hmm <- structure(list(by_window = bw, params_samples = list(F = p, M = p)),
+                   class = "hmm_CN")
+
+  has_sex_layer <- function(g) any(vapply(g$layers, function(l)
+    is.data.frame(l$data) && "lbl" %in% names(l$data) && any(grepl("^M \\(XY\\)$", l$data$lbl)),
+    logical(1)))
+  block_labels <- function(g) unlist(lapply(g$layers, function(l)
+    if (is.data.frame(l$data) && "mid_y" %in% names(l$data)) l$data$lbl))
+
+  g <- compare_cn_track_summary(hmm)
+  expect_true(has_sex_layer(g))
+  expect_false(any(grepl("aneuploid", block_labels(g))))
+
+  g_off <- compare_cn_track_summary(hmm, sex_system = NULL)
+  expect_false(has_sex_layer(g_off))
+  expect_true(any(grepl("aneuploid", block_labels(g_off))))
+})
+
 test_that("plot_karyotype supports sex chromosomes", {
   df <- make_sex_df(list(M = list(X = 1L, Y = 1L, PAR = 2L)))
   p  <- plot_karyotype(df, sample_name = "M", sex_system = "XY", sex_chr = xy_chr)

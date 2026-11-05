@@ -5,6 +5,28 @@ globalVariables(c(
   "n_vlines", "n_regions", "region_id"
 ))
 
+.check_max_cn_dev <- function(max_cn_dev) {
+  if (!is.null(max_cn_dev) &&
+      (!is.numeric(max_cn_dev) || length(max_cn_dev) != 1 || is.na(max_cn_dev) ||
+       max_cn_dev < 0 || max_cn_dev != round(max_cn_dev)))
+    stop("`max_cn_dev` must be NULL or a single non-negative integer.")
+  invisible(NULL)
+}
+
+# Keep only CN states within max_cn_dev of exp_ploidy (CN 0 kept if keep_zero)
+.restrict_cn_grid <- function(cn_grid, exp_ploidy, max_cn_dev, keep_zero = FALSE, verbose = TRUE) {
+  if (is.null(max_cn_dev)) return(cn_grid)
+  keep <- abs(cn_grid - as.numeric(exp_ploidy)) <= max_cn_dev | (keep_zero & cn_grid == 0)
+  new_grid <- cn_grid[keep]
+  if (length(new_grid) == 0)
+    stop(sprintf("No cn_grid values within max_cn_dev = %d of exp_ploidy = %s.", as.integer(max_cn_dev), exp_ploidy))
+  if (length(new_grid) < length(cn_grid))
+    vmsg("cn_grid restricted by max_cn_dev = %d around exp_ploidy = %s: %s",
+         verbose = verbose, level = 1, type = ">>",
+         as.integer(max_cn_dev), exp_ploidy, paste(new_grid, collapse = ", "))
+  new_grid
+}
+
 # Resolve min_snps_per_window into one threshold per chromosome in `d`.
 # Accepts NULL (dynamic), a single value, or a vector named by chromosome
 # (unnamed chromosomes fall back to the dynamic default).

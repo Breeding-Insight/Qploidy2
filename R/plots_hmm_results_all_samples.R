@@ -414,6 +414,15 @@ compare_cn_track <- function(hmm_CN,
 #' @param filter_cn  Optional integer vector. Keep only samples whose
 #'   sample-level CN is in this vector (e.g. \code{c(2L, 4L)}). \code{NULL}
 #'   (default) keeps all.
+#' @param sex_system,sex_chr Sex-determination system and sex-chromosome IDs
+#'   (see \code{\link{karyotype_notation}}). When not supplied, the values
+#'   stored in the \code{hmm_CN} \code{params} are used. Set
+#'   \code{sex_system = NULL} (or \code{"none"}) to disable, or pass other
+#'   values to override. When enabled, samples are classified as in
+#'   \code{\link{count_types}} (e.g. a single X in an XY male is not
+#'   aneuploidy) and a \code{Sex} column (\code{"M"}/\code{"F"} plus the
+#'   sex-chromosome complement, e.g. \code{"M (XY)"}) is added to the right of
+#'   the matrix, before the block labels.
 #'
 #' @return A \code{ggplot} object.
 #'
@@ -428,9 +437,22 @@ compare_cn_track_summary <- function(hmm_CN,
                              samples_to_plot = NULL,
                              gray_CN         = NULL,
                              filter_type     = NULL,
-                             filter_cn       = NULL) {
+                             filter_cn       = NULL,
+                             sex_system,
+                             sex_chr) {
 
   stopifnot(inherits(hmm_CN, "hmm_CN"))
+
+  # Missing = stored in params; explicit NULL/"none" = disabled
+  if (missing(sex_system)) {
+    sex <- .resolve_sex_args(hmm_CN, NULL, if (missing(sex_chr)) NULL else sex_chr)
+  } else if (is.null(sex_system)) {
+    sex <- list(sex_system = "none", sex_chr = NULL)
+  } else {
+    sex <- .resolve_sex_args(hmm_CN, sex_system, if (missing(sex_chr)) NULL else sex_chr)
+  }
+  use_sex <- sex$sex_system != "none"
+
   cnv_df <- hmm_CN$by_window
 
   if (!is.null(samples_to_plot))
@@ -516,6 +538,21 @@ compare_cn_track_summary <- function(hmm_CN,
       sample_type = factor(sample_type, levels = c("euploid", "aneuploid", "segmental"))
     )
 
+  sex_df <- NULL
+  if (use_sex) {
+    # Sex-aware classification (sex chromosomes vs expected complement)
+    ct <- count_types(hmm_CN, chromosomes = chromosomes, samplesID = samples_to_plot,
+                      sex_system = sex$sex_system, sex_chr = sex$sex_chr)
+    sample_class <- data.frame(
+      Sample      = ct$.summary$Sample,
+      sample_cn   = ct$.summary$sample_cn,
+      sample_type = factor(ct$.summary$sample_type,
+                           levels = c("euploid", "aneuploid", "segmental")),
+      stringsAsFactors = FALSE
+    )
+    sex_df <- ct$sex
+  }
+
   # ---- apply type / CN filters before ordering ----
   if (!is.null(filter_type)) {
     valid_types <- c("euploid", "aneuploid", "segmental")
@@ -577,6 +614,24 @@ compare_cn_track_summary <- function(hmm_CN,
       )
     )
 
+  # ---- optional sex column between the matrix and the block labels ----
+  sex_x   <- n_chr + 1
+  label_x <- if (use_sex) n_chr + 1.65 else n_chr + 0.65
+  sex_lbl_df <- NULL
+  if (use_sex) {
+    sex_lbl_df <- data.frame(Sample = sample_order, y_pos = unname(y_map[sample_order]),
+                             stringsAsFactors = FALSE)
+    m <- match(sex_lbl_df$Sample, sex_df$Sample)
+    sx <- sex_df$Sex[m]
+    sc <- sex_df$SexChr[m]
+    sex_lbl_df$lbl <- paste0(
+      ifelse(is.na(sx), "?", toupper(substr(sx, 1, 1))),
+      ifelse(is.na(sc), "", paste0(" (", sc, ")"))
+    )
+  }
+  x_breaks <- c(seq_len(n_chr), if (use_sex) sex_x)
+  x_labels <- c(chr_lvls, if (use_sex) "Sex")
+
   # ---- assemble plot ----
   ggplot() +
     geom_tile(
@@ -595,12 +650,16 @@ compare_cn_track_summary <- function(hmm_CN,
       color = "black", linewidth = 0.55, linetype = "dashed", inherit.aes = FALSE
     ) +
     geom_text(
-      data = label_df, aes(x = n_chr + 0.65, y = mid_y, label = lbl),
+      data = label_df, aes(x = label_x, y = mid_y, label = lbl),
       hjust = 0, size = 2.8, inherit.aes = FALSE
     ) +
+    (if (use_sex) geom_text(
+      data = sex_lbl_df, aes(x = sex_x, y = y_pos, label = lbl),
+      hjust = 0.5, size = 2.4, inherit.aes = FALSE
+    ) else NULL) +
     scale_x_continuous(
-      breaks = seq_len(n_chr), labels = chr_lvls,
-      expand = expansion(add = c(0, 0.5)), position = "top"
+      breaks = x_breaks, labels = x_labels,
+      expand = expansion(add = c(0, if (use_sex) 1.5 else 0.5)), position = "top"
     ) +
     scale_y_continuous(
       breaks = unname(y_map), labels = names(y_map),

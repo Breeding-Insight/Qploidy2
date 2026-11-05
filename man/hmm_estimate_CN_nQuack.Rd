@@ -15,6 +15,7 @@ hmm_estimate_CN_nQuack(
   snps_per_window = 50,
   min_snps_per_window = NULL,
   cn_grid = 2:6,
+  max_cn_dev = NULL,
   max_iter = 60,
   het_quantile = 0.8,
   baf_weight = 0.5,
@@ -33,7 +34,6 @@ hmm_estimate_CN_nQuack(
   dosage_threshold = 0,
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
-  cn0_background_frac = 0,
   nQuack_dists = "normal",
   nQuack_type = "fixed",
   nQuack_uniform = 1,
@@ -60,7 +60,9 @@ hmm_estimate_CN_nQuack(
 
 \item{min_snps_per_window}{Minimum segment length (in SNPs) for z-score changepoint detection. Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If \code{NULL}, a dynamic value is chosen based on the size of the smallest chromosome. Windows are never removed: chromosomes with fewer markers than this value form a single window. Default: \code{NULL}.}
 
-\item{cn_grid}{Integer vector of copy-number states to consider, a subset of \code{0:6} with at least one value in \code{1:6} (any value up to 10 when \code{z_only = TRUE}). nQuack models CN \code{2:6}. CN \code{0} is detected from z-scores only, through a \code{z_only = TRUE} pre-pass, and returned as \code{NA}. CN \code{1} has no nQuack model: in windows with a heterozygous fraction of at least \code{min_het_frac} its BAF log-likelihood is set to the lowest of the other states, otherwise BAF is neutral and z decides. When \code{1} is in \code{cn_grid}, \code{exp_ploidy} is not given, and the sample-wide heterozygous fraction is at most \code{min_het_frac}, the sample is treated as haploid (\code{exp_ploidy = 1}) and the nQuack global fit is skipped. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.}
+\item{cn_grid}{Integer vector of copy-number states to consider, a subset of \code{1:6} (any value from 1 to 10 when \code{z_only = TRUE}; \code{0} is not allowed). nQuack models CN \code{2:6}. CN \code{1} has no nQuack model: in windows with a heterozygous fraction of at least \code{min_het_frac} its BAF log-likelihood is set to the lowest of the other states, otherwise BAF is neutral and z decides. When \code{1} is in \code{cn_grid}, \code{exp_ploidy} is not given, and the sample-wide heterozygous fraction is at most \code{min_het_frac}, the sample is treated as haploid (\code{exp_ploidy = 1}) and the nQuack global fit is skipped. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.}
+
+\item{max_cn_dev}{Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from the nQuack global fit on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}, e.g. \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. \code{NULL} (default) keeps the full grid.}
 
 \item{max_iter}{Integer. Maximum EM iterations. Default \code{60}.}
 
@@ -68,19 +70,19 @@ hmm_estimate_CN_nQuack(
 
 \item{baf_weight}{Numeric. Overall weight applied to BAF emission (0-1). Default \code{0.5}.}
 
-\item{z_range}{Numeric. Padding added to min/max z for initial mean estimation. Default \code{NULL}.}
+\item{z_range}{Numeric. Padding added to min/max z for initial mean estimation. If \code{NULL}, it is estimated from the interquartile range of z. Default \code{NULL}.}
 
 \item{transition_jump}{Numeric. Diagonal value for transition matrix (probability to stay in same CN state). Default \code{0.9}.}
 
 \item{initial_prob}{Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.5}. Sets the prior probability for the expected ploidy (or nQuack's estimated ploidy) at the first window; remaining probability is distributed uniformly across other states.}
 
-\item{z_only}{Logical. If \code{TRUE}, fit the HMM using the z-emission only (ignores BAF and skips nQuack entirely). Default \code{FALSE}.}
+\item{z_only}{Logical. If \code{TRUE}, fit the HMM using the z-emission only (ignores BAF and skips nQuack entirely); \code{exp_ploidy} must then be supplied. Default \code{FALSE}.}
 
 \item{baf_only}{Logical. If \code{TRUE}, fit the HMM using the BAF emission only (ignores z-score). Mutually exclusive with \code{z_only}. Default \code{FALSE}.}
 
 \item{verbose}{Logical. If \code{TRUE}, print progress messages. Default \code{TRUE}.}
 
-\item{exp_ploidy}{Numeric. Expected ploidy value. If \code{NA} or \code{NULL}, it is estimated by nQuack's global ploidy fit (or, if that fails, set to the middle value of \code{cn_grid}'s nQuack-supported range). Default \code{NA}.}
+\item{exp_ploidy}{Numeric. Expected ploidy value. If \code{NA} or \code{NULL}, it is estimated by nQuack's global ploidy fit, or set to \code{1} for haploid samples (see \code{cn_grid}). If the global fit fails (e.g. fewer than 10 heterozygous sites), the function stops unless \code{exp_ploidy} is supplied; in that case the per-window likelihoods use the requested \code{nQuack_dists}/\code{nQuack_uniform}. Default \code{NA}.}
 
 \item{rm_outliers}{Logical. If \code{TRUE}, remove outliers from z-scores before HMM fitting. Default \code{TRUE}.}
 
@@ -88,17 +90,15 @@ hmm_estimate_CN_nQuack(
 
 \item{correct_scale}{Logical. If \code{TRUE} (default), the BAF log-likelihood is corrected by the number of markers with valid BAF values in each window, so that windows with different numbers of markers contribute equally to the combined emission. Prevents windows with many markers from dominating the HMM via the BAF term alone.}
 
-\item{min_het_frac}{Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded during nQuack BAF model selection and per-window likelihood computation, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default \code{0.01}.}
+\item{min_het_frac}{Numeric in [0,1]. Minimum fraction of a window's markers with BAF in \code{het_range} needed to fit the per-window nQuack models; below it (or with fewer than 2 heterozygous markers) the window gets equal, neutral BAF log-likelihoods for all states and z decides. When \code{1} is in \code{cn_grid}, windows at or above this fraction rule out CN=1, and a sample-wide fraction at or below it marks the sample as haploid (see \code{cn_grid}). Default \code{0.01}.}
 
-\item{het_range}{Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.05, 0.95)}). Used by the \code{min_het_frac} filter and to strip homozygous flanking sites before nQuack fitting.}
+\item{het_range}{Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.05, 0.95)}). Used by the \code{min_het_frac} rules, to strip homozygous sites before nQuack fitting, and in dosage calling (markers outside the range are assigned homozygous dosages).}
 
-\item{dosage_threshold}{Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.}
+\item{dosage_threshold}{Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0} (no filtering).}
 
 \item{z_no_baf_scale}{Numeric in [0,1]. Floor weight applied to \code{w_baf} when computing \code{CN_reliability} for windows with no BAF support (\code{w_baf == 0}). A value of 0 means z-only calls have \code{CN_reliability = 0}; 0.25 (default) allows z-only calls to reach at most 25\% of \code{post_max}. Does not affect the HMM emission or CN calling. Applies only when \code{z_only = FALSE}.}
 
-\item{hom_z_sigma_inflate}{Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.}
-
-\item{cn0_background_frac}{Numeric in [0, 1]. Shifts the initial CN=0 z mean upward by \code{cn0_background_frac * (mu[1] - mu[0])} to account for residual array background signal. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0}.}
+\item{hom_z_sigma_inflate}{Numeric >= 1. Two-tier correction for z-only evidence. (1) During decoding: sigma is multiplied by this factor for windows with \code{w_baf == 0}, widening the z-emission. (2) Post-decoding override: for each chromosome whose modal CN differs from the sample-mode CN (the mode over windows with BAF support), if the chromosome mean z is within \code{hom_z_sigma_inflate * sigma} of the sample-mode z mean, the whole chromosome is reset to the sample-mode CN, regardless of its BAF weight; larger deviations keep the decoded CN. Default \code{1.5}. Set to \code{1} to disable both corrections.}
 
 \item{nQuack_dists}{Character scalar naming the single nQuack mixture-model
 family to evaluate: one of \code{"normal"} (default), \code{"beta"}, or
@@ -138,14 +138,32 @@ Stored in \code{params} together with \code{sex_system}. Default
 \code{NULL}.}
 }
 \value{
-An object of class \code{hmm_CN}. Unlike \code{hmm_estimate_CN()},
-  \code{params$bins} is always \code{NULL} and \code{params$bw} is always
-  \code{NA}, since the nQuack route does not use histogram-binned templates.
+An object of class \code{hmm_CN}, a list with:
+  \describe{
+    \item{\code{by_window}}{One row per window: \code{Sample}, \code{Chr},
+      \code{WindowID}, \code{Start}, \code{End}, \code{n_snps}, \code{n_het},
+      \code{z}, \code{w_baf}, \code{CN_call}, \code{CN_reliability},
+      \code{post_max}, and \code{post_CN<k>} for each retained CN state.}
+    \item{\code{by_marker}}{The marker-level input data with the window
+      assignment (\code{.__w__}) and the window's \code{w_baf},
+      \code{CN_call}, \code{post_max}, and \code{CN_reliability}.}
+    \item{\code{params}}{Fitted HMM parameters and settings, including
+      \code{cn_grid} (after pruning), \code{distribution} (the nQuack
+      distribution used per window), \code{mu}, \code{sigma}, \code{A},
+      \code{pi0}, \code{exp_ploidy}, \code{min_snps_per_window},
+      \code{nQuack_dists}, \code{nQuack_type}, \code{nQuack_uniform},
+      \code{max_cn_dev}, \code{sex_system}, and \code{sex_chr}.
+      Unlike \code{hmm_estimate_CN()}, \code{params$bins} is always
+      \code{NULL} and \code{params$bw} is always \code{NA}, since the nQuack
+      route does not use histogram-binned templates.}
+  }
 }
 \description{
 Self-contained analogue of \code{\link{hmm_estimate_CN}} that always uses
 \pkg{nQuack} for both the overall sample ploidy estimate and per-window BAF
 likelihoods/dosage calling (the "full nQuack" path); it does not call
-\code{hmm_estimate_CN} internally. nQuack models CN \code{2:6}; CN \code{0}
-and \code{1} are supported without an nQuack model (see \code{cn_grid}).
+\code{hmm_estimate_CN} internally. nQuack models CN \code{2:6}; CN \code{1}
+is supported without an nQuack model (see \code{cn_grid}). CN \code{0} is
+not supported on this route: it is only meaningful for array data, where
+probes keep background signal without copies; use \code{\link{hmm_estimate_CN}}.
 }

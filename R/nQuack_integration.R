@@ -728,8 +728,10 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #' Self-contained analogue of \code{\link{hmm_estimate_CN}} that always uses
 #' \pkg{nQuack} for both the overall sample ploidy estimate and per-window BAF
 #' likelihoods/dosage calling (the "full nQuack" path); it does not call
-#' \code{hmm_estimate_CN} internally. nQuack models CN \code{2:6}; CN \code{0}
-#' and \code{1} are supported without an nQuack model (see \code{cn_grid}).
+#' \code{hmm_estimate_CN} internally. nQuack models CN \code{2:6}; CN \code{1}
+#' is supported without an nQuack model (see \code{cn_grid}). CN \code{0} is
+#' not supported on this route: it is only meaningful for array data, where
+#' probes keep background signal without copies; use \code{\link{hmm_estimate_CN}}.
 #'
 #' @param qploidy_standarize_result An object of class \code{qploidy_standardization} as returned by \code{standardize()}, or \code{NULL}. When \code{NULL}, raw data must be supplied via \code{data} and \code{geno.pos}.
 #' @param sample_id Character scalar. Sample identifier to analyze; rows are filtered as \code{SampleName == sample_id}.
@@ -740,26 +742,26 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #' @param segment_zscore Logical. If \code{TRUE}, segment z-scores using changepoint detection to define windows instead of fixed SNP counts. Default \code{TRUE}.
 #' @param snps_per_window Integer. Number of SNPs per window when windows are created with fixed-size windowing (\code{segment_zscore = FALSE}). Default \code{50}.
 #' @param min_snps_per_window Minimum segment length (in SNPs) for z-score changepoint detection. Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If \code{NULL}, a dynamic value is chosen based on the size of the smallest chromosome. Windows are never removed: chromosomes with fewer markers than this value form a single window. Default: \code{NULL}.
-#' @param cn_grid Integer vector of copy-number states to consider, a subset of \code{0:6} with at least one value in \code{1:6} (any value up to 10 when \code{z_only = TRUE}). nQuack models CN \code{2:6}. CN \code{0} is detected from z-scores only, through a \code{z_only = TRUE} pre-pass, and returned as \code{NA}. CN \code{1} has no nQuack model: in windows with a heterozygous fraction of at least \code{min_het_frac} its BAF log-likelihood is set to the lowest of the other states, otherwise BAF is neutral and z decides. When \code{1} is in \code{cn_grid}, \code{exp_ploidy} is not given, and the sample-wide heterozygous fraction is at most \code{min_het_frac}, the sample is treated as haploid (\code{exp_ploidy = 1}) and the nQuack global fit is skipped. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.
+#' @param cn_grid Integer vector of copy-number states to consider, a subset of \code{1:6} (any value from 1 to 10 when \code{z_only = TRUE}; \code{0} is not allowed). nQuack models CN \code{2:6}. CN \code{1} has no nQuack model: in windows with a heterozygous fraction of at least \code{min_het_frac} its BAF log-likelihood is set to the lowest of the other states, otherwise BAF is neutral and z decides. When \code{1} is in \code{cn_grid}, \code{exp_ploidy} is not given, and the sample-wide heterozygous fraction is at most \code{min_het_frac}, the sample is treated as haploid (\code{exp_ploidy = 1}) and the nQuack global fit is skipped. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.
+#' @param max_cn_dev Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from the nQuack global fit on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}, e.g. \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. \code{NULL} (default) keeps the full grid.
 #' @param max_iter Integer. Maximum EM iterations. Default \code{60}.
 #' @param het_quantile Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.
 #' @param baf_weight Numeric. Overall weight applied to BAF emission (0-1). Default \code{0.5}.
-#' @param z_range Numeric. Padding added to min/max z for initial mean estimation. Default \code{NULL}.
+#' @param z_range Numeric. Padding added to min/max z for initial mean estimation. If \code{NULL}, it is estimated from the interquartile range of z. Default \code{NULL}.
 #' @param transition_jump Numeric. Diagonal value for transition matrix (probability to stay in same CN state). Default \code{0.9}.
 #' @param initial_prob Numeric. Initial probability for the best CN state in the initial state distribution (pi0). Default \code{0.5}. Sets the prior probability for the expected ploidy (or nQuack's estimated ploidy) at the first window; remaining probability is distributed uniformly across other states.
-#' @param z_only Logical. If \code{TRUE}, fit the HMM using the z-emission only (ignores BAF and skips nQuack entirely). Default \code{FALSE}.
+#' @param z_only Logical. If \code{TRUE}, fit the HMM using the z-emission only (ignores BAF and skips nQuack entirely); \code{exp_ploidy} must then be supplied. Default \code{FALSE}.
 #' @param baf_only Logical. If \code{TRUE}, fit the HMM using the BAF emission only (ignores z-score). Mutually exclusive with \code{z_only}. Default \code{FALSE}.
 #' @param verbose Logical. If \code{TRUE}, print progress messages. Default \code{TRUE}.
-#' @param exp_ploidy Numeric. Expected ploidy value. If \code{NA} or \code{NULL}, it is estimated by nQuack's global ploidy fit (or, if that fails, set to the middle value of \code{cn_grid}'s nQuack-supported range). Default \code{NA}.
+#' @param exp_ploidy Numeric. Expected ploidy value. If \code{NA} or \code{NULL}, it is estimated by nQuack's global ploidy fit, or set to \code{1} for haploid samples (see \code{cn_grid}). If the global fit fails (e.g. fewer than 10 heterozygous sites), the function stops unless \code{exp_ploidy} is supplied; in that case the per-window likelihoods use the requested \code{nQuack_dists}/\code{nQuack_uniform}. Default \code{NA}.
 #' @param rm_outliers Logical. If \code{TRUE}, remove outliers from z-scores before HMM fitting. Default \code{TRUE}.
 #' @param outlier_alpha Numeric. Alpha threshold for outlier removal in z-scores. Default \code{0.05}.
 #' @param correct_scale Logical. If \code{TRUE} (default), the BAF log-likelihood is corrected by the number of markers with valid BAF values in each window, so that windows with different numbers of markers contribute equally to the combined emission. Prevents windows with many markers from dominating the HMM via the BAF term alone.
-#' @param min_het_frac Numeric in [0,1]. Threshold for the fraction of BAF values in \code{het_range} considered heterozygous. If the observed heterozygous fraction exceeds this value, CN=1 is excluded during nQuack BAF model selection and per-window likelihood computation, as a meaningful proportion of heterozygous loci makes haploid (CN=1) implausible. Default \code{0.01}.
-#' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.05, 0.95)}). Used by the \code{min_het_frac} filter and to strip homozygous flanking sites before nQuack fitting.
-#' @param dosage_threshold Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0.6}.
+#' @param min_het_frac Numeric in [0,1]. Minimum fraction of a window's markers with BAF in \code{het_range} needed to fit the per-window nQuack models; below it (or with fewer than 2 heterozygous markers) the window gets equal, neutral BAF log-likelihoods for all states and z decides. When \code{1} is in \code{cn_grid}, windows at or above this fraction rule out CN=1, and a sample-wide fraction at or below it marks the sample as haploid (see \code{cn_grid}). Default \code{0.01}.
+#' @param het_range Numeric vector of length 2. BAF interval used to define heterozygous loci (default \code{c(0.05, 0.95)}). Used by the \code{min_het_frac} rules, to strip homozygous sites before nQuack fitting, and in dosage calling (markers outside the range are assigned homozygous dosages).
+#' @param dosage_threshold Numeric in [0,1]. Minimum posterior probability required for a dosage call to be counted as a heterozygote when computing the BAF emission weight (\code{w_baf}) per window. Markers whose maximum dosage posterior falls below this threshold are excluded from the heterozygote count. Default \code{0} (no filtering).
 #' @param z_no_baf_scale Numeric in [0,1]. Floor weight applied to \code{w_baf} when computing \code{CN_reliability} for windows with no BAF support (\code{w_baf == 0}). A value of 0 means z-only calls have \code{CN_reliability = 0}; 0.25 (default) allows z-only calls to reach at most 25\% of \code{post_max}. Does not affect the HMM emission or CN calling. Applies only when \code{z_only = FALSE}.
-#' @param hom_z_sigma_inflate Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.
-#' @param cn0_background_frac Numeric in [0, 1]. Shifts the initial CN=0 z mean upward by \code{cn0_background_frac * (mu[1] - mu[0])} to account for residual array background signal. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0}.
+#' @param hom_z_sigma_inflate Numeric >= 1. Two-tier correction for z-only evidence. (1) During decoding: sigma is multiplied by this factor for windows with \code{w_baf == 0}, widening the z-emission. (2) Post-decoding override: for each chromosome whose modal CN differs from the sample-mode CN (the mode over windows with BAF support), if the chromosome mean z is within \code{hom_z_sigma_inflate * sigma} of the sample-mode z mean, the whole chromosome is reset to the sample-mode CN, regardless of its BAF weight; larger deviations keep the decoded CN. Default \code{1.5}. Set to \code{1} to disable both corrections.
 #' @param nQuack_dists Character scalar naming the single nQuack mixture-model
 #'   family to evaluate: one of \code{"normal"} (default), \code{"beta"}, or
 #'   \code{"beta-binomial"}. Only one family can be specified: nQuack's
@@ -793,9 +795,25 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #'   Stored in \code{params} together with \code{sex_system}. Default
 #'   \code{NULL}.
 #'
-#' @return An object of class \code{hmm_CN}. Unlike \code{hmm_estimate_CN()},
-#'   \code{params$bins} is always \code{NULL} and \code{params$bw} is always
-#'   \code{NA}, since the nQuack route does not use histogram-binned templates.
+#' @return An object of class \code{hmm_CN}, a list with:
+#'   \describe{
+#'     \item{\code{by_window}}{One row per window: \code{Sample}, \code{Chr},
+#'       \code{WindowID}, \code{Start}, \code{End}, \code{n_snps}, \code{n_het},
+#'       \code{z}, \code{w_baf}, \code{CN_call}, \code{CN_reliability},
+#'       \code{post_max}, and \code{post_CN<k>} for each retained CN state.}
+#'     \item{\code{by_marker}}{The marker-level input data with the window
+#'       assignment (\code{.__w__}) and the window's \code{w_baf},
+#'       \code{CN_call}, \code{post_max}, and \code{CN_reliability}.}
+#'     \item{\code{params}}{Fitted HMM parameters and settings, including
+#'       \code{cn_grid} (after pruning), \code{distribution} (the nQuack
+#'       distribution used per window), \code{mu}, \code{sigma}, \code{A},
+#'       \code{pi0}, \code{exp_ploidy}, \code{min_snps_per_window},
+#'       \code{nQuack_dists}, \code{nQuack_type}, \code{nQuack_uniform},
+#'       \code{max_cn_dev}, \code{sex_system}, and \code{sex_chr}.
+#'       Unlike \code{hmm_estimate_CN()}, \code{params$bins} is always
+#'       \code{NULL} and \code{params$bw} is always \code{NA}, since the nQuack
+#'       route does not use histogram-binned templates.}
+#'   }
 #'
 #' @export
 hmm_estimate_CN_nQuack <- function(
@@ -809,6 +827,7 @@ hmm_estimate_CN_nQuack <- function(
   snps_per_window = 50,
   min_snps_per_window = NULL,
   cn_grid = 2:6,
+  max_cn_dev = NULL,
   max_iter = 60,
   het_quantile = 0.8,
   baf_weight = 0.5,
@@ -827,7 +846,6 @@ hmm_estimate_CN_nQuack <- function(
   dosage_threshold = 0,
   z_no_baf_scale = 0.25,
   hom_z_sigma_inflate = 1.5,
-  cn0_background_frac = 0,
   nQuack_dists = "normal",
   nQuack_type = "fixed",
   nQuack_uniform = 1,
@@ -857,10 +875,13 @@ hmm_estimate_CN_nQuack <- function(
       "on samples with known ploidy, then pass that single family here."
     ))
 
-  # nQuack models CN 2:6; CN 0 is z-only (pre-pass) and CN 1 follows the min_het_frac rule
+  # nQuack models CN 2:6; CN 1 follows the min_het_frac rule
+  if (0 %in% cn_grid)
+    stop("cn_grid cannot include 0 on the nQuack route (sequencing data has no CN=0 background signal). Use hmm_estimate_CN() for CN=0 detection on array data.")
+  .check_max_cn_dev(max_cn_dev)
   nq_cn_valid <- cn_grid[cn_grid >= 2L & cn_grid <= 6L]
-  if (!z_only && (any(cn_grid > 6L) || !any(cn_grid >= 1L)))
-    stop("cn_grid must be a subset of 0:6 with at least one value in 1:6 for nQuack BAF estimation.")
+  if (!z_only && any(cn_grid > 6L))
+    stop("cn_grid must be a subset of 1:6 for nQuack BAF estimation.")
 
   vmsg("Preparing inputs and applying initial filters", verbose = verbose, level = 0, type = ">>")
 
@@ -1008,6 +1029,9 @@ hmm_estimate_CN_nQuack <- function(
 
   vmsg("exp_ploidy = %s", verbose = verbose, level = 1, type = ">>", exp_ploidy)
 
+  cn_grid     <- .restrict_cn_grid(cn_grid, exp_ploidy, max_cn_dev, verbose = verbose)
+  nq_cn_valid <- cn_grid[cn_grid >= 2L & cn_grid <= 6L]
+
   # ---- Build windows ----
   vmsg("Defining windows", verbose = verbose, level = 0, type = ">>")
   d[["Position"]] <- as.numeric(d[["Position"]])
@@ -1091,47 +1115,6 @@ hmm_estimate_CN_nQuack <- function(
   z <- win_df$z_mean
   if (length(z) == 0 || all(is.na(z))) stop("No valid z values found in any window.")
   vmsg("Windows ready", verbose = verbose, level = 1, type = ">>")
-
-  # ---- CN=0 pre-pass (z only): remove nullisomic windows before BAF fitting ----
-  cn0_win_df <- NULL
-  if (!z_only && 0 %in% cn_grid) {
-    vmsg("Running z_only=TRUE pre-pass to detect CN=0 windows", verbose = verbose, level = 0, type = ">>")
-    pre_z <- hmm_estimate_CN_nQuack(
-      qploidy_standarize_result = qploidy_standarize_result,
-      sample_id           = sample_id,
-      data                = data,
-      geno.pos            = geno.pos,
-      use_values          = use_values,
-      chr                 = chr,
-      segment_zscore      = segment_zscore,
-      snps_per_window     = snps_per_window,
-      min_snps_per_window = min_snps_per_window,
-      cn_grid             = cn_grid,
-      max_iter            = max_iter,
-      z_range             = z_range,
-      transition_jump     = transition_jump,
-      initial_prob        = initial_prob,
-      z_only              = TRUE,
-      verbose             = FALSE,
-      exp_ploidy          = exp_ploidy,
-      rm_outliers         = rm_outliers,
-      outlier_alpha       = outlier_alpha,
-      cn0_background_frac = cn0_background_frac
-    )
-    cn0_key <- with(pre_z$by_window[is.na(pre_z$by_window$CN_call), ],
-                    paste(Chr, WindowID, sep = "__"))
-    cn0_idx_win <- which(paste(win_df$Chr, win_df$WindowID, sep = "__") %in% cn0_key)
-    if (length(cn0_idx_win) > 0) {
-      vmsg("CN=0 pre-pass: dropping %d window(s) from analysis", verbose = verbose, level = 1, type = ">>", length(cn0_idx_win))
-      if (length(cn0_idx_win) == nrow(win_df)) stop("All windows were called CN=0 by the z-only pre-pass.")
-      cn0_win_df <- win_df[cn0_idx_win, , drop = FALSE]
-      win_df     <- win_df[-cn0_idx_win, , drop = FALSE]
-      baf_list   <- baf_list[-cn0_idx_win]
-      R_list     <- R_list[-cn0_idx_win]
-      z          <- z[-cn0_idx_win]
-      W          <- nrow(win_df)
-    }
-  }
 
   # ---- nQuack per-window BAF likelihoods ----
   if (!z_only) {
@@ -1289,9 +1272,6 @@ hmm_estimate_CN_nQuack <- function(
     z = d[[z_col]], z_window = z, cn_grid = cn_grid,
     exp_ploidy = exp_ploidy, z_range = z_range, verbose = verbose
   )
-  # Array background raises CN=0 z above the zero-signal floor
-  if (0 %in% cn_grid && cn0_background_frac > 0 && "0" %in% names(mu) && "1" %in% names(mu))
-    mu["0"] <- mu["0"] + cn0_background_frac * (mu["1"] - mu["0"])
 
   sig <- sd(z, na.rm = TRUE)
   if (!is.finite(sig) || sig <= 1e-6) sig <- 0.1
@@ -1351,8 +1331,6 @@ hmm_estimate_CN_nQuack <- function(
       z = d[[z_col]], z_window = z, cn_grid = cn_grid,
       exp_ploidy = exp_ploidy, z_range_out = FALSE, verbose = verbose
     )
-    if (0 %in% cn_grid && cn0_background_frac > 0 && "0" %in% names(mu) && "1" %in% names(mu))
-      mu["0"] <- mu["0"] + cn0_background_frac * (mu["1"] - mu["0"])
     K             <- length(cn_grid)
     ll_baf_matrix <- ll_baf_matrix[, valid_idx, drop = FALSE]
     ll_baf_em     <- ll_baf_matrix[em_perm, , drop = FALSE]
@@ -1600,23 +1578,6 @@ hmm_estimate_CN_nQuack <- function(
     ),
     post_df
   )
-  if (!is.null(cn0_win_df) && nrow(cn0_win_df) > 0) {
-    cn0_post <- as.data.frame(matrix(NA_real_, nrow = nrow(cn0_win_df), ncol = ncol(post_df)))
-    names(cn0_post) <- names(post_df)
-    cn0_rows <- cbind(
-      data.frame(
-        Sample = sample_id, Chr = cn0_win_df$Chr, WindowID = cn0_win_df$WindowID,
-        Start = cn0_win_df$Start, End = cn0_win_df$End, n_snps = cn0_win_df$n_snps,
-        n_het = NA_integer_, z = NA_real_, w_baf = NA_real_,
-        CN_call = NA_integer_, CN_reliability = NA_real_, post_max = NA_real_,
-        stringsAsFactors = FALSE
-      ),
-      cn0_post
-    )
-    result <- rbind(result, cn0_rows)
-    result <- result[order(result$Chr, result$Start), ]
-    rownames(result) <- NULL
-  }
 
   params <- list(
     cn_grid             = cn_grid,
@@ -1643,7 +1604,7 @@ hmm_estimate_CN_nQuack <- function(
     nQuack_dists        = nQuack_dists,
     nQuack_type         = nQuack_type,
     nQuack_uniform      = nQuack_uniform,
-    cn0_background_frac = cn0_background_frac,
+    max_cn_dev          = max_cn_dev,
     sex_system          = sex_system,
     sex_chr             = sex_chr
   )

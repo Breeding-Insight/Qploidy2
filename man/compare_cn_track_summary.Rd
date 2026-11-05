@@ -10,7 +10,9 @@ compare_cn_track_summary(
   samples_to_plot = NULL,
   gray_CN = NULL,
   filter_type = NULL,
-  filter_cn = NULL
+  filter_cn = NULL,
+  sex_system,
+  sex_chr
 )
 }
 \arguments{
@@ -30,6 +32,16 @@ ploidy category matches. Accepted values: \code{"euploid"},
 \item{filter_cn}{Optional integer vector. Keep only samples whose
 sample-level CN is in this vector (e.g. \code{c(2L, 4L)}). \code{NULL}
 (default) keeps all.}
+
+\item{sex_system, sex_chr}{Sex-determination system and sex-chromosome IDs
+(see \code{\link{karyotype_notation}}). When not supplied, the values
+stored in the \code{hmm_CN} \code{params} are used. Set
+\code{sex_system = NULL} (or \code{"none"}) to disable, or pass other
+values to override. When enabled, samples are classified as in
+\code{\link{count_types}} (e.g. a single X in an XY male is not
+aneuploidy) and a \code{Sex} column (\code{"M"}/\code{"F"} plus the
+sex-chromosome complement, e.g. \code{"M (XY)"}) is added to the right of
+the matrix, before the block labels.}
 }
 \value{
 A \code{ggplot} object.

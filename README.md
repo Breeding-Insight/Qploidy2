@@ -29,8 +29,8 @@ devtools::install_github("Breeding-Insight/Qploidy2")
 
 * [Prepare input files tutorial](https://Breeding-Insight.github.io/Qploidy2/Prepare_inputs_Qploidy.html)
 * [Aneuploid Detection with DArTag Markers in Alfalfa F1 Population](https://Breeding-Insight.github.io/Qploidy2/Qploidy_alfalfa_tutorial.html) - large-scale copy number estimation in alfalfa mapping population using DArTag sequencing data
-* [Qploidy2 and nQuack Integration Tutorial - Large-scale copy number estimation in alfalfa mapping population using nQuack EM-based BAF model selection](https://Breeding-Insight.github.io/Qploidy2/Qploidy_alfalfa_tutorial.html)
-
+ * [Qploidy2 and nQuack Integration Tutorial - Large-scale copy number estimation in alfalfa mapping population using nQuack EM-based BAF model selection](https://Breeding-Insight.github.io/Qploidy2/Qploidy2_nQuack_tutorial.html)
+ 
 ## Interactive visualization and curation of results
 
 The resulted files from Qploidy2 `write_hmm_CN` function can be uploaded on `GenoBrew` Shiny interface.

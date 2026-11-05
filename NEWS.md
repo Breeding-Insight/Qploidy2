@@ -1,12 +1,21 @@
 # Qploidy2 1.24.0
 
-* `hmm_estimate_CN_nQuack()` now accepts CN 0 and 1 in `cn_grid` (any subset of `0:6` with at least one value in `1:6`):
-  * CN 0 is detected from z-scores alone, through a `z_only = TRUE` pre-pass as in `hmm_estimate_CN()`, and returned as `NA`. A new `cn0_background_frac` argument handles array background signal.
+* `hmm_estimate_CN_nQuack()` now accepts CN 1 in `cn_grid` (any subset of `1:6`):
   * CN 1 has no nQuack model. In windows whose heterozygous fraction reaches `min_het_frac`, its BAF log-likelihood is set to the lowest of the other states. Otherwise BAF is neutral and z decides.
   * When the sample-wide heterozygous fraction is at most `min_het_frac` and `exp_ploidy` is not given, the sample is treated as haploid (`exp_ploidy = 1`) and the nQuack global fit is skipped.
   * Windows called CN 1 get homozygous-only dosages.
+  * CN 0 remains unsupported on the nQuack route. It is only meaningful for array data, whose probes keep background signal without copies, and nQuack is for sequencing data only. Use `hmm_estimate_CN()` for CN 0.
 
-* Fixed "missing value where TRUE/FALSE needed" in `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()` when every window of a chromosome was called CN 0 (`NA`). The post-decoding override took the mode of an all-`NA` chromosome; it now skips such chromosomes.
+* `hmm_estimate_CN()`, `hmm_estimate_CN_nQuack()`, and `hmm_estimate_CN_multi()` (through `...`) gain `max_cn_dev`.
+  * After `exp_ploidy` is set (estimated on the full `cn_grid`, or given by the user), `cn_grid` is restricted to states within `max_cn_dev` of it. For example, `cn_grid = 1:6`, `exp_ploidy = 2`, `max_cn_dev = 2` tests `1:4`.
+  * In `hmm_estimate_CN()`, CN 0 is kept whenever it is in `cn_grid`.
+  * This avoids false calls in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states. The default, `NULL`, keeps the full grid.
+
+* Fixed "missing value where TRUE/FALSE needed" in `hmm_estimate_CN()` and `hmm_estimate_CN_nQuack()` when the post-decoding override met a chromosome whose windows were all `NA`. It now skips such chromosomes.
+
+* `compare_cn_track_summary()` gains `sex_system` and `sex_chr` arguments. When not supplied, the values stored in the `hmm_CN` params are used; `sex_system = NULL` (or `"none"`) disables them, and other values override them. When enabled:
+  * Samples are classified as in `count_types()`, so XY males are not counted as aneuploid.
+  * A `Sex` column (e.g. `"M (XY)"`, `"F (XX)"`, `"M (XXXY)"`, or `"?"` when unknown) is added between the matrix and the block labels.
 
 # Qploidy2 1.23.1
 
