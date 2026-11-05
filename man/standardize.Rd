@@ -47,11 +47,11 @@ standardize(
 - Chromosome: Chromosome names
 - Position: Base-pair positions on the genome}
 
-\item{threshold.missing.geno}{Numeric (0–1). Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.}
+\item{threshold.missing.geno}{Numeric (0-1). Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.}
 
-\item{threshold.missing.samples}{Numeric (0–1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed from both `data` and `genos`. Default is 1 (no filtering). Removed sample IDs are stored in `info$samples.rm.ids`.}
+\item{threshold.missing.samples}{Numeric (0-1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed from both `data` and `genos`. Default is 1 (no filtering). Removed sample IDs are stored in `info$samples.rm.ids`.}
 
-\item{threshold.geno.prob}{Numeric (0–1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.}
+\item{threshold.geno.prob}{Numeric (0-1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.}
 
 \item{ploidy.standardization}{Integer. The ploidy level of the reference panel used for standardization.}
 
@@ -75,7 +75,7 @@ standardize(
 
 \item{cluster_median}{Logical. If TRUE, uses the median of theta values to estimate cluster centers. If FALSE, uses the mean.}
 
-\item{filter_R}{Logical. If TRUE, calculates Z-scores only for markers that passed missing data filter (default: FALSE).}
+\item{filter_R}{Logical. If TRUE, calculates Z-scores only for markers that passed the BAF filters (missing data and number of clusters) (default: FALSE).}
 
 \item{min.depth}{Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).}
 

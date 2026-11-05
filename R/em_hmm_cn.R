@@ -60,15 +60,22 @@ em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, 
     log_alpha <- matrix(-Inf, W, K); log_beta <- matrix(0, W, K)
     # forward
     log_alpha[1, ] <- logpi0 + ll_em[1, ]
-    for (i in 2:W) {
-      for (k in 1:K) {
-        log_alpha[i,k] <- ll_em[i,k] + logsumexp(log_alpha[i-1, ] + logA[,k])
+    # Guard against W == 1: R's `2:W`/`(W-1):1` do not collapse to an empty
+    # range in that case (they produce c(2,1)/c(0,1)), which would index past
+    # the single row of ll_em/log_alpha/log_beta.
+    if (W > 1) {
+      for (i in 2:W) {
+        for (k in 1:K) {
+          log_alpha[i,k] <- ll_em[i,k] + logsumexp(log_alpha[i-1, ] + logA[,k])
+        }
       }
     }
     # backward
-    for (i in (W-1):1) {
-      for (k in 1:K) {
-        log_beta[i,k] <- logsumexp(logA[k, ] + ll_em[i+1, ] + log_beta[i+1, ])
+    if (W > 1) {
+      for (i in (W-1):1) {
+        for (k in 1:K) {
+          log_beta[i,k] <- logsumexp(logA[k, ] + ll_em[i+1, ] + log_beta[i+1, ])
+        }
       }
     }
     loglik <- logsumexp(log_alpha[W, ])
@@ -79,11 +86,13 @@ em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, 
     gamma <- exp(log_gamma)
     # pairwise
     xi_sum <- matrix(0, K, K)
-    for (i in 1:(W-1)) {
-      M_ij <- outer(log_alpha[i, ], log_beta[i+1, ], "+") +
-        logA + matrix(ll_em[i+1, ], K, K, byrow=TRUE)
-      M_ij <- M_ij - logsumexp(as.vector(M_ij))
-      xi_sum <- xi_sum + exp(M_ij)
+    if (W > 1) {
+      for (i in 1:(W-1)) {
+        M_ij <- outer(log_alpha[i, ], log_beta[i+1, ], "+") +
+          logA + matrix(ll_em[i+1, ], K, K, byrow=TRUE)
+        M_ij <- M_ij - logsumexp(as.vector(M_ij))
+        xi_sum <- xi_sum + exp(M_ij)
+      }
     }
     # M-step: update parameters
     # pi0 is kept fixed (update_pi0=FALSE by default) to prevent the window-1

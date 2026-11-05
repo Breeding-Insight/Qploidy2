@@ -83,6 +83,16 @@ test_that("get_zscore returns z-score table", {
   expect_equal(var(result$z), 0.8163, tolerance = 0.001)
 })
 
+test_that("get_zscore uses only reference.samples for mean and sd", {
+  data <- data.frame(MarkerName = "m1", SampleName = paste0("S", 1:4),
+                     R = c(100, 110, 90, 300))
+  geno.pos <- data.frame(MarkerName = "m1", Chromosome = "1", Position = 1)
+
+  result <- get_zscore(data, geno.pos, reference.samples = c("S1", "S2", "S3"))
+
+  expect_equal(result$z, (data$R - 100) / 10)
+})
+
 test_that("standardize runs and returns expected object", {
   fake_input <- simulate_standardization_input(n_markers = 10, n_samples = 5, ploidy = 2, seed = 2025)
 
@@ -125,8 +135,8 @@ test_that("standardize runs and returns expected object", {
 
   # Check print.qploidy_standardization
   txt <- print(result)
-  expect_equal(dim(txt), c(9,3))
-  expect_equal(as.character(txt[5,3]), "(0 %)  ")
+  expect_equal(dim(txt), c(10,3))
+  expect_equal(as.character(txt[5,3]), "-      ")
 
   # Check read.qploidy_standardization
   result <- read_qploidy_standardization(temp)
@@ -137,8 +147,8 @@ test_that("standardize runs and returns expected object", {
 
   # Check print.qploidy_standardization
   txt <- print(result)
-  expect_equal(dim(txt), c(9,3))
-  expect_equal(as.character(txt[5,3]), "(0 %)  ")
+  expect_equal(dim(txt), c(10,3))
+  expect_equal(as.character(txt[5,3]), "-      ")
 })
 
 test_that("rm_outlier removes extreme values", {

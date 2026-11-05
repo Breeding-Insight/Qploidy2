@@ -6,6 +6,8 @@ description: Step-by-step workflow for running Qploidy2: batch-effect check, sta
 
 This skill covers the full analysis pipeline after input preparation (see `qploidy2-input-prep` for creating `data`, `genos`, and `genos.pos`).
 
+See also the full narrative tutorials: `docs/Qploidy_alfalfa_tutorial.Rmd` (grid-based BAF model selection + HMM) and `docs/Qploidy2_nQuack_tutorial.Rmd` (nQuack EM-based alternative, sequencing data only).
+
 ## 1. Raw Data Quality Check
 
 Inspect raw allele intensities and heterozygosity before standardization:
@@ -28,6 +30,21 @@ The `plot_raw` output shows (top to bottom):
 **If peaks are unclear** → proceed with standardization.
 
 **Check heterozygosity:** Samples with < 5% heterozygosity are treated as haploid (CN = 1) and cannot be distinguished from inbred lines.
+
+### Special case: Sex chromosomes
+
+Sex chromosomes are handled in the HMM and downstream functions through `sex_system` and `sex_chr` (see **Section 5b**). Supported systems:
+
+| `sex_system` | Females | Males | Sex inferred from |
+|---|---|---|---|
+| `"XY"` | XX | XY | Y present (CN >= 1) → male |
+| `"ZW"` (birds, Lepidoptera) | ZW | ZZ | W present → female |
+| `"X0"` | XX | X0 | X CN = ploidy → female; ploidy/2 → male |
+| `"haplodiploid"` (bees, ants, wasps) | 2x | 1x | Sample ploidy (no `sex_chr` needed) |
+
+Before running, check `plot_raw()` on the sex-chromosome markers to confirm the X (or Z) dosage difference between sexes is visible.
+
+**Alternative for sequencing data with clear raw peaks:** sex-chromosome markers can also be analysed without standardization, using `use_values = c("ratio", "R")` in `hmm_estimate_CN_multi()`. Only do this when `plot_raw` shows well-defined peaks; it is **not appropriate for array data**, where standardization is always required.
 
 ## 2. Check for Batch Effects
 
@@ -95,6 +112,9 @@ qploidy_std  # view filtering summary
 | `threshold.n.clusters` | Start with `ploidy+1`; relax (e.g. 4) if too many markers drop |
 | `min.depth` / `max.depth` | Based on `hist(data$R)`; center around the mean |
 | `threshold.missing.geno` | 0.9 = allow up to 90% missing per marker |
+| `filter_R` | `TRUE` = compute z-scores only for markers that passed the BAF filters (missing data + number of clusters) |
+
+**Reference samples:** only samples present in `genos` (after filtering) are used as reference — for BAF cluster centers and for the per-marker mean/SD of `R` behind the z-score. Every sample is then transformed against that reference, so z-scores are relative to the known-ploidy samples.
 
 Visually inspect standardization quality:
 
@@ -143,6 +163,57 @@ head(selected_model$grid_results)
 
 Use a sample with known ploidy to validate model selection.
 
+## 4b. Alternative: nQuack EM-Based Route (sequencing data only)
+
+For sequencing-based data (WGS, DArTag, GTseq, AgriSeq) with allele read counts (`X`, `Y`, `R`), `hmm_estimate_CN_nQuack()` replaces the grid-based model selection + HMM (steps 4–5) with nQuack's EM mixture-model fitting (Normal/Beta/Beta-Binomial), selecting the ploidy by BIC for **one** `(nQuack_dists, nQuack_type, nQuack_uniform)` combination per call. BIC is not comparable across distributions, types, or uniform settings — choose the combination on samples with known ploidy first, following the nQuack tutorials. **Not usable on intensity-based array data** (Axiom/Illumina have no read counts). Requires `install.packages("nQuack")` (>= 1.0.5, on CRAN).
+
+```r
+set.seed(42)  # allele sampling inside nQuack is stochastic — set a seed for reproducibility
+res_nq <- hmm_estimate_CN_nQuack(
+  qploidy_standarize_result = qploidy_std,
+  sample_id                 = "SampleName",
+  cn_grid                   = c(2, 3, 4, 5, 6),  # subset of 1:6; nQuack models 2:6 (see CN 1 notes below)
+  max_cn_dev                = NULL,      # e.g. 2 to restrict a wide grid around exp_ploidy (see "Choosing cn_grid")
+  nQuack_dists              = "normal",  # "normal" (default) | "beta" | "beta-binomial" — exactly one
+  nQuack_type               = "fixed",   # "fixed" (default, recommended) | "fixed_2" | "fixed_3"
+  nQuack_uniform            = 1,         # 1 (default, include a uniform mixture component) | 0
+  verbose                   = TRUE
+)
+
+plot_karyotype(res_nq, sample_name = "SampleName", nrow = 2, color_by = "post_max_CN")
+p <- plot_cn_track(hmm_CN = res_nq, data = data, geno.pos = geno.pos, sample_id = "SampleName",
+                   show_window_lines = FALSE, z_by_mean = TRUE)
+p$arranged
+```
+
+For all samples, `hmm_estimate_CN_multi()` auto-dispatches to the nQuack route whenever `nQuack_dists`, `nQuack_type`, and/or `nQuack_uniform` are passed via `...`:
+
+```r
+multi_esti_nq <- hmm_estimate_CN_multi(
+  qploidy_standarize_result = qploidy_std,
+  sample_ids                = "all",
+  n_cores                   = 3,             # parallelism across samples
+  cn_grid                   = c(2, 3, 4, 5, 6),
+  nQuack_dists              = "normal",
+  nQuack_type               = "fixed",
+  nQuack_uniform            = 1
+)
+```
+
+**CN 1 in the nQuack route** (`cn_grid` may include it, e.g. `1:6`; CN 0 is not allowed — it only makes sense for array background signal, use `hmm_estimate_CN()`):
+- **CN 1** has no nQuack model: windows with heterozygous fraction ≥ `min_het_frac` rule it out; otherwise BAF is neutral and z decides. If the whole sample has heterozygous fraction ≤ `min_het_frac` (and `exp_ploidy` isn't given), it is treated as haploid (`exp_ploidy = 1`) and the nQuack global fit is skipped — useful for haplodiploid males.
+
+**Grid vs. nQuack:**
+
+| Feature | Grid (`hmm_estimate_CN()`) | nQuack (`hmm_estimate_CN_nQuack()`) |
+|---|---|---|
+| Platform | Arrays and sequencing | Sequencing only (read counts X, Y, R) |
+| Speed | Faster | Slower |
+| CN range | 0–10 (CN 1 has a BAF template; CN 0 for arrays) | 1–6; nQuack models 2–6, CN 1 via `min_het_frac` rule; no CN 0 |
+| Reproducibility | Deterministic | Stochastic allele sampling — set `set.seed()` |
+
+To inspect or export the nQuack input matrix directly (e.g. to call `nQuack::bestquack()` yourself), use `convert2nQuack(qploidy_standardization_object = qploidy_std)`.
+
 ## 5. HMM Copy Number Estimation — Single Sample
 
 ```r
@@ -173,6 +244,55 @@ p$baf; p$z; p$cn; p$baf_dist  # individual panels
 
 **Understanding `CN_reliability`:** ranges 0–1; combines HMM posterior × BAF weight. Calls relying only on Z-score (no heterozygous markers in window) are capped at 0.25 × post_max. Low values warrant manual inspection.
 
+**Window size (`min_snps_per_window`):** sets the minimum segment length for z-score changepoint detection. Windows are never removed — a chromosome with fewer markers than the minimum becomes a single window. Set it per chromosome with a named vector, e.g. `min_snps_per_window = c(Chr01 = 300, Chr02 = 300, ChrX = 20)`; unnamed chromosomes use the automatic default (printed when verbose).
+
+**Mixed-ploidy populations (`max_cn_dev`):** see **Choosing `cn_grid`** below.
+
+### Choosing `cn_grid` (range of tested CN)
+
+**Allowed values:**
+
+| Route | Allowed `cn_grid` | Notes |
+|---|---|---|
+| Grid (`hmm_estimate_CN()`) | `0:10` | CN 1 scored with a BAF template (haploid/LOH). CN 0 (nullisomy) detected from z-scores only, through a z-only pre-pass, and returned as `NA` — meaningful for **array data** (probes keep background signal; tune `cn0_background_frac`). |
+| nQuack (`hmm_estimate_CN_nQuack()`) | `1:6` | nQuack models 2–6; CN 1 via the `min_het_frac` rule. **CN 0 is not allowed** (sequencing data has no CN 0 background signal). |
+
+**Larger range → more false positives.** The initial z mean of each CN state is a ramp spread across the sample's observed z range, so every extra state in `cn_grid` shrinks the z distance between neighbouring states. Small depth fluctuations or noise can then be called as a different CN. Also, each extra state is one more alternative the HMM can choose. Recommendations:
+- Use the narrowest `cn_grid` that covers the copy numbers you actually expect.
+- Include `0` only when nullisomy is plausible and the data are from arrays; include `1` only when haploids or LOH are expected.
+- In **mixed-ploidy populations** that need a wide grid (e.g. `1:6`), set `max_cn_dev`. `exp_ploidy` is still estimated on the full grid, then each sample's grid is restricted to states within `max_cn_dev` of it, e.g. `max_cn_dev = 2` tests `1:4` for a 2x sample and `3:6` for a 5x sample. On the grid route CN 0 is kept whenever it is in `cn_grid`. The restricted grid is printed (verbose) and stored in `params$cn_grid`.
+- States whose z means are not monotonic with CN, or that collapse onto a neighbour, are dropped automatically during EM; check `params$cn_grid` for the final grid.
+
+## 5b. Sex Chromosomes
+
+Pass `sex_system` and `sex_chr` to the HMM functions. They don't change the CN calling; they are stored in `params`, and `karyotype_notation()`, `plot_karyotype()`, and `count_types()` read them automatically.
+
+```r
+multi_esti <- hmm_estimate_CN_multi(
+  qploidy_standarize_result = qploidy_std,
+  sample_ids                = "all",
+  n_cores                   = 2,
+  cn_grid                   = 0:4,  # grid route on arrays: include 0 to detect Y absence (CN 0) in females
+  min_snps_per_window       = c(ChrX = 20, ChrY = 10, ChrX_PAR = 20),  # small contigs
+  sex_system                = "XY",
+  sex_chr                   = list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")
+)
+```
+
+`sex_chr` rules:
+- Names: `X`, `Y`, `PAR` for `"XY"`; `Z`, `W`, `PAR` for `"ZW"`; `X` for `"X0"`; none for `"haplodiploid"`. Each element may hold several chromosome IDs.
+- `X`/`Z` and `Y`/`W` hold markers specific to that chromosome; `PAR` holds pseudoautosomal markers.
+- For `"XY"`/`"ZW"`, give `Y` (or `W`), or both `X` (or `Z`) and `PAR`. A missing group is derived from the PAR (Y = PAR − X; X = PAR − Y). When all three are given, X + Y = PAR is checked (`SexChrConsistent`).
+- Detecting Y/W absence from Y/W-specific markers requires `0` in `cn_grid`, which is only available on the grid route (array data). On sequencing data, Y-specific markers have no reads in females and drop out, so also give `PAR` to derive Y = PAR − X.
+
+Downstream effects:
+- `karyotype_notation()` adds `Sex`, `SexChr` (e.g. `"XY"`, `"XXXY"`, `"ZW"`, `"X0"`), `SexChrConsistent`, `ChrType`, `ExpectedCN`. Sex chromosomes are excluded from `Ploidy` and compared to the expected complement (X + Y = ploidy), so one X in an XY male is not a deviation but an XXY diploid is.
+- `plot_karyotype()` draws ghost copies from the expected complement, labels sex-chromosome strips, and adds sex to the subtitle.
+- `count_types()` does not count males as aneuploid and adds a `$sex` table plus sex counts in the printout.
+- `compare_cn_track_summary()` uses the same sex-aware classification and adds a `Sex` column (e.g. `M (XY)`, `F (XX)`, `M (XXXY)`, `?` if unknown) before the block labels. Set `sex_system = NULL` there to disable it.
+- `print()` of a single-sample result shows the sex system; of a multi-sample result, the sex counts.
+- Passing `sex_system`/`sex_chr` explicitly to these functions overrides the stored values.
+
 ## 6. HMM Copy Number Estimation — All Samples
 
 ```r
@@ -181,6 +301,15 @@ multi_esti <- hmm_estimate_CN_multi(
   sample_ids                = "all",
   n_cores                   = 2,
   cn_grid                   = c(2, 3, 4, 5, 6)
+)
+
+# Mixed-ploidy population: wide grid, restricted per sample around its exp_ploidy
+multi_esti_mixed <- hmm_estimate_CN_multi(
+  qploidy_standarize_result = qploidy_std,
+  sample_ids                = "all",
+  n_cores                   = 2,
+  cn_grid                   = 1:6,
+  max_cn_dev                = 2
 )
 
 compare_cn_track(hmm_CN = multi_esti, samples_to_plot = samples[1:30], facet_ncol = 8)
@@ -214,6 +343,8 @@ p_summ <- compare_cn_track_summary(
 p_summ
 ```
 
+`types_df$by_cn` groups sample IDs by sample-level CN and category (e.g. `types_df$by_cn$\`4x\`$euploid`), useful for picking representative samples to inspect with `plot_karyotype()`. Pass `add_ghost = FALSE` to drop a fully-missing chromosome placeholder from the plot. When the HMM was run with `sex_system`, `types_df$sex` lists `Sample`, `Sex`, `SexChr`.
+
 ## 9. Optional: Re-standardization
 
 After identifying euploid samples via HMM, re-standardize using them as the reference for improved BAF resolution:
@@ -244,7 +375,7 @@ re_multi_filtered <- filter_hmm_CN(re_multi, min_CN_reliability = 0.25, min_post
 res_tweak <- hmm_estimate_CN(
   qploidy_standarize_result = re_std,
   sample_id                 = "SampleName",
-  min_snps_per_window       = 40,  # increase for more smoothing
+  min_snps_per_window       = 40,  # increase for more smoothing; or a named vector per chromosome
   cn_grid                   = c(2, 3, 4, 5, 6)
 )
 
@@ -295,6 +426,8 @@ write.csv(final_res$by_marker, "CN_by_marker.csv")
 k_not <- karyotype_notation(dosages)
 head(k_not)
 # Columns: SampleName, Ploidy, ChrID, ChrCN, Segment (ISCN-inspired notation)
+# With sex_system set (stored in the HMM params or passed here): Sex, SexChr,
+# SexChrConsistent, ChrType, ExpectedCN
 ```
 
 ### VCF export
@@ -323,11 +456,21 @@ plot_raw()                          # raw data QC
 pca_plot()                          # batch effect check
 standardize()                       # standardize intensities
 plot_geno_by_marker()               # inspect standardization
-select_best_baf_model()             # choose BAF model (one sample)
-hmm_estimate_CN_multi()             # run HMM for all samples
+select_best_baf_model()             # choose BAF model (one sample); or hmm_estimate_CN_nQuack() for seq-data EM route
+hmm_estimate_CN_multi()             # run HMM for all samples (narrow cn_grid, or max_cn_dev; sex_system/sex_chr if needed)
+plot_karyotype()                    # visualize per-chromosome CN calls for biological interpretation
+plot_cn_track()                     # detailed BAF/z-score/CN diagnostic track for a single sample
+compare_cn_track()                  # multi-sample CNV profile grid
 filter_hmm_CN()                     # quality filter
 count_types()                       # summarize euploid/aneuploid/segmental
+compare_cn_track_summary()          # population-level karyotype matrix (samples x chromosomes)
 re_standardize()  [optional]        # improve with euploid reference
 call_hmm_dosages()                  # call per-locus dosages
 export_VCF() / write_hmm_CN()       # export results
 ```
+
+Among the visualization functions, these four are particularly useful and complementary:
+- `plot_karyotype()` gives a genome-wide, per-chromosome view of called copy number for one sample (colorable by `post_max_CN`, `w_baf`, `CN_reliability`, or `dosage`) — the primary way to biologically interpret aneuploidy/segmental results.
+- `plot_cn_track()` overlays BAF, z-score, CN calls, and BAF distribution per window for one sample — the primary diagnostic to judge *why* the HMM made a call and whether it should be trusted or refined (see `CN_reliability`).
+- `compare_cn_track()` tiles CNV profiles for many samples at once — useful for spotting outliers across the population.
+- `compare_cn_track_summary()` condenses the whole population into a samples × chromosomes karyotype matrix, grouped by ploidy category — useful for a high-level population overview (with a `Sex` column when a sex system is set).

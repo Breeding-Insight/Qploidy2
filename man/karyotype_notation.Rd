@@ -4,7 +4,7 @@
 \alias{karyotype_notation}
 \title{Build ISCN-style karyotype notation from HMM copy-number calls}
 \usage{
-karyotype_notation(df, sample_name = NULL)
+karyotype_notation(df, sample_name = NULL, sex_system = NULL, sex_chr = NULL)
 }
 \arguments{
 \item{df}{A \code{data.frame} with at least the columns \code{SampleName},
@@ -14,19 +14,68 @@ in which case the \code{by_marker} slot is used automatically.}
 
 \item{sample_name}{Character vector of sample names to include, or
 \code{NULL} (default) to return notation for all samples in \code{df}.}
+
+\item{sex_system}{Character or \code{NULL}. Sex-determination system of the species.
+When \code{NULL} (default), the value stored in the \code{params} of an
+\code{hmm_CN} input (set through \code{sex_system} in
+\code{\link{hmm_estimate_CN}}) is used, falling back to \code{"none"}.
+Supplying a value overrides the stored one. Options:
+\describe{
+  \item{\code{"none"}}{All chromosomes are treated as autosomes.}
+  \item{\code{"XY"}}{Females XX, males XY. A sample carrying at least one
+    Y is reported as male.}
+  \item{\code{"ZW"}}{Males ZZ, females ZW (e.g. birds, Lepidoptera). A
+    sample carrying at least one W is reported as female.}
+  \item{\code{"X0"}}{Females XX, males X0. Sex is inferred from the X copy
+    number: equal to the ploidy is female, half the ploidy is male.}
+  \item{\code{"haplodiploid"}}{Males haploid, females diploid (e.g. bees,
+    ants, wasps). Sex is inferred from the sample ploidy (1 = male,
+    2 = female); no \code{sex_chr} is needed. Diploid males cannot be
+    distinguished from females.}
+}}
+
+\item{sex_chr}{Named list mapping sex-chromosome groups to chromosome IDs
+in \code{df$Chr}. When \code{NULL}, the value stored in the \code{hmm_CN}
+\code{params} is used if its \code{sex_system} matches. Allowed names: \code{X}, \code{Y}, \code{PAR} for
+\code{"XY"}; \code{Z}, \code{W}, \code{PAR} for \code{"ZW"}; \code{X} for
+\code{"X0"}. \code{X}/\code{Z} and \code{Y}/\code{W} hold markers
+specific to that chromosome; \code{PAR} holds pseudoautosomal markers
+shared by both. Each element may contain several IDs. For
+\code{"XY"}/\code{"ZW"}, the copy number of a missing group is derived
+from the PAR (e.g. Y = PAR - X); when all three groups are given, the
+relation X + Y = PAR is checked and reported in \code{SexChrConsistent}.
+Detecting the absence of Y/W (CN = 0) requires \code{0} in the
+\code{cn_grid} used by the HMM.}
 }
 \value{
-A \code{data.frame} with one row per sample–chromosome combination
+A \code{data.frame} with one row per sample-chromosome combination
   and the following columns:
   \describe{
     \item{\code{ChrID}}{Chromosome identifier.}
-    \item{\code{Ploidy}}{Sample-wide ploidy (modal \code{CN_call}).}
+    \item{\code{Ploidy}}{Sample-wide ploidy (modal \code{CN_call}; sex
+      chromosomes are excluded when \code{sex_system} is set).}
     \item{\code{ChrCN}}{Chromosome-level copy number (modal
       \code{CN_call} within the chromosome).}
     \item{\code{Segment}}{Semicolon-separated ISCN-style notation for
-      segments that deviate from the chromosome-level copy number, e.g.
-      \code{"Chr01:g.1000000_5000000×2"}. \code{NA} when no deviating
+      segments that deviate from the expected copy number, e.g.
+      \code{"Chr01:g.1000000_5000000x2"}. \code{NA} when no deviating
       segments are found.}
+  }
+  When \code{sex_system != "none"}, the following columns are added:
+  \describe{
+    \item{\code{Sex}}{\code{"male"}, \code{"female"}, or \code{NA} when it
+      cannot be inferred.}
+    \item{\code{SexChr}}{Sex-chromosome complement, e.g. \code{"XY"},
+      \code{"XXXY"}, \code{"ZW"}, \code{"X0"}. \code{NA} if unknown.}
+    \item{\code{SexChrConsistent}}{For \code{"XY"}/\code{"ZW"} with all
+      three groups defined: whether X + Y (or Z + W) equals the PAR copy
+      number. \code{NA} otherwise.}
+    \item{\code{ChrType}}{\code{"autosome"}, \code{"X"}, \code{"Y"},
+      \code{"Z"}, \code{"W"}, or \code{"PAR"}.}
+    \item{\code{ExpectedCN}}{Copy number expected for the chromosome given
+      the ploidy and the inferred sex-chromosome complement. Segments are
+      flagged against this value, so e.g. a single X in an XY male is not
+      reported as a deviation, while an extra X in an XXY diploid is.}
   }
 }
 \description{
@@ -35,7 +84,7 @@ For each sample and chromosome, the function derives the sample-wide ploidy
 (mode of \code{CN_call} across all markers), the chromosome-level copy
 number (mode of \code{CN_call} within the chromosome), and identifies
 contiguous segments where the copy number deviates, reporting them in an
-ISCN-inspired genomic notation (\code{Chr:g.start_end×CN}).
+ISCN-inspired genomic notation (\code{Chr:g.start_endxCN}).
 }
 \examples{
 \dontrun{
@@ -44,6 +93,10 @@ karyotype_notation(hmm_CN)
 
 # Single sample
 karyotype_notation(hmm_CN, sample_name = "S1")
+
+# XY system with X-specific, Y-specific, and pseudoautosomal contigs
+karyotype_notation(hmm_CN, sex_system = "XY",
+                   sex_chr = list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR"))
 }
 
 }

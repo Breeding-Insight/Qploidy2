@@ -22,7 +22,7 @@ all samples are used to estimate the per-marker background median.}
 
 \item{background_markers}{Optional character vector of marker names for which
 \code{background_samples} are background. If NULL, all markers present for
-those samples are used — only appropriate when those samples are background
+those samples are used -- only appropriate when those samples are background
 for the entire array.}
 
 \item{multiplier}{Positive numeric. Samples with R below \code{multiplier * median(background R)}
@@ -42,7 +42,7 @@ Default \code{1} (same threshold for all samples).}
 \item{verbose}{Logical. Print a filtering summary. Default \code{TRUE}.}
 }
 \value{
-The input \code{data} with R and ratio set to \code{NA} for
+The input \code{data} with X, Y, R, and ratio set to \code{NA} for
   background-level entries. Returned invisibly.
 }
 \description{

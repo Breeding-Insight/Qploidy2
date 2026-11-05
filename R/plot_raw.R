@@ -100,7 +100,7 @@ plot_raw <- function(data,
                      area_single = 0.75,
                      add_expected_peaks = FALSE) {
 
-  # ── Input validation ──────────────────────────────────────────────────────
+  # -- Input validation ------------------------------------------------------
   if (!is.data.frame(data))    stop("'data' must be a data.frame.")
   if (!is.data.frame(geno.pos)) stop("'geno.pos' must be a data.frame.")
 
@@ -113,7 +113,7 @@ plot_raw <- function(data,
   if (missing(sample) || is.null(sample) || length(sample) != 1)
     stop("'sample' must be a single character string.")
 
-  # ── Type alias normalisation ───────────────────────────────────────────────
+  # -- Type alias normalisation -----------------------------------------------
   type_aliases <- c(
     "all"                    = "all",
     "ratio"                  = "ratio",
@@ -134,7 +134,7 @@ plot_raw <- function(data,
   if (any(unknown)) warning("Unknown plot type(s) ignored: ", paste(type[unknown], collapse = ", "))
   type <- unique(unname(type_resolved[!unknown]))
 
-  # ── Merge data + geno.pos ─────────────────────────────────────────────────
+  # -- Merge data + geno.pos -------------------------------------------------
   geno.pos_clean <- geno.pos %>%
     select(MarkerName, Chr = Chromosome, Position) %>%
     mutate(Position = as.numeric(Position))
@@ -146,7 +146,7 @@ plot_raw <- function(data,
 
   if (nrow(df) == 0) stop("No data found for sample '", sample, "' after merging with geno.pos.")
 
-  # ── Chromosome filter ──────────────────────────────────────────────────────
+  # -- Chromosome filter ------------------------------------------------------
   if (is.null(chr)) {
     chr <- sort(unique(df$Chr))
   } else if (is.numeric(chr)) {
@@ -156,18 +156,18 @@ plot_raw <- function(data,
   if (!all(chr %in% unique(df$Chr))) stop("One or more requested chromosomes not found in data.")
   df <- df %>% filter(Chr %in% chr)
 
-  # ── Colour palette (Okabe-Ito) ────────────────────────────────────────────
+  # -- Colour palette (Okabe-Ito) --------------------------------------------
   col_bar <- "#0072B2"
 
-  # ── Build baf_sample-style data.frame for plot_baf_hist ───────────────────
+  # -- Build baf_sample-style data.frame for plot_baf_hist -------------------
   # plot_baf_hist expects a column named 'sample' (used as x) and 'ratio'
   hist_df       <- df
   hist_df$sample <- hist_df$ratio   # alias required by plot_baf_hist internals
 
-  # ── Initialise plot slots ─────────────────────────────────────────────────
+  # -- Initialise plot slots -------------------------------------------------
   p_ratio <- p_R <- p_het <- p_ratio_hist <- p_ratio_hist_overall <- NULL
 
-  # ── ratio scatter ─────────────────────────────────────────────────────────
+  # -- ratio scatter ---------------------------------------------------------
   if (any(type == "all" | type == "ratio")) {
     p_ratio <- df %>%
       ggplot(aes(x = Position, y = ratio)) +
@@ -183,7 +183,7 @@ plot_raw <- function(data,
       )
   }
 
-  # ── R (depth) smooth ──────────────────────────────────────────────────────
+  # -- R (depth) smooth ------------------------------------------------------
   if (any(type == "all" | type == "R")) {
     p_R <- df %>%
       ggplot(aes(x = Position, y = R)) +
@@ -200,7 +200,7 @@ plot_raw <- function(data,
       )
   }
 
-  # ── Heterozygosity rate ───────────────────────────────────────────────────
+  # -- Heterozygosity rate ---------------------------------------------------
   if (any(type == "all" | type == "het")) {
     df$het_rate <- NA
     df$het_rate[df$ratio <= het_interval | df$ratio >= 1 - het_interval] <- 0
@@ -242,7 +242,7 @@ plot_raw <- function(data,
       )
   }
 
-  # ── Per-chromosome ratio histogram ────────────────────────────────────────
+  # -- Per-chromosome ratio histogram ----------------------------------------
   if (any(type == "all" | type == "Ratio_hist")) {
     p_ratio_hist <- plot_baf_hist(
       data_sample       = hist_df,
@@ -258,7 +258,7 @@ plot_raw <- function(data,
     )
   }
 
-  # ── Genome-wide ratio histogram ───────────────────────────────────────────
+  # -- Genome-wide ratio histogram -------------------------------------------
   if (any(type == "all" | type == "Ratio_hist_overall")) {
     p_ratio_hist_overall <- plot_baf_hist(
       data_sample       = hist_df,
@@ -274,7 +274,7 @@ plot_raw <- function(data,
     )
   }
 
-  # ── Assemble & return ─────────────────────────────────────────────────────
+  # -- Assemble & return -----------------------------------------------------
   p_all <- list(p_het, p_ratio, p_ratio_hist, p_ratio_hist_overall, p_R)
   p_all <- p_all[!sapply(p_all, is.null)]
 

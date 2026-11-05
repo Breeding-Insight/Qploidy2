@@ -35,8 +35,8 @@ utils::globalVariables(c(
 ##'       copy-number state.}
 ##'     \item{\code{"w_baf"}}{B-allele frequency weight applied on the HMM according to the number of heterozygous markers in the window.}
 ##'     \item{\code{"CN_reliability"}}{Joint confidence score combining HMM posterior probability and BAF support
-##'       (\code{post_max × normalized_w_baf}). Ranges 0–1; windows with no BAF evidence are capped at
-##'       \code{0.25 × post_max} by default.}
+##'       (\code{post_max x normalized_w_baf}). Ranges 0-1; windows with no BAF evidence are capped at
+##'       \code{0.25 x post_max} by default.}
 ##'   }
 ##' @param nrow Integer. Number of rows passed to \code{\link[ggplot2]{facet_wrap}}
 ##'   when arranging chromosome panels. Default \code{1} places all chromosomes
@@ -58,6 +58,19 @@ utils::globalVariables(c(
 ##'   segmental gain gives \code{CN = 6} in one region but \code{CN = 5}
 ##'   elsewhere on the same chromosome, the 6th column is drawn as a dashed
 ##'   ghost in the lower-CN region.
+##' @param sex_system Character or \code{NULL}. Sex-determination system:
+##'   \code{"none"}, \code{"XY"}, \code{"ZW"}, \code{"X0"}, or
+##'   \code{"haplodiploid"} (see \code{\link{karyotype_notation}}). When
+##'   \code{NULL} (default), the value stored in the \code{hmm_CN}
+##'   \code{params} is used, falling back to \code{"none"}. When set, ghost
+##'   copies of sex chromosomes follow the expected sex-chromosome complement
+##'   (e.g. no ghost second X in an XY male), sex-chromosome strips are
+##'   labelled with their type, and the inferred sex is added to the subtitle.
+##' @param sex_chr Named list mapping sex-chromosome groups to chromosome IDs,
+##'   e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")} (see
+##'   \code{\link{karyotype_notation}} for the allowed names per system). When
+##'   \code{NULL} (default), the value stored in the \code{hmm_CN}
+##'   \code{params} is used if its \code{sex_system} matches.
 ##'
 ##' @importFrom ggplot2 ggplot aes geom_rect geom_segment geom_point scale_color_viridis_c scale_color_viridis_d scale_color_identity scale_fill_manual scale_y_reverse scale_x_continuous facet_wrap labeller label_value labs theme_minimal theme element_blank element_text unit margin guide_legend
 ##' @importFrom scales squish
@@ -79,6 +92,10 @@ utils::globalVariables(c(
 ##'
 ##' # Two rows of chromosome panels
 ##' plot_karyotype(hmm_CN, sample_name = "S1", color_by = "w_baf", nrow = 2)
+##'
+##' # XY system
+##' plot_karyotype(hmm_CN, sample_name = "S1", sex_system = "XY",
+##'                sex_chr = list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR"))
 ##' }
 ##'
 ##' @export
@@ -86,7 +103,12 @@ plot_karyotype <- function(df, sample_name,
                            color_by = NULL,
                            nrow = 1,
                            notation = TRUE,
-                           add_ghost = TRUE) {
+                           add_ghost = TRUE,
+                           sex_system = NULL,
+                           sex_chr = NULL) {
+    sex <- .resolve_sex_args(df, sex_system, sex_chr)
+    sex_system <- sex$sex_system
+    sex_chr    <- sex$sex_chr
     if (is.null(color_by) || (length(color_by) == 1 && is.na(color_by))) {
         color_by <- NULL
     } else {
@@ -146,6 +168,11 @@ plot_karyotype <- function(df, sample_name,
 
     if (nrow(df_sample) == 0) stop(paste("Sample", sample_name, "not found."))
 
+    notation_sample <- if (isTRUE(notation) || sex_system != "none")
+        karyotype_notation(df, sample_name = sample_name,
+                           sex_system = sex_system, sex_chr = sex_chr)
+    else NULL
+
     # --- 2. Chromosome ordering ----------------------------------------------
     chr_levels <- unique(df_sample$Chr) %>%
         .[order(as.numeric(gsub("[^0-9]", "", .)))]
@@ -200,7 +227,17 @@ plot_karyotype <- function(df, sample_name,
             select(Chr, segment_id, y_start, y_end, CN_call) %>%
             distinct() %>%
             left_join(chr_max_CN, by = "Chr") %>%
-            mutate(ghost_max = pmax(ploidy_mode, chr_max)) %>%
+            mutate(ghost_max = pmax(ploidy_mode, chr_max))
+
+        if (sex_system != "none" && nrow(notation_sample) > 0) {
+            # Sex chromosomes: expect the inferred complement, not the ploidy
+            exp_cn <- notation_sample$ExpectedCN[match(as.character(ghost_segments$Chr),
+                                                       notation_sample$ChrID)]
+            ghost_segments$ghost_max <- pmax(dplyr::coalesce(exp_cn, ghost_segments$chr_max),
+                                             ghost_segments$chr_max)
+        }
+
+        ghost_segments <- ghost_segments %>%
             filter(CN_call < ghost_max) %>%
             mutate(copy_num = Map(seq, CN_call + 1L, ghost_max)) %>%
             unnest(copy_num) %>%
@@ -311,8 +348,6 @@ plot_karyotype <- function(df, sample_name,
 
     # --- 7. Notation: per-chromosome strip labels and ploidy text -----------
     if (isTRUE(notation)) {
-        notation_sample <- karyotype_notation(df, sample_name = sample_name)
-
         if (nrow(notation_sample) == 0)
             warning("karyotype_notation() returned no rows for sample '", sample_name,
                     "'. Strip labels will not be annotated.")
@@ -321,14 +356,16 @@ plot_karyotype <- function(df, sample_name,
             vapply(levels(df_sample$Chr), function(chr) {
                 row <- notation_sample[notation_sample$ChrID == chr, ]
                 if (nrow(row) == 0) return(as.character(chr))
+                chr_title <- if ("ChrType" %in% names(row) && row$ChrType != "autosome")
+                    paste0(chr, " (", row$ChrType, ")") else chr
                 cn_line <- paste0("CN: ", row$ChrCN)
                 if (!is.na(row$Segment)) {
                     # Split multiple segments, strip "ChrXX:" prefix from each
                     segs       <- trimws(strsplit(row$Segment, ";", fixed = TRUE)[[1]])
                     segs_clean <- sub(paste0(chr, ":"), "", segs, fixed = TRUE)
-                    paste(c(chr, cn_line, segs_clean), collapse = "\n")
+                    paste(c(chr_title, cn_line, segs_clean), collapse = "\n")
                 } else {
-                    paste(chr, cn_line, sep = "\n")
+                    paste(chr_title, cn_line, sep = "\n")
                 }
             }, character(1)),
             levels(df_sample$Chr)
@@ -342,6 +379,14 @@ plot_karyotype <- function(df, sample_name,
         facet_labeller <- label_value
         ploidy_text    <- NULL
     }
+
+    sex_text <- if (sex_system != "none" && nrow(notation_sample) > 0) {
+        sex    <- notation_sample$Sex[1]
+        sexchr <- notation_sample$SexChr[1]
+        paste0("Sex: ", ifelse(is.na(sex), "unknown", sex),
+               if (!is.na(sexchr)) paste0(" (", sexchr, ")") else "",
+               if (isFALSE(notation_sample$SexChrConsistent[1])) " [PAR mismatch]" else "")
+    } else NULL
 
     # --- 8. Plot -------------------------------------------------------------
     p <- ggplot() +
@@ -400,7 +445,7 @@ plot_karyotype <- function(df, sample_name,
             title    = paste("Karyotype \u2014", sample_name),
             subtitle = paste(
                 c(if (!is.null(color_label)) paste("Colored by:", color_label),
-                  ploidy_text),
+                  ploidy_text, sex_text),
                 collapse = "  |  "
             ),
             caption  = "Higher copy numbers are represented as parallel columns. Note that duplicated copies may in reality be arranged in tandem within the chromosome."

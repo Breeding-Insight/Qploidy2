@@ -8,32 +8,51 @@ convert2nQuack(
   qploidy_standardization_object,
   min_depth = 10L,
   max_geno = NULL,
-  seed = 123L
+  het_range = c(0.1, 0.9),
+  seed = 123L,
+  from_standardized_baf = TRUE
 )
 }
 \arguments{
 \item{qploidy_standardization_object}{An object of class
 \code{qploidy_standardization} or a plain \code{data.frame} containing at
 least the columns \code{SampleName}, \code{R} (total read depth),
-\code{X} (reference allele count), \code{Y} (alternative allele count),
-\code{ratio}, and \code{geno}.}
+\code{ratio}, and \code{geno}. When \code{from_standardized_baf = TRUE}
+(default) a \code{baf} column (standardized BAF) is also required; when
+\code{FALSE}, \code{X} (reference allele count) and \code{Y} (alternative
+allele count) are required instead.}
 
 \item{min_depth}{Integer. Minimum total read depth (\code{R}) required for
 a site to be retained. Default is \code{10}.}
 
 \item{max_geno}{Integer. Maximum genotype dosage considered homozygous
 (inclusive). Sites where \code{geno == 0} or \code{geno == max_geno} are
-filtered as homozygous. Default is \code{4} (tetraploid).}
+filtered as homozygous. Default is \code{NULL}, in which case it is
+derived from \code{qploidy_standardization_object$info["ploidy.standardization"]}.}
+
+\item{het_range}{Numeric vector of length 2. When \code{geno} is \code{NA}
+for a site, the site is kept as heterozygous only if its \code{ratio}
+falls within \code{[het_range[1], het_range[2]]}. Default is
+\code{c(0.1, 0.9)}.}
 
 \item{seed}{Integer. Random seed for reproducibility of the random allele selection. Default is \code{123L}.}
+
+\item{from_standardized_baf}{Logical. If \code{TRUE} (default), allele
+counts are derived by inverting the standardization-corrected \code{baf}
+column back into reference/alternative counts (\code{alt = round(baf * R)},
+\code{ref = R - alt}), the same approach used internally by
+\code{.nquack_estimate_ploidy()}. If \code{FALSE}, the raw \code{X}/\code{Y}
+allele counts are used directly instead.}
 }
 \value{
 A named \code{list} with one element per sample. Each element is a
   two-column integer \code{matrix}:
   \itemize{
     \item Column 1: total read depth (\code{R}).
-    \item Column 2: read count of one randomly chosen allele (X or Y,
-      selected with equal probability per site).
+    \item Column 2: read count of one randomly chosen allele, selected with
+      equal probability per site (reference/alternative counts inverted
+      from \code{baf} when \code{from_standardized_baf = TRUE}, or raw
+      \code{X}/\code{Y} otherwise).
   }
   Samples with no qualifying sites after filtering return an empty matrix
   with zero rows.
@@ -50,8 +69,12 @@ Filtering applied per site (per sample):
 \enumerate{
   \item Sites with \code{ratio == 0} or \code{ratio == 1} (homozygous by
     ratio) are removed.
-  \item Sites with \code{geno == 0} or \code{geno == max_geno}
-    (homozygous by genotype call) are removed.
+  \item For sites with a valid \code{geno} call: sites where
+    \code{geno == 0} or \code{geno == max_geno} (homozygous by genotype
+    call) are removed.
+  \item For sites where \code{geno} is \code{NA}: sites whose
+    \code{ratio} falls outside \code{het_range} are removed (treated as
+    homozygous by allele frequency).
   \item Sites with total depth \code{R < min_depth} or with a zero count on
     the randomly chosen allele are removed.
 }

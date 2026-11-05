@@ -12,9 +12,9 @@ or a data.frame with columns `Sample`, `Chr`, `Start`, `End`, `CN_call`, and `po
 }
 \value{
 A data.frame with samples as rows and chromosomes as columns, where each cell
-  contains the modal copy number call for that sample–chromosome combination.
+  contains the modal copy number call for that sample-chromosome combination.
 }
 \description{
 Summarizes the modal copy number per sample and chromosome from an HMM CN object and
-returns a wide data.frame (samples × chromosomes) suitable for use with MAPpoly.
+returns a wide data.frame (samples x chromosomes) suitable for use with MAPpoly.
 }

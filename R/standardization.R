@@ -1,6 +1,6 @@
 globalVariables(c("theta", "R", "geno", "Var1", "array.id",
                   "ids", "sd", "median", "z", "lm", "sd",
-                  "snp", "centers_theta", "pnorm"))
+                  "snp", "centers_theta", "pnorm", "is_ref"))
 
 
 ##' Standardize allelic ratio data and compute BAF and Z-scores
@@ -43,9 +43,9 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##'   - Chromosome: Chromosome names
 ##'   - Position: Base-pair positions on the genome
 ##'
-##' @param threshold.missing.geno Numeric (0–1). Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.
-##' @param threshold.missing.samples Numeric (0–1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed from both `data` and `genos`. Default is 1 (no filtering). Removed sample IDs are stored in `info$samples.rm.ids`.
-##' @param threshold.geno.prob Numeric (0–1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.
+##' @param threshold.missing.geno Numeric (0-1). Maximum fraction of missing datapoints allowed per marker. Markers with a higher fraction will be removed.
+##' @param threshold.missing.samples Numeric (0-1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed from both `data` and `genos`. Default is 1 (no filtering). Removed sample IDs are stored in `info$samples.rm.ids`.
+##' @param threshold.geno.prob Numeric (0-1). Minimum genotype call probability threshold. Datapoints with lower probability will be treated as missing.
 ##' @param ploidy.standardization Integer. The ploidy level of the reference panel used for standardization.
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. For diploid data, this is typically 3 (corresponding to dosages 0, 1, and 2). Cannot exceed `ploidy.standardization + 1`.
 ##' @param min_samples_by_cluster Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Clusters below this count are dropped before center computation. Default is `1` (no filtering).
@@ -57,7 +57,7 @@ globalVariables(c("theta", "R", "geno", "Var1", "array.id",
 ##' @param verbose Logical. If TRUE, prints progress and filtering information to the console.
 ##' @param rm_outlier Logical. If TRUE, uses Bonferroni-Holm corrected residuals to remove outliers before estimating cluster centers.
 ##' @param cluster_median Logical. If TRUE, uses the median of theta values to estimate cluster centers. If FALSE, uses the mean.
-##' @param filter_R Logical. If TRUE, calculates Z-scores only for markers that passed missing data filter (default: FALSE).
+##' @param filter_R Logical. If TRUE, calculates Z-scores only for markers that passed the BAF filters (missing data and number of clusters) (default: FALSE).
 ##' @param min.depth Numeric or NULL. Minimum read depth (R) threshold. Datapoints with R below this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
 ##' @param max.depth Numeric or NULL. Maximum read depth (R) threshold. Datapoints with R above this value will have their allele ratio set to missing and be excluded from BAF and Z-score computations. Default is NULL (no filtering).
 ##'
@@ -401,9 +401,11 @@ standardize <- function(data = NULL,
 
   # Z score
   vmsg("Generating z scores", verbose = verbose, level = 0, type = ">>")
+  # Z-score mean/sd come from the reference samples in genos only
+  reference.samples <- unique(genos$SampleName)
   if(filter_R)
-    zscore <- get_zscore(data_filt, geno.pos) # z score is calculated only for markers that passed missing data filter
-  else zscore <- get_zscore(data, geno.pos)
+    zscore <- get_zscore(data[which(data$MarkerName %in% keep.mks),], geno.pos, reference.samples)
+  else zscore <- get_zscore(data, geno.pos, reference.samples)
 
   vmsg("Z scores ready!", verbose = verbose, level = 1, type = ">>")
   n.markers.zscore.end <- length(unique(zscore$MarkerName[!is.na(zscore$z)]))
@@ -704,9 +706,9 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
 ##' @param threshold.n.clusters Integer. Minimum number of expected dosage clusters per marker. Defaults to ploidy + 1.
 ##' @param min_samples_by_cluster Integer. Minimum number of non-NA samples required within a dosage cluster for it to be used as a center. Default is `1` (no filtering).
 ##' @param n.cores Integer. Number of cores for parallel computation. Default is 1.
-##' @param threshold.geno.prob Numeric (0–1). Minimum genotype call probability. Default is 0.5.
-##' @param threshold.missing.geno Numeric (0–1). Maximum fraction of missing datapoints per marker. Default is 0.90.
-##' @param threshold.missing.samples Numeric (0–1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed. Default is 1 (no filtering).
+##' @param threshold.geno.prob Numeric (0-1). Minimum genotype call probability. Default is 0.5.
+##' @param threshold.missing.geno Numeric (0-1). Maximum fraction of missing datapoints per marker. Default is 0.90.
+##' @param threshold.missing.samples Numeric (0-1). Maximum fraction of missing genotype calls allowed per sample (evaluated after `threshold.geno.prob` filtering). Samples exceeding this threshold are removed. Default is 1 (no filtering).
 ##' @param out_filename Optional. Path to save the standardized dataset (CSV/TSV).
 ##' @param type Character. Data type for clustering: "intensities" (default), "counts", or "updog".
 ##' @param multidog_obj Optional. updog multidog object for cluster center estimation.

@@ -2,7 +2,7 @@
 % Please edit documentation in R/plots_standardization.R
 \name{plot_xy_with_ploidy_guides}
 \alias{plot_xy_with_ploidy_guides}
-\title{Plot X–Y scatter with ploidy dosage guide lines and optional sample highlighting}
+\title{Plot X-Y scatter with ploidy dosage guide lines and optional sample highlighting}
 \usage{
 plot_xy_with_ploidy_guides(
   df,
@@ -17,7 +17,7 @@ plot_xy_with_ploidy_guides(
 also contains a `MarkerName` column (per-marker long format), or an object of
 class `qploidy_standardization`.}
 
-\item{ploidy}{Integer (≥ 2). Ploidy used to compute and draw dosage guide lines.}
+\item{ploidy}{Integer (>= 2). Ploidy used to compute and draw dosage guide lines.}
 
 \item{marker}{Character or integer. Required when `df` (or `df$data`) contains a
 `MarkerName` column with more than one unique value. Provide the marker name as
@@ -44,7 +44,7 @@ data.frame. Built-in options:
     large group counts).}
   \item{`"polychrome"`}{24 perceptually-distinct colours from the
     Polychrome palette, suitable for 20+ groups.}
-  \item{`"okabe_ito"`}{8-colour Okabe-Ito palette — the recommended
+  \item{`"okabe_ito"`}{8-colour Okabe-Ito palette -- the recommended
     colorblind-friendly choice. Colours are recycled if there are more
     than 8 groups.}
 }}
@@ -60,7 +60,7 @@ Samples that have no plotted points (e.g., due to non-finite `X`/`Y`) are
 automatically omitted from the legend.
 
 Accepts three types of input for `df`:
-* A `qploidy_standardization` object — its `$data` slot is used automatically.
+* A `qploidy_standardization` object -- its `$data` slot is used automatically.
 * A data frame with a `MarkerName` column (e.g. the per-marker long format
   exported by Axiom/Illumina readers). When multiple markers are present, you
   must specify `marker`.
@@ -77,8 +77,8 @@ The function:
 * When `sample` is a specific name, only that sample is colored with
   `highlight_color`; all others use `other_color`. If the requested sample has
   no plotted points, it is omitted from the legend.
-* Draws dosage guide lines for dosages `d = 0, …, ploidy`:
-  `d = 0` → horizontal line `Y = 0`; `d = ploidy` → vertical line `X = 0`;
+* Draws dosage guide lines for dosages `d = 0, ..., ploidy`:
+  `d = 0` -> horizontal line `Y = 0`; `d = ploidy` -> vertical line `X = 0`;
   intermediate dosages are lines through the origin with slope
   \eqn{(d/ploidy) / (1 - d/ploidy)}.
 * Uses a fixed aspect ratio (`coord_fixed`) so that one unit on the x- and y-axes

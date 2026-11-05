@@ -56,7 +56,7 @@ A \code{list} with:
 }
 \description{
 Generates a synthetic \code{data.frame} in the format expected by
-\code{\link{test_cn_segregation}}. Exactly one P × Q parent pair is the
+\code{\link{test_cn_segregation}}. Exactly one P x Q parent pair is the
 "true" cross; progeny CN calls for that combination are drawn from the
 expected segregation distribution. All other parent combinations produce
 progeny with CN calls drawn from a uniform distribution, ensuring they are

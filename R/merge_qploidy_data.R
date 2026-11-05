@@ -2,7 +2,7 @@
 #'
 #' Combines a list of \code{qploidy_standardization} objects and (optionally) a list
 #' of \code{hmm_CN} objects into single merged objects. Duplicate sample names across
-#' batches are detected and renamed with a numeric suffix (\code{_1}, \code{_2}, …)
+#' batches are detected and renamed with a numeric suffix (\code{_1}, \code{_2}, ...)
 #' with a warning.
 #'
 #' @param qploidy_list A list of objects of class \code{qploidy_standardization} (as
@@ -33,7 +33,7 @@
 #' from \code{hmm_CN$by_window$Sample} / \code{hmm_CN$by_marker$SampleName} if
 #' \code{hmm_list} is provided). Any sample name that appears in more than one batch
 #' is renamed in every occurrence: the copy from batch \emph{i} receives the suffix
-#' \code{_i} (e.g.\ \code{MySample} → \code{MySample_1}, \code{MySample_2}). A
+#' \code{_i} (e.g.\ \code{MySample} -> \code{MySample_1}, \code{MySample_2}). A
 #' warning listing all affected sample names is issued.
 #'
 #' \strong{Filter aggregation.}
@@ -54,7 +54,7 @@
 #' @export
 merge_qploidy_datas <- function(qploidy_list, hmm_list = NULL) {
 
-  # ── Input validation ──────────────────────────────────────────────────────
+  # -- Input validation ------------------------------------------------------
   if (!is.list(qploidy_list) || length(qploidy_list) == 0)
     stop("'qploidy_list' must be a non-empty list.")
   for (i in seq_along(qploidy_list)) {
@@ -77,7 +77,7 @@ merge_qploidy_datas <- function(qploidy_list, hmm_list = NULL) {
 
   n <- length(qploidy_list)
 
-  # ── Collect sample names per batch ────────────────────────────────────────
+  # -- Collect sample names per batch ----------------------------------------
   q_samples <- lapply(qploidy_list, function(obj)
     unique(as.character(as.data.frame(obj$data)$SampleName)))
 
@@ -103,7 +103,7 @@ merge_qploidy_datas <- function(qploidy_list, hmm_list = NULL) {
     )
   }
 
-  # ── Merge qploidy_standardization ─────────────────────────────────────────
+  # -- Merge qploidy_standardization -----------------------------------------
 
   # info: use first; warn if meaningful fields differ (out_filename is excluded
   # because it is expected to differ across independently saved batches)
@@ -154,7 +154,7 @@ merge_qploidy_datas <- function(qploidy_list, hmm_list = NULL) {
     class = "qploidy_standardization"
   )
 
-  # ── Merge hmm_CN (optional) ───────────────────────────────────────────────
+  # -- Merge hmm_CN (optional) -----------------------------------------------
   merged_hmm <- NULL
   if (!is.null(hmm_list)) {
 
@@ -262,7 +262,7 @@ merge_qploidy_datas <- function(qploidy_list, hmm_list = NULL) {
 #' @export
 rename_samples <- function(map, qploidy = NULL, hmm = NULL) {
 
-  # ── Input validation ──────────────────────────────────────────────────────
+  # -- Input validation ------------------------------------------------------
   if (!is.data.frame(map))
     stop("'map' must be a data.frame.")
   if (!all(c("old_name", "new_name") %in% names(map)))
@@ -285,12 +285,12 @@ rename_samples <- function(map, qploidy = NULL, hmm = NULL) {
     ifelse(!is.na(idx), lut[idx], x)
   }
 
-  # ── Rename in qploidy_standardization ─────────────────────────────────────
+  # -- Rename in qploidy_standardization -------------------------------------
   if (!is.null(qploidy)) {
     qploidy$data$SampleName <- recode(as.character(qploidy$data$SampleName))
   }
 
-  # ── Rename in hmm_CN ──────────────────────────────────────────────────────
+  # -- Rename in hmm_CN ------------------------------------------------------
   if (!is.null(hmm)) {
     if (!is.null(hmm$by_window) && "Sample" %in% names(hmm$by_window))
       hmm$by_window$Sample <- recode(as.character(hmm$by_window$Sample))

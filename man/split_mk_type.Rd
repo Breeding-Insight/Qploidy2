@@ -57,7 +57,7 @@ A named list of character vectors.  Each element contains the marker
 Classifies markers according to which sub-genome(s) they carry signal in,
 based on signal intensity (R) observed in a set of diploid reference samples
 representing each sub-genome.  Works for any number of sub-genomes (A, B, C,
-…) and returns every combination (A, B, AB, AC, ABC, …) that is present.
+...) and returns every combination (A, B, AB, AC, ABC, ...) that is present.
 }
 \details{
 For each marker the median R is computed within every sub-genome group.  A

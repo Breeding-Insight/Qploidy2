@@ -5,6 +5,90 @@ globalVariables(c(
   "n_vlines", "n_regions", "region_id"
 ))
 
+.check_max_cn_dev <- function(max_cn_dev) {
+  if (!is.null(max_cn_dev) &&
+      (!is.numeric(max_cn_dev) || length(max_cn_dev) != 1 || is.na(max_cn_dev) ||
+       max_cn_dev < 0 || max_cn_dev != round(max_cn_dev)))
+    stop("`max_cn_dev` must be NULL or a single non-negative integer.")
+  invisible(NULL)
+}
+
+# Keep only CN states within max_cn_dev of exp_ploidy (CN 0 kept if keep_zero)
+.restrict_cn_grid <- function(cn_grid, exp_ploidy, max_cn_dev, keep_zero = FALSE, verbose = TRUE) {
+  if (is.null(max_cn_dev)) return(cn_grid)
+  keep <- abs(cn_grid - as.numeric(exp_ploidy)) <= max_cn_dev | (keep_zero & cn_grid == 0)
+  new_grid <- cn_grid[keep]
+  if (length(new_grid) == 0)
+    stop(sprintf("No cn_grid values within max_cn_dev = %d of exp_ploidy = %s.", as.integer(max_cn_dev), exp_ploidy))
+  if (length(new_grid) < length(cn_grid))
+    vmsg("cn_grid restricted by max_cn_dev = %d around exp_ploidy = %s: %s",
+         verbose = verbose, level = 1, type = ">>",
+         as.integer(max_cn_dev), exp_ploidy, paste(new_grid, collapse = ", "))
+  new_grid
+}
+
+# Resolve min_snps_per_window into one threshold per chromosome in `d`.
+# Accepts NULL (dynamic), a single value, or a vector named by chromosome
+# (unnamed chromosomes fall back to the dynamic default).
+.resolve_min_snps <- function(min_snps_per_window, d, chr_subset = NULL, verbose = TRUE) {
+  chrs  <- unique(as.character(d$Chr))
+  n_chr <- table(as.character(d$Chr))[chrs]
+
+  x <- min(n_chr)
+  dyn <- as.integer(min(max(5L, floor(x * 0.20)), floor(x / 2)))
+
+  if (is.null(min_snps_per_window)) {
+    vmsg("min_snps_per_window not provided, using: %d (based on the smallest chromosome, %d markers)",
+         verbose = verbose, level = 1, type = ">>", dyn, as.integer(x))
+    return(stats::setNames(rep(dyn, length(chrs)), chrs))
+  }
+
+  if (!is.numeric(min_snps_per_window) || any(is.na(min_snps_per_window)) ||
+      any(min_snps_per_window < 1))
+    stop("`min_snps_per_window` must be NULL, a positive number, or a positive numeric vector named by chromosome.")
+
+  nms <- names(min_snps_per_window)
+  if (is.null(nms)) {
+    if (length(min_snps_per_window) != 1)
+      stop("An unnamed `min_snps_per_window` must be a single value; name the elements by chromosome to set it per chromosome.")
+    return(stats::setNames(rep(as.integer(min_snps_per_window), length(chrs)), chrs))
+  }
+  if (any(nms == "") || anyDuplicated(nms))
+    stop("All elements of `min_snps_per_window` must have unique chromosome names.")
+
+  unknown <- setdiff(nms, chrs)
+  if (length(unknown) > 0 && is.null(chr_subset))
+    warning("`min_snps_per_window` names not found in the data: ",
+            paste(unknown, collapse = ", "), call. = FALSE)
+
+  out <- stats::setNames(rep(dyn, length(chrs)), chrs)
+  given <- intersect(nms, chrs)
+  out[given] <- as.integer(min_snps_per_window[given])
+  default_chrs <- setdiff(chrs, given)
+  if (length(default_chrs) > 0)
+    vmsg("min_snps_per_window not provided for %s; using: %d (based on the smallest chromosome, %d markers)",
+         verbose = verbose, level = 1, type = ">>",
+         paste(default_chrs, collapse = ", "), dyn, as.integer(x))
+  out
+}
+
+# Compact form for params/printing: a single value when all chromosomes share it
+.compact_min_snps <- function(v) {
+  if (length(unique(v)) == 1) unname(v[1]) else v
+}
+
+.format_min_snps <- function(v, short = FALSE, max_exceptions = 2L) {
+  if (is.null(v)) return("NA")
+  if (length(v) == 1) return(as.character(v))
+  if (!short) return(paste(names(v), v, sep = "=", collapse = ", "))
+  # Most common value, listing only the few chromosomes that differ
+  common <- as.integer(names(which.max(table(v))))
+  exc <- v[v != common]
+  if (length(exc) <= max_exceptions)
+    return(paste0(common, " (", paste(names(exc), exc, sep = "=", collapse = ", "), ")"))
+  paste0(min(v), "-", max(v), " (by chr)")
+}
+
 #' Numerically stable log-sum-exp
 #'
 #' Computes the logarithm of the sum of exponentials, \eqn{\log\left(\sum_i e^{x_i}\right)}, in a numerically stable way by subtracting the maximum element before exponentiating. This avoids overflow/underflow for large or small values in \code{x}.
@@ -117,7 +201,7 @@ fb_smooth <- function(ll_em, logA, logpi0 = NULL) {
   # Force degenerate rows to uniform (all -Inf -> -log(K) after sweep is still -Inf;
   # handle by writing log(1/K) directly).
   if (any(degenerate)) log_gamma[degenerate, ] <- -log(K)
-  
+
   exp(log_gamma)
 }
 
@@ -144,7 +228,7 @@ viterbi_bidi <- function(ll_em, logA, logpi0) {
 
   if (W == 1L) return(which.max(ll_em[1, ]))
 
-  # Forward max pass — uniform init so window 1 is not biased by pi0
+  # Forward max pass -- uniform init so window 1 is not biased by pi0
   delta <- matrix(-Inf, W, K)
   delta[1, ] <- ll_em[1, ]
   for (i in 2:W) {
@@ -179,14 +263,17 @@ viterbi_bidi <- function(ll_em, logA, logpi0) {
 #' @keywords internal
 #' @noRd
 worker <- function(sid, obj, dots, data = NULL, geno.pos = NULL, use_values = c("BAF", "zscore")) {
+  # Route to hmm_estimate_CN_nQuack when nQuack-specific params are present in dots
+  nq_params <- c("nQuack_dists", "nQuack_type", "nQuack_uniform")
+  fn <- if (any(nq_params %in% names(dots))) hmm_estimate_CN_nQuack else hmm_estimate_CN
   collected_warnings <- character(0)
   result <- withCallingHandlers(
     tryCatch({
       if (!is.null(obj)) {
-        do.call(hmm_estimate_CN,
+        do.call(fn,
                 c(list(qploidy_standarize_result = obj, sample_id = sid, use_values = use_values), dots))
       } else {
-        do.call(hmm_estimate_CN,
+        do.call(fn,
                 c(list(qploidy_standarize_result = NULL, sample_id = sid, data = data, geno.pos = geno.pos, use_values = use_values), dots))
       }
     }, error = function(e) {

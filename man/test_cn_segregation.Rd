@@ -60,7 +60,7 @@ or \code{parent_names_Q} are used as progeny.}
 both parents have \code{cn_dev == 0} AND the same effective ploidy are
 excluded from testing. Such markers produce 100\% of progeny at the
 reference CN and carry no segregation information. Markers where parents
-share \code{cn_dev == 0} but differ in ploidy (e.g. a 3x × 4x cross) are
+share \code{cn_dev == 0} but differ in ploidy (e.g. a 3x x 4x cross) are
 retained because unequal gamete sizes still produce a non-trivial progeny
 distribution. Set to \code{FALSE} to retain all markers.}
 

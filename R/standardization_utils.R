@@ -78,7 +78,7 @@ updog_centers <- function(multidog_obj, threshold.n.clusters=2, rm.mks){
 #' sorted in ascending order. If `theta_subject` values fall outside the range, BAFs are
 #' capped at 0 or 1 accordingly.
 #'
-#' @references Wang, K., Li, M., Hadley, D., Liu, R., Glessner, J., Grant, S. F. A., Hakonarson, H., & Bucan, M. (2007). PennCNV: An integrated hidden Markov model designed for high-resolution copy number variation detection in whole-genome SNP genotyping data. \emph{Genome Research, 17}(11), 1665–1674. \doi{10.1101/gr.6861907}
+#' @references Wang, K., Li, M., Hadley, D., Liu, R., Glessner, J., Grant, S. F. A., Hakonarson, H., & Bucan, M. (2007). PennCNV: An integrated hidden Markov model designed for high-resolution copy number variation detection in whole-genome SNP genotyping data. \emph{Genome Research, 17}(11), 1665-1674. \doi{10.1101/gr.6861907}
 #'
 #' @examples
 #' theta <- c(0.1, 0.35, 0.6, 0.95)
@@ -300,13 +300,17 @@ get_centers <- function(ratio_geno,
 #'   \item{Position}{Genomic position (base-pair coordinate) of the marker.}
 #' }
 #'
+#' @param reference.samples Optional character vector of sample IDs used to compute the
+#'   per-marker mean and standard deviation of `R`. Z-scores are returned for all samples.
+#'   If `NULL` (default), all samples are used as reference.
+#'
 #' @return A data.frame containing the following columns:
 #' \describe{
 #'   \item{MarkerName}{Marker ID.}
 #'   \item{Chr}{Chromosome corresponding to the marker.}
 #'   \item{Position}{Genomic position (bp).}
 #'   \item{SampleName}{Sample ID.}
-#'   \item{z}{Z-score computed per marker across all samples.}
+#'   \item{z}{Z-score computed per marker relative to the reference samples.}
 #' }
 #' Markers with missing chromosome or position information are excluded from the final output.
 #'
@@ -328,14 +332,18 @@ get_centers <- function(ratio_geno,
 #'
 #' @export
 get_zscore <- function(data = NULL,
-                       geno.pos = NULL){
+                       geno.pos = NULL,
+                       reference.samples = NULL){
 
   stopifnot(all(c("MarkerName", "SampleName", "R") %in% colnames(data)))
 
   data$R[data$R == 0] <- NA
 
+  data$is_ref <- if (is.null(reference.samples)) TRUE else data$SampleName %in% reference.samples
+
   zscore <- data %>% group_by(MarkerName) %>%
-    mutate(z = (R - mean(R, na.rm = TRUE))/sd(R, na.rm = TRUE)) %>% select(MarkerName, SampleName, z)
+    mutate(z = (R - mean(R[is_ref], na.rm = TRUE))/sd(R[is_ref], na.rm = TRUE)) %>%
+    ungroup() %>% select(MarkerName, SampleName, z)
 
   colnames(geno.pos)[1] <- c("MarkerName")
 
@@ -438,7 +446,7 @@ rm_outlier <- function(data, alpha=0.05, z=FALSE){
 #'   all samples are used to estimate the per-marker background median.
 #' @param background_markers Optional character vector of marker names for which
 #'   \code{background_samples} are background. If NULL, all markers present for
-#'   those samples are used — only appropriate when those samples are background
+#'   those samples are used -- only appropriate when those samples are background
 #'   for the entire array.
 #' @param multiplier Positive numeric. Samples with R below \code{multiplier * median(background R)}
 #'   are set to NA. Values >= 1 remove samples below a multiple of the background median; values
@@ -510,7 +518,7 @@ remove_background_noise <- function(data,
     return(invisible(data))
   }
 
-  # NA for markers without a background estimate → those rows are not flagged
+  # NA for markers without a background estimate -> those rows are not flagged
   threshold <- bg_medians[as.character(data$MarkerName)]
   # non-reference samples may have lower background; scale their threshold down
   if (!is.null(background_samples) && target_background_fraction != 1) {

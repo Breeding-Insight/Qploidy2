@@ -599,7 +599,7 @@ plot_cn_track <- function(hmm_CN,
   cn_grid <- if (!is.null(params$cn_grid)) paste(params$cn_grid, collapse = ", ") else "NA"
   dist <- if (!is.null(params$distribution)) as.character(params$distribution) else "NA"
   sample_name <- if (!is.null(sample_id)) as.character(sample_id) else "NA"
-  min_snps <- if (!is.null(params$min_snps_per_window)) round(params$min_snps_per_window, 3) else "NA"
+  min_snps <- .format_min_snps(params$min_snps_per_window, short = TRUE)
   param_text <- paste0(
     "Sample Name: ", sample_name, "\n",
     "Mean total depth/Z CN: ", if (!is.null(params$exp_ploidy)) params$exp_ploidy else "NA", "\n",
@@ -637,4 +637,150 @@ plot_cn_track <- function(hmm_CN,
     baf_dist = p_baf_dist,
     arranged = arranged
   ))
+}
+
+##' Plot copy-number tracks for multiple samples organized by ploidy type
+##'
+##' Applies \code{\link{count_types}} to classify samples as euploid, aneuploid, or segmental,
+##' then calls \code{\link{plot_cn_track}} for every sample (or the subset given in
+##' \code{samples}) and saves each plot as a PNG under a directory tree organised by
+##' dominant CN and type:
+##'
+##' \preformatted{
+##'   <output_dir>/
+##'     <cn>/<type>/   e.g.  2/euploid/   2/aneuploid/   2/segmental/
+##'       <sample_id>.png
+##' }
+##'
+##' Empty directories (no samples for that CN/type combination) are never
+##' created.
+##'
+##' @param hmm_CN An object of class \code{hmm_CN} (output from
+##'   \code{\link{hmm_estimate_CN}}).
+##' @param samples Optional character vector of sample IDs to process.
+##'   When \code{NULL} (default) all samples found in the object are processed.
+##' @param output_dir Character scalar. Root directory where the PNG files
+##'   will be written. Defaults to \code{"cn_track_plots"} in the current
+##'   working directory. Created automatically if it does not exist.
+##' @param width,height Dimensions of each PNG in inches. Defaults to
+##'   \code{20} × \code{14} — large enough for all four panels to be
+##'   readable even at default font sizes.
+##' @param res Resolution of the PNG in pixels per inch. Default \code{150}.
+##' @param ... Additional arguments forwarded to \code{\link{plot_cn_track}}
+##'   (e.g. \code{qploidy_standarize_result}, \code{z_by_mean},
+##'   \code{summarized}, etc.).
+##'
+##' @return Invisibly returns a named list whose entries are the sample IDs;
+##'   each value is either the path to the saved PNG (on success) or the
+##'   error/warning message string (on failure).  Also prints a small
+##'   summary to the console.
+##'
+##' @seealso \code{\link{plot_cn_track}}, \code{\link{count_types}}
+##'
+##' @import ggplot2
+##' @importFrom grDevices png dev.off
+##' @importFrom utils txtProgressBar setTxtProgressBar
+##'
+##' @export
+plot_cn_track_by_type <- function(hmm_CN,
+                                  samples    = NULL,
+                                  output_dir = "cn_track_plots",
+                                  width      = 20,
+                                  height     = 14,
+                                  res        = 150,
+                                  ...) {
+
+  stopifnot(inherits(hmm_CN, "hmm_CN"))
+
+  # ---- 1. classify all samples ----------------------------------------
+  ct <- count_types(hmm_CN)
+
+  # build a lookup: sample -> cn label -> type
+  summary_df <- ct$.summary   # columns: Sample, sample_cn, sample_type
+  summary_df$cn_label <- ifelse(
+    summary_df$sample_cn == 1L,
+    "1x_or_inbred",
+    paste0(summary_df$sample_cn, "x")
+  )
+
+  # ---- 2. restrict to requested samples --------------------------------
+  all_samples <- unique(hmm_CN$by_window$Sample)
+
+  if (!is.null(samples)) {
+    missing_s <- setdiff(samples, all_samples)
+    if (length(missing_s) > 0)
+      warning("The following requested samples were not found in hmm_CN and will be skipped: ",
+              paste(missing_s, collapse = ", "))
+    samples <- intersect(samples, all_samples)
+  } else {
+    samples <- all_samples
+  }
+
+  if (length(samples) == 0L)
+    stop("No samples to process.")
+
+  # Keep only samples that appear in the classification (some may be NA-cn)
+  classified <- summary_df$Sample[summary_df$Sample %in% samples]
+  unclassified <- setdiff(samples, classified)
+  if (length(unclassified) > 0)
+    warning("The following samples could not be classified (all-NA CN?) and will be skipped: ",
+            paste(unclassified, collapse = ", "))
+  samples <- classified
+
+  if (length(samples) == 0L)
+    stop("No classifiable samples to process.")
+
+  # ---- 3. loop and save ------------------------------------------------
+  results <- vector("list", length(samples))
+  names(results) <- samples
+
+  pb <- utils::txtProgressBar(min = 0, max = length(samples), style = 3)
+  on.exit(close(pb), add = TRUE)
+
+  for (i in seq_along(samples)) {
+    sid       <- samples[i]
+    row       <- summary_df[summary_df$Sample == sid, ]
+    cn_label  <- row$cn_label[1]
+    type      <- row$sample_type[1]
+
+    # build and create destination directory on demand
+    dest_dir <- file.path(output_dir, cn_label, type)
+    if (!dir.exists(dest_dir))
+      dir.create(dest_dir, recursive = TRUE, showWarnings = FALSE)
+
+    dest_file <- file.path(dest_dir, paste0(sid, ".png"))
+
+    tryCatch({
+      plt <- plot_cn_track(hmm_CN, sample_id = sid, ...)
+      grDevices::png(filename = dest_file, width = width, height = height,
+                     units = "in", res = res)
+      print(plt$arranged)
+      grDevices::dev.off()
+      results[[sid]] <- dest_file
+      message("Saved: ", dest_file)
+    }, error = function(e) {
+      results[[sid]] <<- paste0("ERROR: ", conditionMessage(e))
+      message("FAILED [", sid, "]: ", conditionMessage(e))
+    })
+
+    utils::setTxtProgressBar(pb, i)
+  }
+
+  # ---- 4. remove any directories that ended up empty -------------------
+  # (should not happen given the on-demand creation above, but guard anyway)
+  all_dirs <- list.dirs(output_dir, full.names = TRUE, recursive = TRUE)
+  # sort deepest-first so we remove children before parents
+  all_dirs <- all_dirs[order(nchar(all_dirs), decreasing = TRUE)]
+  for (d in all_dirs) {
+    if (d == output_dir) next
+    if (length(list.files(d, recursive = TRUE)) == 0L)
+      unlink(d, recursive = TRUE)
+  }
+
+  # ---- 5. summary ------------------------------------------------------
+  n_ok  <- sum(sapply(results, function(v) !startsWith(v, "ERROR")))
+  n_err <- length(results) - n_ok
+  message(sprintf("\nDone. %d plot(s) saved, %d failed.", n_ok, n_err))
+
+  invisible(results)
 }
