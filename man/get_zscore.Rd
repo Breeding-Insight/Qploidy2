@@ -4,7 +4,7 @@
 \alias{get_zscore}
 \title{Calculate Z-Scores for Allele Intensities or Counts}
 \usage{
-get_zscore(data = NULL, geno.pos = NULL)
+get_zscore(data = NULL, geno.pos = NULL, reference.samples = NULL)
 }
 \arguments{
 \item{data}{A data.frame containing signal intensity and ratio values with the following columns:
@@ -23,6 +23,10 @@ get_zscore(data = NULL, geno.pos = NULL)
   \item{Chromosome}{Chromosome identifier where the marker is located.}
   \item{Position}{Genomic position (base-pair coordinate) of the marker.}
 }}
+
+\item{reference.samples}{Optional character vector of sample IDs used to compute the
+per-marker mean and standard deviation of `R`. Z-scores are returned for all samples.
+If `NULL` (default), all samples are used as reference.}
 }
 \value{
 A data.frame containing the following columns:
@@ -31,7 +35,7 @@ A data.frame containing the following columns:
   \item{Chr}{Chromosome corresponding to the marker.}
   \item{Position}{Genomic position (bp).}
   \item{SampleName}{Sample ID.}
-  \item{z}{Z-score computed per marker across all samples.}
+  \item{z}{Z-score computed per marker relative to the reference samples.}
 }
 Markers with missing chromosome or position information are excluded from the final output.
 }

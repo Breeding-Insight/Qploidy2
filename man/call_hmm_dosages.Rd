@@ -15,8 +15,8 @@ call_hmm_dosages(
   reflect = TRUE,
   param_count = NULL,
   count_grid_as_params = TRUE,
-  min_het_frac = 0.05,
-  het_range = c(0.2, 0.8),
+  min_het_frac = 0.01,
+  het_range = c(0.05, 0.95),
   verbose = FALSE,
   n.cores = 1,
   parallel.type = if (.Platform$OS.type == "windows") "PSOCK" else "FORK"
@@ -58,10 +58,10 @@ distribution for BIC penalisation. Default: \code{NULL}.}
 hyperparameter. Default: \code{TRUE}.}
 
 \item{min_het_frac}{Numeric. Minimum heterozygous fraction required to
-exclude CN=1 from \code{cn_grid}. Default: \code{0.05}.}
+exclude CN=1 from \code{cn_grid}. Default: \code{0.01}.}
 
 \item{het_range}{Numeric vector of length 2. BAF interval defining heterozygous
-loci. Default: \code{c(0.2, 0.8)}.}
+loci. Default: \code{c(0.05, 0.95)}.}
 
 \item{verbose}{Logical. Print per-sample progress messages. Default: \code{FALSE}.}
 

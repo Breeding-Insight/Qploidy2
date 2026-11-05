@@ -38,7 +38,7 @@ A \code{data.frame} with columns:
 \description{
 Calculates the expected distribution of progeny copy-number (CN) states
 resulting from a cross between two polyploid parents, supporting even and
-odd ploidies and interploid (e.g. 4x × 2x) crosses.
+odd ploidies and interploid (e.g. 4x x 2x) crosses.
 }
 \details{
 Each parent's CN state can be supplied either as a per-homolog integer vector

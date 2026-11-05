@@ -10,7 +10,9 @@ plot_karyotype(
   color_by = NULL,
   nrow = 1,
   notation = TRUE,
-  add_ghost = TRUE
+  add_ghost = TRUE,
+  sex_system = NULL,
+  sex_chr = NULL
 )
 }
 \arguments{
@@ -32,6 +34,9 @@ black. Otherwise one of:
   \item{\code{"post_max_dosage"}}{Posterior probability of the most likely dosage associated with the most likely
     copy-number state.}
   \item{\code{"w_baf"}}{B-allele frequency weight applied on the HMM according to the number of heterozygous markers in the window.}
+  \item{\code{"CN_reliability"}}{Joint confidence score combining HMM posterior probability and BAF support
+    (\code{post_max x normalized_w_baf}). Ranges 0-1; windows with no BAF evidence are capped at
+    \code{0.25 x post_max} by default.}
 }}
 
 \item{nrow}{Integer. Number of rows passed to \code{\link[ggplot2]{facet_wrap}}
@@ -56,6 +61,21 @@ in a given segment. For example, if the ploidy is 5 but a chromosome has
 segmental gain gives \code{CN = 6} in one region but \code{CN = 5}
 elsewhere on the same chromosome, the 6th column is drawn as a dashed
 ghost in the lower-CN region.}
+
+\item{sex_system}{Character or \code{NULL}. Sex-determination system:
+\code{"none"}, \code{"XY"}, \code{"ZW"}, \code{"X0"}, or
+\code{"haplodiploid"} (see \code{\link{karyotype_notation}}). When
+\code{NULL} (default), the value stored in the \code{hmm_CN}
+\code{params} is used, falling back to \code{"none"}. When set, ghost
+copies of sex chromosomes follow the expected sex-chromosome complement
+(e.g. no ghost second X in an XY male), sex-chromosome strips are
+labelled with their type, and the inferred sex is added to the subtitle.}
+
+\item{sex_chr}{Named list mapping sex-chromosome groups to chromosome IDs,
+e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")} (see
+\code{\link{karyotype_notation}} for the allowed names per system). When
+\code{NULL} (default), the value stored in the \code{hmm_CN}
+\code{params} is used if its \code{sex_system} matches.}
 }
 \value{
 A \code{\link[ggplot2]{ggplot}} object. The y-axis is reversed so
@@ -85,6 +105,10 @@ plot_karyotype(hmm_CN, sample_name = "S1", color_by = NULL, notation = FALSE)
 
 # Two rows of chromosome panels
 plot_karyotype(hmm_CN, sample_name = "S1", color_by = "w_baf", nrow = 2)
+
+# XY system
+plot_karyotype(hmm_CN, sample_name = "S1", sex_system = "XY",
+               sex_chr = list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR"))
 }
 
 }

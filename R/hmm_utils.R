@@ -5,6 +5,90 @@ globalVariables(c(
   "n_vlines", "n_regions", "region_id"
 ))
 
+.check_max_cn_dev <- function(max_cn_dev) {
+  if (!is.null(max_cn_dev) &&
+      (!is.numeric(max_cn_dev) || length(max_cn_dev) != 1 || is.na(max_cn_dev) ||
+       max_cn_dev < 0 || max_cn_dev != round(max_cn_dev)))
+    stop("`max_cn_dev` must be NULL or a single non-negative integer.")
+  invisible(NULL)
+}
+
+# Keep only CN states within max_cn_dev of exp_ploidy (CN 0 kept if keep_zero)
+.restrict_cn_grid <- function(cn_grid, exp_ploidy, max_cn_dev, keep_zero = FALSE, verbose = TRUE) {
+  if (is.null(max_cn_dev)) return(cn_grid)
+  keep <- abs(cn_grid - as.numeric(exp_ploidy)) <= max_cn_dev | (keep_zero & cn_grid == 0)
+  new_grid <- cn_grid[keep]
+  if (length(new_grid) == 0)
+    stop(sprintf("No cn_grid values within max_cn_dev = %d of exp_ploidy = %s.", as.integer(max_cn_dev), exp_ploidy))
+  if (length(new_grid) < length(cn_grid))
+    vmsg("cn_grid restricted by max_cn_dev = %d around exp_ploidy = %s: %s",
+         verbose = verbose, level = 1, type = ">>",
+         as.integer(max_cn_dev), exp_ploidy, paste(new_grid, collapse = ", "))
+  new_grid
+}
+
+# Resolve min_snps_per_window into one threshold per chromosome in `d`.
+# Accepts NULL (dynamic), a single value, or a vector named by chromosome
+# (unnamed chromosomes fall back to the dynamic default).
+.resolve_min_snps <- function(min_snps_per_window, d, chr_subset = NULL, verbose = TRUE) {
+  chrs  <- unique(as.character(d$Chr))
+  n_chr <- table(as.character(d$Chr))[chrs]
+
+  x <- min(n_chr)
+  dyn <- as.integer(min(max(5L, floor(x * 0.20)), floor(x / 2)))
+
+  if (is.null(min_snps_per_window)) {
+    vmsg("min_snps_per_window not provided, using: %d (based on the smallest chromosome, %d markers)",
+         verbose = verbose, level = 1, type = ">>", dyn, as.integer(x))
+    return(stats::setNames(rep(dyn, length(chrs)), chrs))
+  }
+
+  if (!is.numeric(min_snps_per_window) || any(is.na(min_snps_per_window)) ||
+      any(min_snps_per_window < 1))
+    stop("`min_snps_per_window` must be NULL, a positive number, or a positive numeric vector named by chromosome.")
+
+  nms <- names(min_snps_per_window)
+  if (is.null(nms)) {
+    if (length(min_snps_per_window) != 1)
+      stop("An unnamed `min_snps_per_window` must be a single value; name the elements by chromosome to set it per chromosome.")
+    return(stats::setNames(rep(as.integer(min_snps_per_window), length(chrs)), chrs))
+  }
+  if (any(nms == "") || anyDuplicated(nms))
+    stop("All elements of `min_snps_per_window` must have unique chromosome names.")
+
+  unknown <- setdiff(nms, chrs)
+  if (length(unknown) > 0 && is.null(chr_subset))
+    warning("`min_snps_per_window` names not found in the data: ",
+            paste(unknown, collapse = ", "), call. = FALSE)
+
+  out <- stats::setNames(rep(dyn, length(chrs)), chrs)
+  given <- intersect(nms, chrs)
+  out[given] <- as.integer(min_snps_per_window[given])
+  default_chrs <- setdiff(chrs, given)
+  if (length(default_chrs) > 0)
+    vmsg("min_snps_per_window not provided for %s; using: %d (based on the smallest chromosome, %d markers)",
+         verbose = verbose, level = 1, type = ">>",
+         paste(default_chrs, collapse = ", "), dyn, as.integer(x))
+  out
+}
+
+# Compact form for params/printing: a single value when all chromosomes share it
+.compact_min_snps <- function(v) {
+  if (length(unique(v)) == 1) unname(v[1]) else v
+}
+
+.format_min_snps <- function(v, short = FALSE, max_exceptions = 2L) {
+  if (is.null(v)) return("NA")
+  if (length(v) == 1) return(as.character(v))
+  if (!short) return(paste(names(v), v, sep = "=", collapse = ", "))
+  # Most common value, listing only the few chromosomes that differ
+  common <- as.integer(names(which.max(table(v))))
+  exc <- v[v != common]
+  if (length(exc) <= max_exceptions)
+    return(paste0(common, " (", paste(names(exc), exc, sep = "=", collapse = ", "), ")"))
+  paste0(min(v), "-", max(v), " (by chr)")
+}
+
 #' Numerically stable log-sum-exp
 #'
 #' Computes the logarithm of the sum of exponentials, \eqn{\log\left(\sum_i e^{x_i}\right)}, in a numerically stable way by subtracting the maximum element before exponentiating. This avoids overflow/underflow for large or small values in \code{x}.
@@ -65,6 +149,106 @@ viterbi <- function(ll_em, logA, logpi0) {
   path
 }
 
+#' Smoothed posteriors via forward-backward
+#'
+#' Runs one forward-backward pass on the converged emission matrix.  If
+#' \code{logpi0} is supplied the forward pass is initialised from that
+#' distribution; otherwise a uniform distribution is used.  Passing a
+#' BAF-derived \code{logpi0} prevents a noisy first-window z-score from
+#' anchoring the forward pass in the wrong CN state for the whole chromosome.
+#'
+#' @param ll_em  Numeric matrix (W x K). Final emission log-likelihoods from EM.
+#' @param logA   Numeric matrix (K x K). Converged log transition probabilities.
+#' @param logpi0 Numeric vector of length K, or NULL for uniform. Log initial
+#'   state probabilities for the forward pass.
+#'
+#' @return Numeric matrix (W x K). Row-normalised posterior probabilities.
+#'
+#' @keywords internal
+#' @noRd
+fb_smooth <- function(ll_em, logA, logpi0 = NULL) {
+  W <- nrow(ll_em); K <- ncol(ll_em)
+  if (is.null(logpi0)) logpi0 <- rep(-log(K), K)
+
+  if (W == 1L) {
+    log_e1 <- logpi0 + ll_em[1, ]
+    log_gamma <- matrix(log_e1 - logsumexp(log_e1), nrow = 1)
+    return(exp(log_gamma))
+  }
+
+  log_alpha <- matrix(-Inf, W, K)
+  log_alpha[1, ] <- logpi0 + ll_em[1, ]
+  for (i in 2:W) {
+    for (k in 1:K) {
+      log_alpha[i, k] <- ll_em[i, k] + logsumexp(log_alpha[i - 1, ] + logA[, k])
+    }
+  }
+
+  log_beta <- matrix(0, W, K)
+  for (i in (W - 1):1) {
+    for (k in 1:K) {
+      log_beta[i, k] <- logsumexp(logA[k, ] + ll_em[i + 1, ] + log_beta[i + 1, ])
+    }
+  }
+
+  log_gamma <- log_alpha + log_beta
+  row_lse <- apply(log_gamma, 1, logsumexp)
+  # If a row's logsumexp is non-finite (all -Inf or NaN), the posteriors for that
+  # window are undefined.  Fall back to uniform so the matrix stays numeric.
+  degenerate <- !is.finite(row_lse)
+  if (any(degenerate)) row_lse[degenerate] <- 0  # exp(0)=1 -> uniform after subtraction
+  log_gamma <- sweep(log_gamma, 1, row_lse, "-")
+  # Force degenerate rows to uniform (all -Inf -> -log(K) after sweep is still -Inf;
+  # handle by writing log(1/K) directly).
+  if (any(degenerate)) log_gamma[degenerate, ] <- -log(K)
+
+  exp(log_gamma)
+}
+
+#' Bidirectional Viterbi decoding (max-product forward-backward)
+#'
+#' Combines a standard forward max-pass (delta) with a backward max-pass (beta)
+#' so that every window, including the first, is scored using evidence from the
+#' full observation chain.  At each position the state is chosen as
+#' \code{argmax_k delta[t,k] + beta[t,k]}.  The forward pass uses a uniform
+#' initial distribution so window 1 is treated symmetrically with all others
+#' (the backward pass already starts uniformly at window W).  logpi0 is accepted
+#' but intentionally not used in the forward initialisation.
+#'
+#' @param ll_em Numeric matrix (W x K). Emission log-likelihoods.
+#' @param logA  Numeric matrix (K x K). Log transition probabilities (row = from, col = to).
+#' @param logpi0 Numeric vector of length K. Accepted for interface compatibility; not used.
+#'
+#' @return Integer vector of length W. 1-based state indices.
+#'
+#' @keywords internal
+#' @noRd
+viterbi_bidi <- function(ll_em, logA, logpi0) {
+  W <- nrow(ll_em); K <- ncol(ll_em)
+
+  if (W == 1L) return(which.max(ll_em[1, ]))
+
+  # Forward max pass -- uniform init so window 1 is not biased by pi0
+  delta <- matrix(-Inf, W, K)
+  delta[1, ] <- ll_em[1, ]
+  for (i in 2:W) {
+    for (k in 1:K) {
+      delta[i, k] <- ll_em[i, k] + max(delta[i - 1, ] + logA[, k])
+    }
+  }
+
+  # Backward max pass: beta[t,k] = max log-prob of obs t+1..W given state k at t
+  beta <- matrix(0, W, K)          # beta[W, ] = log(1) = 0
+  for (i in (W - 1):1) {
+    for (k in 1:K) {
+      beta[i, k] <- max(logA[k, ] + ll_em[i + 1, ] + beta[i + 1, ])
+    }
+  }
+
+  # Decode: each position independently picks the globally best-supported state
+  apply(delta + beta, 1, which.max)
+}
+
 #' Internal worker for parallel HMM CN estimation
 #'
 #' Runs hmm_estimate_CN for a single sample within a parallel loop, forwarding arguments.
@@ -79,14 +263,17 @@ viterbi <- function(ll_em, logA, logpi0) {
 #' @keywords internal
 #' @noRd
 worker <- function(sid, obj, dots, data = NULL, geno.pos = NULL, use_values = c("BAF", "zscore")) {
+  # Route to hmm_estimate_CN_nQuack when nQuack-specific params are present in dots
+  nq_params <- c("nQuack_dists", "nQuack_type", "nQuack_uniform")
+  fn <- if (any(nq_params %in% names(dots))) hmm_estimate_CN_nQuack else hmm_estimate_CN
   collected_warnings <- character(0)
   result <- withCallingHandlers(
     tryCatch({
       if (!is.null(obj)) {
-        do.call(hmm_estimate_CN,
+        do.call(fn,
                 c(list(qploidy_standarize_result = obj, sample_id = sid, use_values = use_values), dots))
       } else {
-        do.call(hmm_estimate_CN,
+        do.call(fn,
                 c(list(qploidy_standarize_result = NULL, sample_id = sid, data = data, geno.pos = geno.pos, use_values = use_values), dots))
       }
     }, error = function(e) {
@@ -107,211 +294,6 @@ worker <- function(sid, obj, dots, data = NULL, geno.pos = NULL, use_values = c(
   list(result = result, warnings = collected_warnings)
 }
 
-#' Summarize copy number mode and posterior probability
-#'
-#' Summarizes the mode of copy number calls and the mean maximum posterior probability per sample,
-#' chromosome, or chromosome arm. Handles input as a data.frame or hmm_CN object.
-#'
-#' @param df Data.frame or hmm_CN object containing windowed CN calls and posterior probabilities.
-#' @param level Character. Summarization level: 'sample', 'chromosome', or 'chromosome-arm'.
-#' @param centromeres Optional. Named numeric vector or data.frame with centromere positions (required for chromosome-arm).
-#' @param cn_col Character. Column name for CN calls (default: 'CN_call').
-#' @param post_col Character. Column name for maximum posterior probability (default: 'post_max').
-#'
-#' @return Data.frame with columns for sample, chromosome (and arm if requested), CN mode, mean max posterior, and window count.
-#'
-#'
-#' @export
-summarize_cn_mode <- function(df,
-                              level = c("sample", "chromosome", "chromosome-arm"),
-                              centromeres = NULL,
-                              cn_col = "CN_call",
-                              post_col = "post_max") {
-  level <- match.arg(level)
-
-  # unwrap if hmm_CN-like object with $by_window
-  dat <- if (is.data.frame(df)) df else if (!is.null(df$by_window) && is.data.frame(df$by_window)) df$by_window else
-    stop("Input must be a data.frame or an hmm_CN-like object with a data.frame at `$by_window`.")
-
-  # required columns
-  req_cols <- c("Sample", "Chr", "Start", "End", cn_col, post_col)
-  miss <- setdiff(req_cols, names(dat))
-  if (length(miss)) stop("Missing required columns in data: ", paste(miss, collapse = ", "))
-
-  if (!is.numeric(dat[[cn_col]]) && !is.integer(dat[[cn_col]])) {
-    stop(sprintf("Column '%s' must be numeric/integer.", cn_col))
-  }
-  if (!is.numeric(dat[[post_col]])) {
-    stop(sprintf("Column '%s' must be numeric.", post_col))
-  }
-
-  dat <- as.data.frame(dat)
-
-  # chromosome-arm handling → create chrID.1 (Chr) and chrID.2 (1=p, 2=q)
-  if (level == "chromosome-arm") {
-    if (is.null(centromeres))
-      stop("For level='chromosome-arm', provide `centromeres` (named numeric vector or data.frame with Chr, Centromere).")
-
-    if (is.data.frame(centromeres)) {
-      if (!all(c("Chr", "Centromere") %in% names(centromeres)))
-        stop("centromeres data.frame must have columns: Chr, Centromere")
-      cm <- setNames(centromeres$Centromere, centromeres$Chr)
-    } else if (is.numeric(centromeres) && !is.null(names(centromeres))) {
-      cm <- centromeres
-    } else {
-      stop("centromeres must be a named numeric vector or a data.frame with Chr and Centromere.")
-    }
-
-    mid <- (dat$Start + dat$End) / 2
-    has_cm <- dat$Chr %in% names(cm)
-
-    # Assign arm index: 1 = p (left), 2 = q (right)
-    chrID.2 <- rep(NA_integer_, nrow(dat))
-    chrID.2[has_cm] <- ifelse(mid[has_cm] < cm[dat$Chr[has_cm]], 1L, 2L)
-
-    if (any(!has_cm)) {
-      missing_chr <- unique(dat$Chr[!has_cm])
-      warning("No centromere provided for: ", paste(missing_chr, collapse = ", "),
-              ". Rows for these chromosomes will be dropped.")
-    }
-
-    keep <- has_cm & !is.na(chrID.2)
-    dat <- dat[keep, , drop = FALSE]
-    chrID.2 <- chrID.2[keep]
-
-    dat$chrID.1 <- dat$Chr
-    dat$chrID.2 <- chrID.2
-  }
-
-  # grouping variables
-  group_vars <- c("Sample")
-  if (level %in% c("chromosome", "chromosome-arm")) group_vars <- c(group_vars, "Chr")
-  if (level == "chromosome-arm") group_vars <- c(group_vars, "chrID.1", "chrID.2")
-
-  # summarize (base R)
-  split_idx <- interaction(dat[group_vars], drop = TRUE, lex.order = TRUE)
-  grouped <- split(seq_len(nrow(dat)), split_idx)
-
-  out <- lapply(grouped, function(idx) {
-    g <- dat[idx, , drop = FALSE]
-    row <- list(
-      Sample        = g$Sample[1],
-      CN_mode       = mode(g[[cn_col]]),
-      mean_max_prob = mean(g[[post_col]], na.rm = TRUE),
-      n_windows     = nrow(g)
-    )
-    if ("Chr" %in% group_vars)     row$Chr      <- g$Chr[1]
-    if ("chrID.1" %in% group_vars) row$chrID.1  <- g$chrID.1[1]
-    if ("chrID.2" %in% group_vars) row$chrID.2  <- g$chrID.2[1]
-    as.data.frame(row, stringsAsFactors = FALSE)
-  })
-  res <- do.call(rbind, out)
-
-  # nice column ordering
-  want <- c("Sample",
-            if (level %in% c("chromosome", "chromosome-arm")) "Chr",
-            if (level == "chromosome-arm") c("chrID.1", "chrID.2"),
-            "CN_mode", "mean_max_prob", "n_windows")
-  res <- res[want]
-
-  rownames(res) <- NULL
-  res
-}
-
-#' Merge CN summary with area-based ploidy estimates
-#'
-#' Merges summarized HMM CN results with area-based ploidy estimates for each sample and chromosome (or arm).
-#' Useful for combining HMM and area-based results for reporting or downstream analysis.
-#'
-#' @param hmm_summarized Data.frame from summarize_cn_mode.
-#' @param qploidy_area_ploidy_estimation Object containing area-based ploidy matrices.
-#' @param level Character. Merge level: 'chromosome', 'chromosome-arm', or 'sample'.
-#'
-#' @return Data.frame with merged columns: sample, chromosome, HMM CN mode, area-based CN, confidence metrics, and window count.
-#'
-#' @importFrom dplyr rename
-#' @importFrom tidyr pivot_longer as_tibble
-#'
-#' @export
-merge_cn_summary_with_estimates <- function(hmm_summarized,
-                                            qploidy_area_ploidy_estimation,
-                                            level = c("chromosome", "chromosome-arm", "sample")) {
-  level <- match.arg(level)
-
-  if (!inherits(qploidy_area_ploidy_estimation, "qploidy_area_ploidy_estimation"))
-    stop("`qploidy_area_ploidy_estimation` must be a qploidy_area_ploidy_estimation object.")
-
-  ploidy_mat <- qploidy_area_ploidy_estimation$ploidy
-  diff_mat   <- qploidy_area_ploidy_estimation$diff_first_second
-
-  if (is.null(rownames(ploidy_mat)) || is.null(rownames(diff_mat)))
-    stop("Matrices in `qploidy_area_ploidy_estimation` must have rownames = sample IDs.")
-
-  mat_long <- function(M, value_name) {
-    as_tibble(M, rownames = "Sample") |>
-      pivot_longer(cols = -Sample, names_to = "Chr", values_to = value_name)
-  }
-
-  if (level == "chromosome") {
-    est_ploidy_long <- mat_long(ploidy_mat, "CN_area")
-    est_diff_long   <- mat_long(diff_mat,   "area_diff_prob")
-    est_long <- merge(est_ploidy_long, est_diff_long, by = c("Sample", "Chr"), all = TRUE, sort = FALSE)
-
-    # hmm_summarized is expected to have CN_mode, mean_max_prob, n_windows from summarize_cn_mode()
-    out <- merge(hmm_summarized, est_long, by = c("Sample", "Chr"), all.x = TRUE, sort = FALSE)
-
-  } else if (level == "chromosome-arm") {
-    if (!all(c("Sample", "chrID.1", "chrID.2") %in% names(hmm_summarized)))
-      stop("For level='chromosome-arm', `hmm_summarized` must include: Sample, chrID.1, chrID.2.")
-    hmm_summarized$ChrArm <- paste(hmm_summarized$chrID.1, hmm_summarized$chrID.2, sep = ".")
-
-    est_ploidy_long <- mat_long(ploidy_mat, "CN_area") |>
-      rename(ChrArm = Chr)
-    est_diff_long   <- mat_long(diff_mat,   "area_diff_prob") |>
-      rename(ChrArm = Chr)
-
-    est_long <- merge(est_ploidy_long, est_diff_long, by = c("Sample", "ChrArm"), all = TRUE, sort = FALSE)
-    out <- merge(hmm_summarized, est_long, by.x = c("Sample", "ChrArm"), by.y = c("Sample", "ChrArm"),
-                 all.x = TRUE, sort = FALSE)
-
-    out$chrID.1 <- NULL
-    out$chrID.2 <- NULL
-    out$ChrArm  <- NULL
-
-  } else { # level == "sample"
-    # Aggregate matrices per sample
-    CN_area         <- apply(ploidy_mat, 1, function(x) mode(as.numeric(x)))
-    area_diff_prob  <- rowMeans(diff_mat, na.rm = TRUE)
-
-    est_sample <- tibble(
-      Sample         = names(CN_area),
-      CN_area        = as.numeric(CN_area),
-      area_diff_prob = as.numeric(area_diff_prob)
-    )
-
-    out <- merge(hmm_summarized, est_sample, by = "Sample", all.x = TRUE, sort = FALSE)
-    if (!("Chr" %in% names(out))) out$Chr <- NA_character_
-    out <- out[c("Sample", "Chr", setdiff(names(out), c("Sample", "Chr")))]
-  }
-
-  # ---- Rename to requested schema ----
-  # From summarize_cn_mode(): CN_mode -> CN_HMM; mean_max_prob -> HMM_max_prob; n_windows -> HMM_n_windows
-  rename_map <- c(CN_mode = "CN_HMM",
-                  mean_max_prob = "HMM_max_prob",
-                  n_windows = "HMM_n_windows")
-  for (old in names(rename_map)) {
-    if (old %in% names(out)) names(out)[names(out) == old] <- rename_map[[old]]
-  }
-
-  # Ensure all columns exist and ordered as requested
-  want <- c("Sample", "Chr", "CN_HMM", "CN_area", "HMM_max_prob", "area_diff_prob", "HMM_n_windows")
-  missing <- setdiff(want, names(out))
-  for (m in missing) out[[m]] <- NA
-  out <- out[want]
-
-  rownames(out) <- NULL
-  out
-}
 
 ##' Initialize monotonic z-score means for HMM ploidy states
 ##'
@@ -350,11 +332,16 @@ define_z_limits <- function(z, z_window, cn_grid, exp_ploidy, z_range = NULL, ve
   cmin <- min(cn_grid)
   cmax <- max(cn_grid)
 
-  step_lo <- if (exp_ploidy > cmin) (z_mean - z_lo) / (exp_ploidy - cmin) else 0
-  step_hi <- if (exp_ploidy < cmax) (z_hi  - z_mean) / (cmax - exp_ploidy) else 0
-  step    <- max(step_lo, step_hi, 1e-6)
+  step_lo <- if (exp_ploidy > cmin) max((z_mean - z_lo) / (exp_ploidy - cmin), 1e-6) else 1e-6
+  step_hi <- if (exp_ploidy < cmax) max((z_hi  - z_mean) / (cmax - exp_ploidy), 1e-6) else 1e-6
 
-  mu_vec <- z_mean + step * (as.numeric(cn_grid) - exp_ploidy)
+  # Use directional steps so that asymmetric z-deviations (e.g. loss stronger than
+  # gain in a homeologous exchange) do not misplace mu on the smaller-deviation side.
+  mu_vec <- z_mean + ifelse(
+    as.numeric(cn_grid) <= exp_ploidy,
+    step_lo * (as.numeric(cn_grid) - exp_ploidy),
+    step_hi * (as.numeric(cn_grid) - exp_ploidy)
+  )
   mu     <- setNames(mu_vec, as.character(cn_grid))
   mu <- mu[state_ids]
   return(mu)

@@ -29,7 +29,8 @@ devtools::install_github("Breeding-Insight/Qploidy2")
 
 * [Prepare input files tutorial](https://Breeding-Insight.github.io/Qploidy2/Prepare_inputs_Qploidy.html)
 * [Aneuploid Detection with DArTag Markers in Alfalfa F1 Population](https://Breeding-Insight.github.io/Qploidy2/Qploidy_alfalfa_tutorial.html) - large-scale copy number estimation in alfalfa mapping population using DArTag sequencing data
-
+ * [Qploidy2 and nQuack Integration Tutorial - Large-scale copy number estimation in alfalfa mapping population using nQuack EM-based BAF model selection](https://Breeding-Insight.github.io/Qploidy2/Qploidy2_nQuack_tutorial.html)
+ 
 ## Interactive visualization and curation of results
 
 The resulted files from Qploidy2 `write_hmm_CN` function can be uploaded on `GenoBrew` Shiny interface.
@@ -40,7 +41,37 @@ Visit `GenoBrew` GitHub [repository](https://github.com/Breeding-Insight/GenoBre
 and [tutorial](https://scribehow.com/viewer/GenoBrew_Interactive_Marker_Panel_Evaluation_CNV_Visualization_and_Curation__4uWloBuPT1WlnCvW2UWiTg) 
 for more information.
 
-![GenoBrew Demo](inst/app/www/GenoBrew_demo.gif)
+
+## AI Assistant (Claude Code)
+
+`Qploidy2` ships with two built-in skills for [Claude Code](https://claude.ai/claude-code) that guide you interactively through the analysis workflow:
+
+- **`qploidy2-input-prep`** — preparing `data`, `genos`, and `genos.pos` from VCF, Axiom, or Illumina files, including dosage calling with `updog` or `fitPoly`.
+- **`qploidy2-analysis`** — the full pipeline: batch-effect checking, standardization, BAF model selection, HMM copy number estimation, filtering, visualization, and export.
+
+### Install the skills (one command in R)
+
+Run this in R to download the skill files into your working project:
+
+```r
+Qploidy2::install_claude_skills()
+```
+
+This creates a `.claude/agents/` folder in your current working directory with both skill files. Open that directory in Claude Code and the skills are available automatically.
+
+### Use manually in claude.ai
+
+If you prefer the claude.ai web or desktop interface, you can import the skills directly from their raw GitHub URLs — open each link, copy the content, and paste it into your Claude skill manager:
+
+- [qploidy2-input-prep.md](https://raw.githubusercontent.com/Breeding-Insight/Qploidy2/main/.claude/agents/qploidy2-input-prep.md)
+- [qploidy2-analysis.md](https://raw.githubusercontent.com/Breeding-Insight/Qploidy2/main/.claude/agents/qploidy2-analysis.md)
+
+### Example prompts
+
+```
+Follow the qploidy2-input-prep skill to prepare my input files
+Follow the qploidy2-analysis skill to run HMM on my samples
+```
 
 ## Contributing
 

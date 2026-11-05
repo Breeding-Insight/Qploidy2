@@ -30,7 +30,7 @@ hmm_estimate_CN_multi(
 
 \item{parallel_type}{Character. Parallel backend to use: \code{"FORK"}, \code{"PSOCK"}, or \code{"auto"} (default). \code{"auto"} selects \code{"FORK"} on Unix/macOS (faster; workers inherit the parent environment automatically) and \code{"PSOCK"} on Windows (the only option available there). Use \code{"PSOCK"} explicitly if you need cross-platform reproducibility or are debugging worker crashes.}
 
-\item{...}{Additional arguments passed to hmm_estimate_CN (e.g., chr, snps_per_window, etc).}
+\item{...}{Additional arguments passed to hmm_estimate_CN (e.g., chr, snps_per_window, sex_system, sex_chr, etc).}
 }
 \value{
 A data.frame with results for all samples, as returned by hmm_estimate_CN$by_window, combined.

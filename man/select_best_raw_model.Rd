@@ -17,8 +17,8 @@ select_best_raw_model(
   plot = FALSE,
   param_count = NULL,
   count_grid_as_params = TRUE,
-  min_het_frac = 0.05,
-  het_range = c(0.2, 0.8)
+  min_het_frac = 0.01,
+  het_range = c(0.05, 0.95)
 )
 }
 \arguments{
@@ -57,10 +57,10 @@ distribution, used for BIC penalisation. Default `NULL` (zero for all).}
 hyperparameter. Default `TRUE`.}
 
 \item{min_het_frac}{Numeric. Minimum heterozygous fraction required to
-exclude CN=1 from `cn_grid`. Default `0.05`.}
+exclude CN=1 from `cn_grid`. Default `0.01`.}
 
 \item{het_range}{Numeric vector of length 2. BAF interval defining
-heterozygous loci. Default `c(0.2, 0.8)`.}
+heterozygous loci. Default `c(0.05, 0.95)`.}
 }
 \value{
 An object of class `selected_BAF_model` as returned by

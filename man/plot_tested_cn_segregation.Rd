@@ -30,10 +30,10 @@ single panel with colours.}
 \item{color_by}{Character. What to use for colours/fills. One of:
 \describe{
   \item{\code{"combination"} (default)}{Colour by parent name combination
-    (e.g. \code{"ParentA × ParentB"}).}
+    (e.g. \code{"ParentA x ParentB"}).}
   \item{\code{"cn_pair"}}{Colour by the canonical parental CN-deviation
-    pair (e.g. \code{"-1 × 0"}). The pair is sorted so that
-    \code{"-1 × 0"} and \code{"0 × -1"} receive the same colour.}
+    pair (e.g. \code{"-1 x 0"}). The pair is sorted so that
+    \code{"-1 x 0"} and \code{"0 x -1"} receive the same colour.}
 }}
 
 \item{significance_line}{Numeric or \code{NULL}. Significance threshold for
