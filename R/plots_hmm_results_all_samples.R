@@ -422,7 +422,12 @@ compare_cn_track <- function(hmm_CN,
 #'   \code{\link{count_types}} (e.g. a single X in an XY male is not
 #'   aneuploidy) and a \code{Sex} column (\code{"M"}/\code{"F"} plus the
 #'   sex-chromosome complement, e.g. \code{"M (XY)"}) is added to the right of
-#'   the matrix, before the block labels.
+#'   the matrix, before the block labels. Sex comes from the Y/W depth score
+#'   when available (see \code{sex_min_depth} in
+#'   \code{\link{hmm_estimate_CN}}). Samples whose sex-chromosome evidence
+#'   disagrees (\code{SexChr == "?"} or \code{SexChrConsistent == FALSE} in
+#'   \code{\link{karyotype_notation}}, e.g. \code{"M (?)"}: Y present but
+#'   PAR == X) are labelled in red and explained in the caption.
 #'
 #' @return A \code{ggplot} object.
 #'
@@ -628,7 +633,10 @@ compare_cn_track_summary <- function(hmm_CN,
       ifelse(is.na(sx), "?", toupper(substr(sx, 1, 1))),
       ifelse(is.na(sc), "", paste0(" (", sc, ")"))
     )
+    # Sex-chromosome evidence disagrees (e.g. Y present by depth but PAR == X)
+    sex_lbl_df$check <- sc %in% "?" | sex_df$SexChrConsistent[m] %in% FALSE
   }
+  sex_check <- use_sex && any(sex_lbl_df$check)
   x_breaks <- c(seq_len(n_chr), if (use_sex) sex_x)
   x_labels <- c(chr_lvls, if (use_sex) "Sex")
 
@@ -655,6 +663,8 @@ compare_cn_track_summary <- function(hmm_CN,
     ) +
     (if (use_sex) geom_text(
       data = sex_lbl_df, aes(x = sex_x, y = y_pos, label = lbl),
+      colour = ifelse(sex_lbl_df$check, "#cb181d", "black"),
+      fontface = ifelse(sex_lbl_df$check, "bold", "plain"),
       hjust = 0.5, size = 2.4, inherit.aes = FALSE
     ) else NULL) +
     scale_x_continuous(
@@ -666,7 +676,10 @@ compare_cn_track_summary <- function(hmm_CN,
       expand = expansion(add = c(0.5, 0.5))
     ) +
     coord_cartesian(clip = "off") +
-    labs(x = NULL, y = NULL) +
+    labs(x = NULL, y = NULL,
+         caption = if (sex_check)
+           paste("Red Sex labels: sex-chromosome evidence disagrees",
+                 "(Y/W depth vs PAR and X/Z copy number); inspect with plot_karyotype().")) +
     theme_bw(base_size = 10) +
     theme(
       panel.grid      = element_blank(),

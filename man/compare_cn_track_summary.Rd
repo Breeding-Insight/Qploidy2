@@ -41,7 +41,12 @@ values to override. When enabled, samples are classified as in
 \code{\link{count_types}} (e.g. a single X in an XY male is not
 aneuploidy) and a \code{Sex} column (\code{"M"}/\code{"F"} plus the
 sex-chromosome complement, e.g. \code{"M (XY)"}) is added to the right of
-the matrix, before the block labels.}
+the matrix, before the block labels. Sex comes from the Y/W depth score
+when available (see \code{sex_min_depth} in
+\code{\link{hmm_estimate_CN}}). Samples whose sex-chromosome evidence
+disagrees (\code{SexChr == "?"} or \code{SexChrConsistent == FALSE} in
+\code{\link{karyotype_notation}}, e.g. \code{"M (?)"}: Y present but
+PAR == X) are labelled in red and explained in the caption.}
 }
 \value{
 A \code{ggplot} object.

@@ -1,6 +1,6 @@
 Package: Qploidy2
 Title: Estimation of Large-Scale Copy Number Variation Using Genotyping Data
-Version: 1.24.0
+Version: 1.25.0
 Authors@R: c(person(given='Cristiane', 
                     family='Taniguti', 
                     email = 'ctaniguti@ufl.edu', 
@@ -36,8 +36,8 @@ Description: Provides functions for estimating copy number variation (CNV)
 License: AGPL (>= 3)
 Depends: R (>= 3.6.0)
 biocViews:
-Imports: 
-    dplyr,
+Imports:
+    dplyr (>= 1.1.0),
     ggplot2,
     tidyr,
     vroom,

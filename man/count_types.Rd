@@ -43,8 +43,17 @@ Invisibly returns a named list.  The top-level names are
   containing the sample IDs of that type.  A nested element \code{$by_cn}
   further splits those vectors by sample-level CN
   (e.g. \code{result$by_cn[["2x"]]$euploid}). When \code{sex_system} is set,
-  \code{$sex} is a \code{data.frame} with \code{Sample}, \code{Sex}, and
-  \code{SexChr} per sample.
+  \code{$sex} is a \code{data.frame} with \code{Sample}, \code{Sex},
+  \code{SexChr}, \code{SexChrConsistent}, \code{SexHetCN} (estimated Y/W
+  copies), and \code{SexHetScore} (Y/W depth score, e.g.
+  \code{"5/9"}; see \code{sex_min_depth} in \code{\link{hmm_estimate_CN}})
+  per sample (see \code{\link{karyotype_notation}}). Samples with
+  \code{SexChr == "?"} or \code{SexChrConsistent == FALSE} have
+  sex-chromosome evidence that disagrees (e.g. Y present by depth but
+  PAR == X) and should be inspected; their count is printed. For samples
+  with \code{SexChr == "?"}, sex chromosomes are not compared with an
+  expected CN, so they do not make the sample aneuploid; only mixed CN
+  within a chromosome (segmental) is counted.
 }
 \description{
 Classifies every sample in an \code{hmm_CN} object as euploid, aneuploid,

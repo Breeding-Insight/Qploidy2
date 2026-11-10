@@ -1,5 +1,6 @@
 ---
-description: Guide for preparing the three required input data.frames (data, genos, genos.pos) for the Qploidy2 R package from VCF, Axiom, or Illumina array files.
+name: qploidy2-input-prep
+description: "Guide for preparing the three required input data.frames (data, genos, genos.pos) for the Qploidy2 R package from VCF, Axiom, or Illumina array files."
 ---
 
 # Qploidy2 Input Preparation

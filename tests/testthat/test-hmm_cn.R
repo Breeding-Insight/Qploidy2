@@ -370,3 +370,126 @@ test_that(".resolve_min_snps handles NULL, scalar and named inputs", {
   expect_error(.resolve_min_snps(c(10, 20), d, verbose = FALSE), "single value")
   expect_error(.resolve_min_snps(0, d, verbose = FALSE), "positive")
 })
+
+test_that("hmm_estimate_CN scores Y presence from raw depth before filtering", {
+  vcf_file <- tempfile(fileext = ".vcf")
+  simulate_vcf(seed = 123, file_path = vcf_file,
+               n_tetraploid = 5, n_diploid = 2, n_triploid = 2, n_markers = 50)
+  data  <- qploidy_read_vcf(vcf_file)
+  genos <- qploidy_read_vcf(vcf_file, geno = TRUE)
+  genos <- genos[grep("Tetraploid", genos$SampleName), ]
+  gp    <- qploidy_read_vcf(vcf_file, geno.pos = TRUE)
+  st <- suppressWarnings(standardize(data = data, genos = genos, geno.pos = gp,
+                                     ploidy.standardization = 4, threshold.n.clusters = 3,
+                                     n.cores = 1, out_filename = NULL, verbose = FALSE))
+  chrs <- sort(unique(as.character(st$data$Chr)))
+  # Treat the 2nd chromosome as Y-specific; "female" Tetraploid2 has no reads on it
+  st$data$R[st$data$SampleName == "Tetraploid2" & st$data$Chr == chrs[2]] <- 0
+  sex_chr <- list(Y = chrs[2], PAR = chrs[1])
+  n_y <- length(unique(st$data$MarkerName[st$data$Chr == chrs[2]]))
+
+  run <- function(s, ...) suppressWarnings(hmm_estimate_CN(
+    st, sample_id = s, chr = chrs[1], snps_per_window = 10, min_snps_per_window = 5,
+    cn_grid = 2:4, exp_ploidy = 4, verbose = FALSE,
+    sex_system = "XY", sex_chr = sex_chr, ...))
+
+  # chr = chrs[1] drops the Y chromosome, but the score still uses its markers
+  m <- run("Tetraploid1")
+  expect_false(chrs[2] %in% m$by_marker$Chr)
+  expect_equal(m$params$sex_het_depth$n_markers, n_y)
+  expect_true(m$params$sex_het_depth$present)
+  expect_equal(m$params$sex_het_depth$min_depth, 6)
+  expect_equal(m$params$sex_het_depth$min_markers, 2)
+
+  f <- run("Tetraploid2")
+  expect_equal(f$params$sex_het_depth$score, sprintf("0/%d", n_y))
+  expect_false(f$params$sex_het_depth$present)
+
+  # No X in sex_chr: with Y present PAR cannot be split, so SexChr and Sex are "?"
+  expect_equal(unique(karyotype_notation(m)$Sex), "?")
+  expect_equal(unique(karyotype_notation(m)$SexChr), "?")
+  expect_equal(unique(karyotype_notation(f)$Sex), "female")
+
+  # thresholds are respected and validated
+  strict <- run("Tetraploid1", sex_min_markers = n_y + 1)
+  expect_false(strict$params$sex_het_depth$present)
+  expect_error(run("Tetraploid1", sex_min_depth = -1), "sex_min_depth")
+
+  # no XY system -> no score
+  expect_null(suppressWarnings(hmm_estimate_CN(
+    st, sample_id = "Tetraploid1", chr = chrs[1], snps_per_window = 10,
+    min_snps_per_window = 5, cn_grid = 2:4, exp_ploidy = 4, verbose = FALSE))$params$sex_het_depth)
+
+  # passed through hmm_estimate_CN_multi(...)
+  multi <- suppressWarnings(suppressMessages(hmm_estimate_CN_multi(
+    st, sample_ids = c("Tetraploid1", "Tetraploid2"), n_cores = 1, chr = chrs[1],
+    snps_per_window = 10, min_snps_per_window = 5, cn_grid = 2:4, exp_ploidy = 4,
+    verbose = FALSE, sex_system = "XY", sex_chr = sex_chr, sex_min_depth = 6)))
+  ct <- count_types(multi)
+  expect_equal(ct$sex$Sex[match(c("Tetraploid1", "Tetraploid2"), ct$sex$Sample)],
+               c("?", "female"))
+})
+
+test_that("prep_baf_ll neutralizes no-BAF windows and penalizes failed fits", {
+  # rows: informative, CN3 fit failed, no BAF, every state failed
+  m <- rbind(c(-5, -8, -12), c(-5, -Inf, -12), c(0, 0, 0), c(-Inf, -Inf, -Inf))
+  n <- c(10, 10, 0, 10)
+
+  for (cs in c(TRUE, FALSE)) {
+    out <- sapply(1:3, function(k) prep_baf_ll(m, k, n, correct_scale = cs))
+    expect_true(all(is.finite(out)), info = paste("correct_scale", cs))
+    # failed state is strictly worse than every successful fit in its window
+    expect_lt(out[2, 2], min(out[2, -2]))
+    expect_equal(out[2, 2], -1e6)
+    # no-BAF and all-failed windows are neutral (equal across states)
+    expect_equal(out[3, ], c(0, 0, 0))
+    expect_equal(out[4, ], c(0, 0, 0))
+  }
+  # informative windows are scaled by n_baf only when requested
+  expect_equal(prep_baf_ll(m, 1, n, TRUE)[1], -0.5)
+  expect_equal(prep_baf_ll(m, 1, n, FALSE)[1], -5)
+  # NaN (e.g. failed fit divided by n_baf) is treated as a failure too
+  m_nan <- m; m_nan[1, 3] <- NaN
+  expect_equal(prep_baf_ll(m_nan, 3, n, TRUE)[1], -1e6)
+})
+
+test_that("em_hmm_cn does not let a failed CN-specific BAF fit win", {
+  cn_grid <- 2:4
+  K <- length(cn_grid)
+  state_ids <- as.character(cn_grid)
+  W <- 6
+  # CN3 fit failed (-Inf) in windows 1-4, CN4 is the best successful fit;
+  # window 5 has no BAF, window 6 has every state failed
+  ll_baf <- cbind(c(-5, -5, -5, -5, 0, -Inf),
+                  c(-Inf, -Inf, -Inf, -Inf, 0, -Inf),
+                  c(-3, -3, -3, -3, 0, -Inf))
+  n_baf <- c(10, 10, 10, 10, 0, 10)
+  A <- matrix(0.05, K, K); diag(A) <- 0.9; A <- A / rowSums(A)
+  pi0 <- rep(1 / K, K)
+  mu <- stats::setNames(c(-1, 0, 1), state_ids)
+  z <- rep(0.9, W)
+
+  run_em <- function(baf_only, w_baf) {
+    em_hmm_cn(cn_grid = cn_grid, mu = mu, K = K, state_ids = state_ids,
+              sig = 0.5, z = z, z_only = FALSE, ll_baf_matrix = ll_baf,
+              n_baf = n_baf, w_baf = w_baf, correct_scale = TRUE,
+              A = A, pi0 = pi0, W = W, max_iter = 20, verbose = FALSE,
+              baf_only = baf_only)
+  }
+
+  for (bo in c(TRUE, FALSE)) {
+    res <- run_em(baf_only = bo, w_baf = rep(1, W))
+    expect_true(all(is.finite(res$ll_em)), info = paste("baf_only", bo))
+    expect_equal(rowSums(res$gamma), rep(1, W), tolerance = 1e-8)
+    # the failed state never gets posterior mass where BAF was observed
+    expect_true(all(res$gamma[1:4, 2] < 1e-6), info = paste("baf_only", bo))  # col 2 = CN3
+    expect_equal(unname(apply(res$gamma[1:4, ], 1, which.max)), rep(3L, 4))
+    # neutralized windows (no BAF / all states failed): equal emission across states
+    if (bo) expect_equal(unname(res$ll_em[5:6, ]), matrix(0, 2, K))
+  }
+
+  # combined emission with zero BAF weight: no NaN from 0 * -Inf
+  res0 <- run_em(baf_only = FALSE, w_baf = c(0, 0, 1, 1, 0, 0))
+  expect_true(all(is.finite(res0$ll_em)))
+  expect_true(all(is.finite(res0$gamma)))
+})

@@ -5,13 +5,14 @@
 \title{Install Qploidy2 Claude AI Skills}
 \usage{
 install_claude_skills(
-  dest_dir = file.path(getwd(), ".claude", "agents"),
+  dest_dir = file.path(getwd(), ".claude", "skills"),
   overwrite = FALSE
 )
 }
 \arguments{
-\item{dest_dir}{Destination directory for the skill files. Defaults to
-\code{.claude/agents/} inside the current working directory.}
+\item{dest_dir}{Destination directory for the skills. Defaults to
+\code{.claude/skills/} inside the current working directory. Each skill is
+written to \code{<dest_dir>/<skill>/SKILL.md}.}
 
 \item{overwrite}{Logical. If \code{TRUE}, overwrite existing skill files.
 Default is \code{FALSE}.}
@@ -21,9 +22,10 @@ Invisibly returns the paths of the installed skill files.
 }
 \description{
 Downloads the Qploidy2 Claude Code skill files from GitHub and places them
-in the \code{.claude/agents/} directory of your current R working directory.
-Once installed, the skills are automatically available to Claude Code when
-you open that directory as a project.
+in the \code{.claude/skills/} directory of your current R working directory,
+one folder per skill (\code{.claude/skills/<skill>/SKILL.md}). Once
+installed, the skills are automatically available to Claude Code when you
+open that directory as a project.
 }
 \details{
 Two skills are installed:

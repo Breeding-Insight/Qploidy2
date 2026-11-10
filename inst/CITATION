@@ -1,7 +1,27 @@
-citHeader("To cite Qploidy in publications, please use:")
+citHeader("To cite Qploidy2 in publications, please use:")
+
+bibentry(
+    bibtype = "Manual",
+    author  = c(
+      person("Cristiane H.", "Taniguti"),
+      person("others")
+    ),
+    title   = "Qploidy2: Estimation of Large-Scale Copy Number Variation Using Genotyping Data",
+    year    = "2026",
+    note    = paste0("R package version ", meta$Version,
+                     ". Manuscript in preparation. RRID:SCR_028622"),
+    url     = "https://github.com/Breeding-Insight/Qploidy2",
+    textVersion = paste0(
+      "Taniguti, C. H. et al. (2026). ",
+      "Qploidy2: Estimation of Large-Scale Copy Number Variation Using Genotyping Data. ",
+      "R package version ", meta$Version, ". Manuscript in preparation. ",
+      "https://github.com/Breeding-Insight/Qploidy2 (RRID:SCR_028622)"
+    )
+  )
 
 bibentry(
     bibtype = "Article",
+    header  = "For the standardization method (Qploidy), please also cite:",
     author  = c(
       person("Cristiane H.", "Taniguti"),
       person("Jeekin",     "Lau"),
@@ -22,4 +42,3 @@ bibentry(
     url     = "https://acsess.onlinelibrary.wiley.com/doi/10.1002/tpg2.70044",
     note    = "ISSN: 1940-3372"
   )
-

@@ -12,7 +12,8 @@ plot_karyotype(
   notation = TRUE,
   add_ghost = TRUE,
   sex_system = NULL,
-  sex_chr = NULL
+  sex_chr = NULL,
+  show_segments = FALSE
 )
 }
 \arguments{
@@ -47,8 +48,8 @@ in a single row.}
 is run internally on \code{df} for \code{sample_name} and used to:
 \itemize{
   \item Annotate each chromosome strip with the chromosome-level copy
-    number (\code{CN: X}) and any deviating segments
-    (\code{g.start_endxXX}), one segment per line.
+    number (\code{CN: X}) and, with \code{show_segments = TRUE}, any
+    deviating segments (\code{g.start_endxXX}), one segment per line.
   \item Add \code{Ploidy: X} to the plot subtitle.
 }
 Set to \code{FALSE} to omit the annotation.}
@@ -69,13 +70,26 @@ ghost in the lower-CN region.}
 \code{params} is used, falling back to \code{"none"}. When set, ghost
 copies of sex chromosomes follow the expected sex-chromosome complement
 (e.g. no ghost second X in an XY male), sex-chromosome strips are
-labelled with their type, and the inferred sex is added to the subtitle.}
+labelled with their type, and the inferred sex is added to the subtitle,
+with the Y/W depth score when available: Y/W-specific markers with depth
+above \code{sex_min_depth} over all of them (e.g.
+\code{"Sex: male (XXYY), Y markers covered 5/9"}). Y/W-specific markers have no
+CN calls, so Y/W is not drawn; its copies appear in the complement.
+\code{"[check sex chromosomes]"} is appended when \code{SexChr} is
+\code{"?"} or \code{SexChrConsistent} is \code{FALSE} (see
+\code{\link{karyotype_notation}}).}
 
 \item{sex_chr}{Named list mapping sex-chromosome groups to chromosome IDs,
 e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")} (see
 \code{\link{karyotype_notation}} for the allowed names per system). When
 \code{NULL} (default), the value stored in the \code{hmm_CN}
 \code{params} is used if its \code{sex_system} matches.}
+
+\item{show_segments}{Logical. If \code{TRUE}, the genomic ranges of
+deviating segments are added to the chromosome strips (only when
+\code{notation = TRUE}). Default \code{FALSE}, since long ranges are
+usually cut off by the strip width; get them from
+\code{\link{karyotype_notation}} (\code{Segment} column) instead.}
 }
 \value{
 A \code{\link[ggplot2]{ggplot}} object. The y-axis is reversed so

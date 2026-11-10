@@ -23,7 +23,7 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #'   mixture before renormalization. Default FALSE.
 #' @param min_snps_per_window Minimum segment length (in SNPs) for z-score changepoint detection. Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If NULL, a dynamic value is chosen based on the size of the smallest chromosome. Windows are never removed: chromosomes with fewer markers than this value form a single window. Default: NULL.
 #' @param cn_grid Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 0-10. Include \code{0} to allow nullisomy calls; see also \code{cn0_background_frac}. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.
-#' @param max_cn_dev Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from BAF model selection on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}; CN \code{0} is kept whenever it is in \code{cn_grid}. For example, \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. \code{NULL} (default) keeps the full grid.
+#' @param max_cn_dev Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from BAF model selection on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}; CN \code{0} is kept whenever it is in \code{cn_grid}. For example, \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. Default \code{2}. \code{NULL} keeps the full grid.
 #' @param cn0_background_frac Numeric in [0, 1]. Array probes emit residual background signal even at CN=0, which elevates the z-score above the linear extrapolation. This parameter shifts the initial \code{mu[0]} upward by \code{cn0_background_frac * (mu[1] - mu[0])}, placing it at the expected background-elevated z rather than the theoretical zero-signal floor. Ignored when \code{0} is not in \code{cn_grid}. Default \code{0} (no background correction; suitable for sequencing data).
 #' @param M Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.
 #' @param max_iter Integer. Maximum EM iterations. Default \code{60}.
@@ -53,6 +53,8 @@ if (getRversion() >= "2.15.1") utils::globalVariables(c("ll_em", "ll_hist"))
 #' @param hom_z_sigma_inflate Numeric >= 1. Two-tier correction for reference-bias-driven z elevation in windows with no BAF support (\code{w_baf == 0}). (1) During decoding: sigma is multiplied by this factor for \code{w_baf == 0} windows, widening the z-emission. (2) Post-decoding override: for chromosomes where \emph{every} window has \code{w_baf == 0}, the chromosome mean z is compared to the sample-baseline mu; if the deviation is within \code{hom_z_sigma_inflate * sigma} the entire chromosome is overridden to the sample-mode CN (reference bias); larger deviations keep the decoded CN (genuine change). Default \code{1.5}. Set to \code{1} to disable both corrections.
 #' @param sex_system Character. Sex-determination system of the species: \code{"none"} (default, all chromosomes treated as autosomes), \code{"XY"}, \code{"ZW"}, \code{"X0"}, or \code{"haplodiploid"} (see \code{\link{karyotype_notation}} for how sex is inferred in each system). It does not change the HMM; it is stored in \code{params} so that \code{\link{karyotype_notation}}, \code{\link{plot_karyotype}}, and \code{\link{count_types}} use it by default.
 #' @param sex_chr Named list mapping sex-chromosome groups to chromosome IDs in the data, e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")}. Allowed names: \code{X}, \code{Y}, \code{PAR} for \code{"XY"}; \code{Z}, \code{W}, \code{PAR} for \code{"ZW"}; \code{X} for \code{"X0"}; not used for \code{"none"} or \code{"haplodiploid"}. \code{X}/\code{Z} and \code{Y}/\code{W} hold markers specific to that chromosome; \code{PAR} holds pseudoautosomal markers. For \code{"XY"}/\code{"ZW"}, \code{Y} (or \code{W}) or both \code{X} (or \code{Z}) and \code{PAR} are required. Stored in \code{params} together with \code{sex_system}. Default \code{NULL}.
+#' @param sex_min_depth Numeric. For \code{"XY"}/\code{"ZW"} with \code{sex_chr$Y} (or \code{sex_chr$W}): a Y/W-specific marker counts as covered when its depth \code{R} is greater than this value. Y/W-specific markers are usually removed by standardization (no reference clusters when the reference set is single-sex), so presence of Y/W is scored from raw depth on all markers of those chromosomes, before any filtering (including \code{chr}). Default \code{6}.
+#' @param sex_min_markers Integer. Minimum number of covered Y/W-specific markers (see \code{sex_min_depth}) for Y/W to be considered present. The result is stored in \code{params$sex_het_depth} (\code{n_covered}, \code{n_markers}, \code{score}, e.g. \code{"5/9"}, and \code{present}) and used by \code{\link{karyotype_notation}}, \code{\link{plot_karyotype}}, \code{\link{count_types}}, and \code{\link{compare_cn_track_summary}} to infer sex. Default \code{2}.
 #' @param rerun_overall_ploidy Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.
 #' @param recycled_obj_rerun_overall_ploidy Named list for internal use during the recursive call triggered by
 #'   \code{rerun_overall_ploidy = TRUE}. Contains two elements:
@@ -138,7 +140,7 @@ hmm_estimate_CN <- function(
   snps_per_window = 50,
   min_snps_per_window = NULL,
   cn_grid = 1:4,
-  max_cn_dev = NULL,
+  max_cn_dev = 2,
   M = 100,
   max_iter = 60,
   het_quantile = 0.8, # increase this value to reduce the weight of baf when few hets
@@ -168,12 +170,15 @@ hmm_estimate_CN <- function(
   cn0_background_frac = 0,
   sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
   sex_chr = NULL,
+  sex_min_depth = 6,
+  sex_min_markers = 2,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 ) {
   # --- input checks ---
   sex_system <- match.arg(sex_system)
   .sex_chr_roles(sex_system, sex_chr)
+  .check_sex_depth_args(sex_min_depth, sex_min_markers)
   .check_max_cn_dev(max_cn_dev)
   # If second cycle of rerun_overall_ploidy, check that recycled_obj_rerun_overall_ploidy is provided
   if (!rerun_overall_ploidy && !is.null(recycled_obj_rerun_overall_ploidy)) {
@@ -181,6 +186,7 @@ hmm_estimate_CN <- function(
     baf_col <- recycled_obj_rerun_overall_ploidy$recycled_baf_col
     z_col <- recycled_obj_rerun_overall_ploidy$recycled_z_col
     cn_grid <- recycled_obj_rerun_overall_ploidy$recycled_cn_grid
+    sex_het_depth <- recycled_obj_rerun_overall_ploidy$recycled_sex_het_depth
   } else {
     vmsg("Preparing inputs and applying initial filters", verbose = verbose, level = 0, type = ">>")
 
@@ -231,6 +237,10 @@ hmm_estimate_CN <- function(
       d <- merge(d, gp, by = "MarkerName", all.x = FALSE)
       if (nrow(d) == 0) stop("No markers remain after merging data with geno.pos.")
     }
+
+    # Y/W presence from raw depth, before chromosome/marker filters drop the
+    # Y/W-specific markers (they have no z/BAF in single-sex standardizations)
+    sex_het_depth <- .sex_het_depth(d, sex_system, sex_chr, sex_min_depth, sex_min_markers)
 
     # subset to chromosomes
     if (!is.null(chr)) {
@@ -503,7 +513,8 @@ hmm_estimate_CN <- function(
       uniform_weight = selected_model$best$uniform_weight,
       max_cn_dev = max_cn_dev,
       sex_system = sex_system,
-      sex_chr = sex_chr
+      sex_chr = sex_chr,
+      sex_het_depth = sex_het_depth
     )
     window_map <- match(d$.__w__, result$WindowID)
     d$w_baf          <- result$w_baf[window_map]
@@ -952,14 +963,12 @@ hmm_estimate_CN <- function(
     if (z_only) {
       ll_em[, k] <- llz
     } else if (baf_only) {
-      llb <- ll_baf_matrix[, k]
-      if (correct_scale) llb <- llb / n_baf
-      llb[no_baf] <- 0  # excluded: neutral emission, equal across all states
-      ll_em[, k] <- llb
+      # no-BAF windows -> neutral 0; failed CN-specific fits -> penalized
+      ll_em[, k] <- prep_baf_ll(ll_baf_matrix, k, n_baf, correct_scale)
     } else {
-      llb <- ll_baf_matrix[, k]
-      if (correct_scale) llb <- llb / n_baf
-      llb[no_baf] <- 0  # excluded: BAF term dropped, w_baf_dec forced to 0 above
+      # no-BAF windows -> BAF term dropped (w_baf_dec forced to 0 above);
+      # failed CN-specific fits -> penalized (finite, so 0 * llb never gives NaN)
+      llb <- prep_baf_ll(ll_baf_matrix, k, n_baf, correct_scale)
       # Tempered log-product: z always contributes fully, BAF contributes a fraction of its evidence.
       ll_em[, k] <- llz + w_baf_dec * llb
     }
@@ -972,10 +981,7 @@ hmm_estimate_CN <- function(
     for (k in seq_len(K)) {
       c_k <- cn_grid[k]
       llz_mat[, k] <- dnorm(z, mean = mu[as.character(c_k)], sd = sig_dec, log = TRUE)
-      llb_k <- ll_baf_matrix[, k]
-      if (correct_scale) llb_k <- llb_k / n_baf
-      llb_k[no_baf] <- 0
-      llb_mat[, k] <- llb_k
+      llb_mat[, k] <- prep_baf_ll(ll_baf_matrix, k, n_baf, correct_scale)
     }
   }
 
@@ -1247,7 +1253,8 @@ hmm_estimate_CN <- function(
     cn0_background_frac = cn0_background_frac,
     max_cn_dev = max_cn_dev,
     sex_system = sex_system,
-    sex_chr = sex_chr
+    sex_chr = sex_chr,
+    sex_het_depth = sex_het_depth
   )
 
   if (!is.null(result) && !is.null(d)) {
@@ -1307,12 +1314,15 @@ hmm_estimate_CN <- function(
       cn0_background_frac = cn0_background_frac,
       sex_system = sex_system,
       sex_chr = sex_chr,
+      sex_min_depth = sex_min_depth,
+      sex_min_markers = sex_min_markers,
       rerun_overall_ploidy = FALSE,
       recycled_obj_rerun_overall_ploidy = list(rm_mks = rm_markers,
                                                recycled_d = keep_d,
                                                recycled_baf_col = keep_baf_col,
                                                recycled_z_col = keep_z_col,
-                                               recycled_cn_grid = keep_cn_grid)
+                                               recycled_cn_grid = keep_cn_grid,
+                                               recycled_sex_het_depth = sex_het_depth)
     )
 
     # The rerun has its own pre-pass, but apply the outer call's cn0_win_df as
@@ -1493,24 +1503,42 @@ print.hmm_CN <- function(x, ...) {
     return()
   }
   params <- x$params
+  # Missing (NULL) or non-numeric fields print as "NA" instead of erroring,
+  # e.g. for hand-built or partially read objects
+  fmt <- function(v, digits = NULL) {
+    if (is.null(v) || length(v) == 0 || all(is.na(v))) return("NA")
+    if (!is.null(digits) && is.numeric(v)) v <- round(v, digits)
+    paste(v, collapse = ", ")
+  }
   cat("hmm_CN result\n")
-  cat("  Copy-number grid:", paste(params$cn_grid, collapse = ", "), "\n")
-  cat("  Expected ploidy:", params$exp_ploidy, "\n")
+  cat("  Copy-number grid:", fmt(params$cn_grid), "\n")
+  cat("  Expected ploidy:", fmt(params$exp_ploidy), "\n")
   cat("  Minimum SNPs per window:", .format_min_snps(params$min_snps_per_window), "\n")
-  if (!is.null(params$sex_system) && params$sex_system != "none")
+  if (!is.null(params$sex_system) && params$sex_system != "none") {
     cat("  Sex system:", params$sex_system,
         if (length(params$sex_chr)) paste0("(", paste(names(params$sex_chr), vapply(params$sex_chr, paste, character(1), collapse = "/"), sep = ": ", collapse = "; "), ")") else "",
         "\n")
-  cat("  Initial state probabilities (pi0):", paste(round(params$pi0, 3), collapse = ", "), "\n")
+    h <- params$sex_het_depth
+    if (!is.null(h) && !is.null(h$present)) {
+      chr_lbl <- if (!is.null(h$chr)) h$chr else "Y/W"
+      cat(sprintf("  %s depth score: %s (%s%s)\n", chr_lbl, fmt(h$score),
+                  if (is.na(h$present)) "no markers" else if (h$present) "present" else "absent",
+                  if (!is.null(h$min_depth) && !is.null(h$min_markers))
+                    sprintf("; depth > %s in >= %s markers", h$min_depth, h$min_markers) else ""))
+    }
+  }
+  cat("  Initial state probabilities (pi0):", fmt(params$pi0, 3), "\n")
   if (!isTRUE(params$baf_only)) {
-    cat("  Estimated z means per CN:", paste(round(params$mu, 3), collapse = ", "), "\n")
-    cat("  Estimated z mean:", mean(x$by_window$z, na.rm = TRUE), "\n")
-    cat("  Estimated z sigma:", round(params$sigma, 3), "\n")
+    z <- x$by_window$z
+    cat("  Estimated z means per CN:", fmt(params$mu, 3), "\n")
+    cat("  Estimated z mean:", if (is.numeric(z) && any(!is.na(z))) mean(z, na.rm = TRUE) else "NA", "\n")
+    cat("  Estimated z sigma:", fmt(params$sigma, 3), "\n")
   }
   cat("  BAF Emission distribution:", if (!is.null(params$distribution)) params$distribution else "(not specified)", "\n")
-  cat("  Final log-likelihood:", params$loglik, "\n")
+  cat("  Final log-likelihood:", fmt(params$loglik), "\n")
   # Print range of CN_call values
-  if (!is.null(x$by_window) && !is.null(x$by_window$CN_call)) {
+  if (!is.null(x$by_window) && !is.null(x$by_window$CN_call) &&
+      any(!is.na(x$by_window$CN_call))) {
     cn_vals <- x$by_window$CN_call
     cat("  Range of CN_call (window-level):", paste(range(as.numeric(cn_vals), na.rm = TRUE), collapse = " - "), "\n")
   }

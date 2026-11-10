@@ -371,8 +371,17 @@ test_cn_segregation <- function(dosages,
       # Single-cell case: 0 degrees of freedom, chi-square statistic = 0 -> p = 1
       # (all observations fall in the one expected class -- perfect fit)
       if (nrow(d) == 1L) return(1)
+      # Classes absent from the expected segregation get `error_rate` as their
+      # probability, so small expected counts are by design: muffle only the
+      # "Chi-squared approximation may be incorrect" warning.
       test <- tryCatch(
-        chisq.test(d$count, p = d$prob, rescale.p = TRUE),
+        withCallingHandlers(
+          chisq.test(d$count, p = d$prob, rescale.p = TRUE),
+          warning = function(w) {
+            if (grepl("approximation may be incorrect", conditionMessage(w)))
+              invokeRestart("muffleWarning")
+          }
+        ),
         error = function(e) NULL
       )
       if (is.null(test)) NA_real_ else test$p.value

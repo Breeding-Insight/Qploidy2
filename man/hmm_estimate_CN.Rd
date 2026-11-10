@@ -17,7 +17,7 @@ hmm_estimate_CN(
   snps_per_window = 50,
   min_snps_per_window = NULL,
   cn_grid = 1:4,
-  max_cn_dev = NULL,
+  max_cn_dev = 2,
   M = 100,
   max_iter = 60,
   het_quantile = 0.8,
@@ -47,6 +47,8 @@ hmm_estimate_CN(
   cn0_background_frac = 0,
   sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
   sex_chr = NULL,
+  sex_min_depth = 6,
+  sex_min_markers = 2,
   rerun_overall_ploidy = TRUE,
   recycled_obj_rerun_overall_ploidy = NULL
 )
@@ -78,7 +80,7 @@ mixture before renormalization. Default FALSE.}
 
 \item{cn_grid}{Integer vector of copy-number states to consider (e.g., \code{1:4}). They are limited to 0-10. Include \code{0} to allow nullisomy calls; see also \code{cn0_background_frac}. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy.}
 
-\item{max_cn_dev}{Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from BAF model selection on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}; CN \code{0} is kept whenever it is in \code{cn_grid}. For example, \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. \code{NULL} (default) keeps the full grid.}
+\item{max_cn_dev}{Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from BAF model selection on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}; CN \code{0} is kept whenever it is in \code{cn_grid}. For example, \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. Default \code{2}. \code{NULL} keeps the full grid.}
 
 \item{M}{Integer. Number of BAF histogram bins on [0,1]. Default \code{100}.}
 
@@ -137,6 +139,10 @@ mixture before renormalization. Default FALSE.}
 \item{sex_system}{Character. Sex-determination system of the species: \code{"none"} (default, all chromosomes treated as autosomes), \code{"XY"}, \code{"ZW"}, \code{"X0"}, or \code{"haplodiploid"} (see \code{\link{karyotype_notation}} for how sex is inferred in each system). It does not change the HMM; it is stored in \code{params} so that \code{\link{karyotype_notation}}, \code{\link{plot_karyotype}}, and \code{\link{count_types}} use it by default.}
 
 \item{sex_chr}{Named list mapping sex-chromosome groups to chromosome IDs in the data, e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")}. Allowed names: \code{X}, \code{Y}, \code{PAR} for \code{"XY"}; \code{Z}, \code{W}, \code{PAR} for \code{"ZW"}; \code{X} for \code{"X0"}; not used for \code{"none"} or \code{"haplodiploid"}. \code{X}/\code{Z} and \code{Y}/\code{W} hold markers specific to that chromosome; \code{PAR} holds pseudoautosomal markers. For \code{"XY"}/\code{"ZW"}, \code{Y} (or \code{W}) or both \code{X} (or \code{Z}) and \code{PAR} are required. Stored in \code{params} together with \code{sex_system}. Default \code{NULL}.}
+
+\item{sex_min_depth}{Numeric. For \code{"XY"}/\code{"ZW"} with \code{sex_chr$Y} (or \code{sex_chr$W}): a Y/W-specific marker counts as covered when its depth \code{R} is greater than this value. Y/W-specific markers are usually removed by standardization (no reference clusters when the reference set is single-sex), so presence of Y/W is scored from raw depth on all markers of those chromosomes, before any filtering (including \code{chr}). Default \code{6}.}
+
+\item{sex_min_markers}{Integer. Minimum number of covered Y/W-specific markers (see \code{sex_min_depth}) for Y/W to be considered present. The result is stored in \code{params$sex_het_depth} (\code{n_covered}, \code{n_markers}, \code{score}, e.g. \code{"5/9"}, and \code{present}) and used by \code{\link{karyotype_notation}}, \code{\link{plot_karyotype}}, \code{\link{count_types}}, and \code{\link{compare_cn_track_summary}} to infer sex. Default \code{2}.}
 
 \item{rerun_overall_ploidy}{Logical. If \code{TRUE}, after the initial HMM run the function identifies markers whose window-level CN call disagrees with the sample-wide mode CN, removes them, and reruns \code{hmm_estimate_CN} (with \code{rerun_overall_ploidy = FALSE}) to obtain a cleaner overall ploidy estimate. Useful when a few aneuploid segments would otherwise bias the genome-wide BAF model. Default \code{FALSE}.}
 

@@ -15,7 +15,7 @@ hmm_estimate_CN_nQuack(
   snps_per_window = 50,
   min_snps_per_window = NULL,
   cn_grid = 2:6,
-  max_cn_dev = NULL,
+  max_cn_dev = 2,
   max_iter = 60,
   het_quantile = 0.8,
   baf_weight = 0.5,
@@ -38,7 +38,9 @@ hmm_estimate_CN_nQuack(
   nQuack_type = "fixed",
   nQuack_uniform = 1,
   sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
-  sex_chr = NULL
+  sex_chr = NULL,
+  sex_min_depth = 6,
+  sex_min_markers = 2
 )
 }
 \arguments{
@@ -62,7 +64,7 @@ hmm_estimate_CN_nQuack(
 
 \item{cn_grid}{Integer vector of copy-number states to consider, a subset of \code{1:6} (any value from 1 to 10 when \code{z_only = TRUE}; \code{0} is not allowed). nQuack models CN \code{2:6}. CN \code{1} has no nQuack model: in windows with a heterozygous fraction of at least \code{min_het_frac} its BAF log-likelihood is set to the lowest of the other states, otherwise BAF is neutral and z decides. When \code{1} is in \code{cn_grid}, \code{exp_ploidy} is not given, and the sample-wide heterozygous fraction is at most \code{min_het_frac}, the sample is treated as haploid (\code{exp_ploidy = 1}) and the nQuack global fit is skipped. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.}
 
-\item{max_cn_dev}{Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from the nQuack global fit on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}, e.g. \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. \code{NULL} (default) keeps the full grid.}
+\item{max_cn_dev}{Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from the nQuack global fit on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}, e.g. \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. Default \code{2}. \code{NULL} keeps the full grid.}
 
 \item{max_iter}{Integer. Maximum EM iterations. Default \code{60}.}
 
@@ -136,6 +138,14 @@ holds pseudoautosomal markers. For \code{"XY"}/\code{"ZW"}, \code{Y} (or
 \code{W}) or both \code{X} (or \code{Z}) and \code{PAR} are required.
 Stored in \code{params} together with \code{sex_system}. Default
 \code{NULL}.}
+
+\item{sex_min_depth}{Numeric. Depth (\code{R}) above which a Y/W-specific
+marker counts as covered. Y/W presence is scored from raw depth before any
+filtering; see \code{\link{hmm_estimate_CN}}. Default \code{6}.}
+
+\item{sex_min_markers}{Integer. Minimum number of covered Y/W-specific
+markers for Y/W to be considered present. Stored with the score in
+\code{params$sex_het_depth}. Default \code{2}.}
 }
 \value{
 An object of class \code{hmm_CN}, a list with:

@@ -1,3 +1,34 @@
+#' Prepare one state's BAF log-likelihood column for the HMM emission
+#'
+#' Distinguishes two cases that must not be conflated:
+#' \itemize{
+#'   \item Windows without BAF evidence (\code{n_baf == 0}, or every state
+#'     non-finite): neutral emission, 0 for all states.
+#'   \item Windows with BAF evidence where this state's fit failed or is
+#'     unsupported (\code{-Inf}/\code{NaN}): a large finite penalty, so the
+#'     state is effectively rejected instead of scoring as log-likelihood 0
+#'     (better than any successful fit), while keeping forward/backward
+#'     sums finite.
+#' }
+#'
+#' @param ll_baf_matrix BAF log-likelihood matrix (windows x states).
+#' @param k Column (state) index.
+#' @param n_baf Numeric vector, number of BAF values per window.
+#' @param correct_scale Logical, divide by \code{n_baf}.
+#' @param fail_ll Finite log-likelihood assigned to failed states.
+#'
+#' @return Numeric vector of length \code{nrow(ll_baf_matrix)}, all finite.
+#' @keywords internal
+#' @noRd
+prep_baf_ll <- function(ll_baf_matrix, k, n_baf, correct_scale, fail_ll = -1e6) {
+  no_baf <- n_baf == 0 | rowSums(is.finite(ll_baf_matrix)) == 0
+  llb <- ll_baf_matrix[, k]
+  if (correct_scale) llb <- llb / n_baf
+  llb[!no_baf & !is.finite(llb)] <- fail_ll
+  llb[no_baf] <- 0
+  llb
+}
+
 #' EM loop for HMM ploidy estimation
 #'
 #' This function runs the EM algorithm for the HMM ploidy estimation, given all required parameters.
@@ -37,16 +68,11 @@ em_hmm_cn <- function(cn_grid, mu, K, state_ids, sig, z, z_only, ll_baf_matrix, 
       if (z_only) {
         ll_em[,k] <- llz
       } else if (baf_only) {
-        llb <- ll_baf_matrix[,k]
-        if(correct_scale) llb <- ifelse(n_baf > 0, llb / n_baf, 0) # n_baf == 0 would otherwise divide to NaN/Inf
-        llb[!is.finite(llb)] <- 0
-        ll_em[, k] <- llb
+        # No-BAF windows -> neutral 0; failed CN-specific fits -> penalized
+        ll_em[, k] <- prep_baf_ll(ll_baf_matrix, k, n_baf, correct_scale)
       } else {
-        llb <- ll_baf_matrix[,k]
-        if(correct_scale) {
-          llb <- ifelse(n_baf > 0, llb / n_baf, 0) # n_baf == 0 would otherwise divide to NaN/Inf
-        }
-        llb[!is.finite(llb)] <- 0 # If not BAF is present in the window, only z-score is considered
+        # No-BAF windows -> only z-score is considered; failed CN-specific fits -> penalized
+        llb <- prep_baf_ll(ll_baf_matrix, k, n_baf, correct_scale)
         # Tempered log-product: z always contributes fully, BAF contributes a fraction of its evidence.
         ll_em[, k] <- llz + w_baf * llb
       }

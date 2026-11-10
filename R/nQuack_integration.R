@@ -743,7 +743,7 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #' @param snps_per_window Integer. Number of SNPs per window when windows are created with fixed-size windowing (\code{segment_zscore = FALSE}). Default \code{50}.
 #' @param min_snps_per_window Minimum segment length (in SNPs) for z-score changepoint detection. Either a single integer for all chromosomes, or an integer vector named by chromosome ID (e.g. \code{c(Chr01 = 300, Xspecific = 20)}); chromosomes not named use the dynamic default. If \code{NULL}, a dynamic value is chosen based on the size of the smallest chromosome. Windows are never removed: chromosomes with fewer markers than this value form a single window. Default: \code{NULL}.
 #' @param cn_grid Integer vector of copy-number states to consider, a subset of \code{1:6} (any value from 1 to 10 when \code{z_only = TRUE}; \code{0} is not allowed). nQuack models CN \code{2:6}. CN \code{1} has no nQuack model: in windows with a heterozygous fraction of at least \code{min_het_frac} its BAF log-likelihood is set to the lowest of the other states, otherwise BAF is neutral and z decides. When \code{1} is in \code{cn_grid}, \code{exp_ploidy} is not given, and the sample-wide heterozygous fraction is at most \code{min_het_frac}, the sample is treated as haploid (\code{exp_ploidy = 1}) and the nQuack global fit is skipped. Unlikely values will be discarded during estimation if their z means are not monotonic with ploidy. Default \code{2:6}.
-#' @param max_cn_dev Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from the nQuack global fit on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}, e.g. \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. \code{NULL} (default) keeps the full grid.
+#' @param max_cn_dev Integer or \code{NULL}. Maximum distance from \code{exp_ploidy} for CN states kept in the HMM. After \code{exp_ploidy} is set (from the nQuack global fit on the full \code{cn_grid}, or by the user), \code{cn_grid} is restricted to states with \code{|CN - exp_ploidy| <= max_cn_dev}, e.g. \code{cn_grid = 1:6}, \code{exp_ploidy = 2}, \code{max_cn_dev = 2} tests \code{1:4}. Useful in mixed-ploidy populations, where a wide grid compresses the z-score spacing between states and causes false calls. Default \code{2}. \code{NULL} keeps the full grid.
 #' @param max_iter Integer. Maximum EM iterations. Default \code{60}.
 #' @param het_quantile Numeric. Quantile used to scale BAF emission weight based on heterozygote count. Default \code{0.8}.
 #' @param baf_weight Numeric. Overall weight applied to BAF emission (0-1). Default \code{0.5}.
@@ -794,6 +794,12 @@ call_BAF_nQuack_dosages <- function(baf_vec,
 #'   \code{W}) or both \code{X} (or \code{Z}) and \code{PAR} are required.
 #'   Stored in \code{params} together with \code{sex_system}. Default
 #'   \code{NULL}.
+#' @param sex_min_depth Numeric. Depth (\code{R}) above which a Y/W-specific
+#'   marker counts as covered. Y/W presence is scored from raw depth before any
+#'   filtering; see \code{\link{hmm_estimate_CN}}. Default \code{6}.
+#' @param sex_min_markers Integer. Minimum number of covered Y/W-specific
+#'   markers for Y/W to be considered present. Stored with the score in
+#'   \code{params$sex_het_depth}. Default \code{2}.
 #'
 #' @return An object of class \code{hmm_CN}, a list with:
 #'   \describe{
@@ -827,7 +833,7 @@ hmm_estimate_CN_nQuack <- function(
   snps_per_window = 50,
   min_snps_per_window = NULL,
   cn_grid = 2:6,
-  max_cn_dev = NULL,
+  max_cn_dev = 2,
   max_iter = 60,
   het_quantile = 0.8,
   baf_weight = 0.5,
@@ -850,11 +856,14 @@ hmm_estimate_CN_nQuack <- function(
   nQuack_type = "fixed",
   nQuack_uniform = 1,
   sex_system = c("none", "XY", "ZW", "X0", "haplodiploid"),
-  sex_chr = NULL
+  sex_chr = NULL,
+  sex_min_depth = 6,
+  sex_min_markers = 2
 ) {
   # ---- Input checks ----
   sex_system <- match.arg(sex_system)
   .sex_chr_roles(sex_system, sex_chr)
+  .check_sex_depth_args(sex_min_depth, sex_min_markers)
   if (any(cn_grid < 0) | any(cn_grid > 10)) stop("All values in cn_grid must be between 0 and 10.")
   # z-mean initialization and monotonicity pruning assume ascending CN order
   cn_grid <- sort(unique(cn_grid))
@@ -919,6 +928,10 @@ hmm_estimate_CN_nQuack <- function(
     d <- merge(d, gp, by = "MarkerName", all.x = FALSE)
     if (nrow(d) == 0) stop("No markers remain after merging data with geno.pos.")
   }
+
+  # Y/W presence from raw depth, before chromosome/marker filters drop the
+  # Y/W-specific markers (they have no z/BAF in single-sex standardizations)
+  sex_het_depth <- .sex_het_depth(d, sex_system, sex_chr, sex_min_depth, sex_min_markers)
 
   # Subset to requested chromosomes
   if (!is.null(chr)) {
@@ -1399,14 +1412,12 @@ hmm_estimate_CN_nQuack <- function(
     if (z_only) {
       ll_em[, k] <- llz
     } else if (baf_only) {
-      llb <- ll_baf_matrix[, k]
-      if (correct_scale) llb <- llb / n_baf
-      llb[no_baf] <- 0
-      ll_em[, k] <- llb
+      # no-BAF windows -> neutral 0; failed CN-specific fits -> penalized
+      ll_em[, k] <- prep_baf_ll(ll_baf_matrix, k, n_baf, correct_scale)
     } else {
-      llb <- ll_baf_matrix[, k]
-      if (correct_scale) llb <- llb / n_baf
-      llb[no_baf] <- 0
+      # no-BAF windows -> BAF term dropped (w_baf_dec forced to 0 above);
+      # failed CN-specific fits -> penalized (finite, so 0 * llb never gives NaN)
+      llb <- prep_baf_ll(ll_baf_matrix, k, n_baf, correct_scale)
       ll_em[, k] <- llz + w_baf_dec * llb
     }
   }
@@ -1417,10 +1428,7 @@ hmm_estimate_CN_nQuack <- function(
     for (k in seq_len(K)) {
       c_k <- cn_grid[k]
       llz_mat[, k] <- dnorm(z, mean = mu[as.character(c_k)], sd = sig_dec, log = TRUE)
-      llb_k <- ll_baf_matrix[, k]
-      if (correct_scale) llb_k <- llb_k / n_baf
-      llb_k[no_baf] <- 0
-      llb_mat[, k] <- llb_k
+      llb_mat[, k] <- prep_baf_ll(ll_baf_matrix, k, n_baf, correct_scale)
     }
   }
 
@@ -1606,7 +1614,8 @@ hmm_estimate_CN_nQuack <- function(
     nQuack_uniform      = nQuack_uniform,
     max_cn_dev          = max_cn_dev,
     sex_system          = sex_system,
-    sex_chr             = sex_chr
+    sex_chr             = sex_chr,
+    sex_het_depth       = sex_het_depth
   )
 
   if (!is.null(result) && !is.null(d)) {

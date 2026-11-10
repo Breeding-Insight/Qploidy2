@@ -1,9 +1,10 @@
 #' Install Qploidy2 Claude AI Skills
 #'
 #' Downloads the Qploidy2 Claude Code skill files from GitHub and places them
-#' in the \code{.claude/agents/} directory of your current R working directory.
-#' Once installed, the skills are automatically available to Claude Code when
-#' you open that directory as a project.
+#' in the \code{.claude/skills/} directory of your current R working directory,
+#' one folder per skill (\code{.claude/skills/<skill>/SKILL.md}). Once
+#' installed, the skills are automatically available to Claude Code when you
+#' open that directory as a project.
 #'
 #' Two skills are installed:
 #' \itemize{
@@ -14,8 +15,9 @@
 #'     filtering, visualization, and export.
 #' }
 #'
-#' @param dest_dir Destination directory for the skill files. Defaults to
-#'   \code{.claude/agents/} inside the current working directory.
+#' @param dest_dir Destination directory for the skills. Defaults to
+#'   \code{.claude/skills/} inside the current working directory. Each skill is
+#'   written to \code{<dest_dir>/<skill>/SKILL.md}.
 #' @param overwrite Logical. If \code{TRUE}, overwrite existing skill files.
 #'   Default is \code{FALSE}.
 #'
@@ -27,31 +29,29 @@
 #' }
 #'
 #' @export
-install_claude_skills <- function(dest_dir = file.path(getwd(), ".claude", "agents"),
+install_claude_skills <- function(dest_dir = file.path(getwd(), ".claude", "skills"),
                                   overwrite = FALSE) {
   base_url <- paste0(
     "https://raw.githubusercontent.com/",
-    "Breeding-Insight/Qploidy2/main/.claude/agents/"
+    "Breeding-Insight/Qploidy2/main/.claude/skills/"
   )
 
-  skills <- c("qploidy2-input-prep.md", "qploidy2-analysis.md")
-
-  if (!dir.exists(dest_dir)) {
-    dir.create(dest_dir, recursive = TRUE)
-    message("Created directory: ", dest_dir)
-  }
+  skills <- c("qploidy2-input-prep", "qploidy2-analysis")
 
   installed <- character(0)
 
   for (skill in skills) {
-    dest_file <- file.path(dest_dir, skill)
+    skill_dir <- file.path(dest_dir, skill)
+    dest_file <- file.path(skill_dir, "SKILL.md")
 
     if (file.exists(dest_file) && !overwrite) {
       message("Skipping ", skill, " (already exists). Use overwrite = TRUE to replace.")
       next
     }
 
-    url <- paste0(base_url, skill)
+    if (!dir.exists(skill_dir)) dir.create(skill_dir, recursive = TRUE)
+
+    url <- paste0(base_url, skill, "/SKILL.md")
     tryCatch({
       utils::download.file(url, destfile = dest_file, quiet = TRUE)
       message("Installed: ", dest_file)
@@ -65,7 +65,7 @@ install_claude_skills <- function(dest_dir = file.path(getwd(), ".claude", "agen
     message(
       "\nSkills installed successfully!\n",
       "Open this directory in Claude Code and ask Claude about the Qploidy2 workflow.\n",
-      "Or copy the skill files to any other project's .claude/agents/ folder."
+      "Or copy the skill folders to any other project's .claude/skills/ folder."
     )
   }
 

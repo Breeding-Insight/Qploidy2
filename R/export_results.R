@@ -240,6 +240,28 @@ export_mappoly <- function(hmm_CN_obj){
   return(aneu)
 }
 
+#' Normalize chromosome identifiers for matching
+#'
+#' Converts chromosome labels to a consistent character form so that labels
+#' such as `"chr1"`, `"Chr01"`, `"1"` and `1` all map to `"1"`, and
+#' `"chrX"`/`"X"` map to `"X"`. Non-numeric names (sex chromosomes, scaffolds)
+#' are preserved rather than coerced to `NA`.
+#'
+#' @param x A vector of chromosome labels.
+#' @return A character vector of normalized chromosome IDs.
+#' @keywords internal
+#' @noRd
+normalize_chr_id <- function(x) {
+  x <- trimws(as.character(x))
+  x <- sub("^chr(omosome)?[_.-]?", "", x, ignore.case = TRUE)
+  is_num <- !is.na(x) & grepl("^[0-9]+$", x)
+  x[is_num] <- sub("^0+(?=[0-9])", "", x[is_num], perl = TRUE)
+  is_sex <- !is.na(x) & grepl("^[xymXYM]$", x)
+  x[is_sex] <- toupper(x[is_sex])
+  x[!is.na(x) & x == ""] <- NA_character_
+  x
+}
+
 #' Import PennCNV output into an HMM result object
 #'
 #' Parses PennCNV segment output and converts it into the internal `hmm_CN`
@@ -262,12 +284,16 @@ export_mappoly <- function(hmm_CN_obj){
 import_penncnv_results <- function(df, geno.pos) {
 
   # --- Parse PennCNV columns into by_window format ---
+  # PennCNV region token is "<chr>:<start>-<end>". Parse the full chromosome
+  # token (so chrX/chrY/scaffolds are kept) and anchor coordinates at the end.
+  region <- stringr::str_match(df$V1, "^(.+):(\\d+)-(\\d+)$")
+
   penncnv_converted <- df %>%
     mutate(
       Sample         = str_extract(V5, "[^/]+$"),
-      Chr            = str_extract(V1, "(?<=chr)\\d+"),
-      Start          = as.integer(str_extract(V1, "(?<=:)\\d+")),
-      End            = as.integer(str_extract(V1, "(?<=-)[0-9]+")),
+      Chr            = normalize_chr_id(region[, 2]),
+      Start          = as.integer(region[, 3]),
+      End            = as.integer(region[, 4]),
       n_snps         = as.integer(str_extract(V2, "\\d+")),
       CN_call        = as.integer(str_extract(V4, "(?<=cn=)\\d+")),
       CN_reliability = as.numeric(str_extract(V8, "(?<=conf=)[0-9.]+"))
@@ -291,11 +317,15 @@ import_penncnv_results <- function(df, geno.pos) {
 
   # --- Expand into by_marker format ---
   penncnv_by_marker <- penncnv_converted %>%
-    mutate(Chr = as.integer(Chr)) %>%
+    filter(!is.na(Chr)) %>%
     left_join(
-      geno.pos %>% rename(Chr = Chromosome) %>% mutate(Chr = as.integer(Chr)),
+      geno.pos %>%
+        rename(Chr = Chromosome) %>%
+        mutate(Chr = normalize_chr_id(Chr)) %>%
+        filter(!is.na(Chr)),
       by = "Chr",
-      relationship = "many-to-many"
+      relationship = "many-to-many",
+      na_matches = "never"
     ) %>%
     filter(Position >= Start & Position <= End) %>%
     mutate(

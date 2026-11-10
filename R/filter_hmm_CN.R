@@ -158,8 +158,17 @@ filter_hmm_CN <- function(hmm_CN,
 #'   containing the sample IDs of that type.  A nested element \code{$by_cn}
 #'   further splits those vectors by sample-level CN
 #'   (e.g. \code{result$by_cn[["2x"]]$euploid}). When \code{sex_system} is set,
-#'   \code{$sex} is a \code{data.frame} with \code{Sample}, \code{Sex}, and
-#'   \code{SexChr} per sample.
+#'   \code{$sex} is a \code{data.frame} with \code{Sample}, \code{Sex},
+#'   \code{SexChr}, \code{SexChrConsistent}, \code{SexHetCN} (estimated Y/W
+#'   copies), and \code{SexHetScore} (Y/W depth score, e.g.
+#'   \code{"5/9"}; see \code{sex_min_depth} in \code{\link{hmm_estimate_CN}})
+#'   per sample (see \code{\link{karyotype_notation}}). Samples with
+#'   \code{SexChr == "?"} or \code{SexChrConsistent == FALSE} have
+#'   sex-chromosome evidence that disagrees (e.g. Y present by depth but
+#'   PAR == X) and should be inspected; their count is printed. For samples
+#'   with \code{SexChr == "?"}, sex chromosomes are not compared with an
+#'   expected CN, so they do not make the sample aneuploid; only mixed CN
+#'   within a chromosome (segmental) is counted.
 #'
 #' @importFrom dplyr group_by summarise mutate left_join n_distinct
 #' @export
@@ -202,23 +211,53 @@ count_types <- function(hmm_CN, chromosomes = NULL, samplesID = NULL,
       left_join(sample_cn_df, by = "Sample") %>%
       mutate(expected_cn = sample_cn)
   } else {
-    # One pseudo-marker per window: karyotype_notation() infers sex and expected CN per chromosome
-    bw_ok <- bw[!is.na(bw$CN_call), ]
+    # karyotype_notation() infers sex and expected CN per chromosome. Feed it the
+    # same marker-level calls it uses on an hmm_CN, so modes (ploidy, X, PAR) are
+    # counted per marker and Sex/SexChr match karyotype_notation(hmm_CN)
+    kn_cols <- c("SampleName", "Chr", "Position", "CN_call")
+    bm <- hmm_CN$by_marker
+    kn_df <- NULL
+    if (!is.null(bm) && all(kn_cols %in% names(bm))) {
+      bm <- as.data.frame(bm)[, kn_cols]   # also handles data.table/tibble
+      bm$SampleName <- as.character(bm$SampleName)
+      bm$Chr <- as.character(bm$Chr)
+      kn_df <- bm[bm$SampleName %in% unique(bw$Sample) &
+                    bm$Chr %in% unique(as.character(bw$Chr)), ]
+    }
+    # Samples missing from by_marker (or no by_marker): one pseudo-marker per
+    # SNP of each window
+    bw_ok <- bw[!is.na(bw$CN_call) &
+                  !bw$Sample %in% if (is.null(kn_df)) character(0) else kn_df$SampleName, ]
+    if (nrow(bw_ok) > 0) {
+      reps <- if ("n_snps" %in% names(bw_ok))
+        pmax(1L, dplyr::coalesce(as.integer(bw_ok$n_snps), 1L)) else 1L
+      idx <- rep(seq_len(nrow(bw_ok)), reps)
+      kn_df <- rbind(kn_df, data.frame(
+        SampleName = as.character(bw_ok$Sample[idx]), Chr = as.character(bw_ok$Chr[idx]),
+        Position = bw_ok$Start[idx], CN_call = bw_ok$CN_call[idx],
+        stringsAsFactors = FALSE))
+    }
     kn <- karyotype_notation(
-      data.frame(SampleName = bw_ok$Sample, Chr = bw_ok$Chr,
-                 Position = bw_ok$Start, CN_call = bw_ok$CN_call,
-                 stringsAsFactors = FALSE),
-      sex_system = sex_system, sex_chr = sex_chr)
+      kn_df,
+      sex_system = sex_system, sex_chr = sex_chr,
+      sex_het_depth = if (.het_depth_applies(sex_system, sex_chr)) .het_depth_table(hmm_CN))
     sample_cn_df <- unique(data.frame(Sample = kn$SampleName, sample_cn = as.integer(kn$Ploidy)))
     sample_cn_df <- sample_cn_df[!is.na(sample_cn_df$sample_cn), ]
+    exp_df <- data.frame(Sample = kn$SampleName, Chr = kn$ChrID,
+                         expected_cn = kn$ExpectedCN, stringsAsFactors = FALSE)
+    # Unresolved complement (SexChr "?"): the expected sex-chromosome CNs are a
+    # guess, so these are not counted as whole-chromosome aneuploidy; the sample
+    # is only flagged in $sex (mixed CN within a chromosome still counts)
+    unresolved_sex <- kn$SexChr %in% "?" & kn$ChrType != "autosome"
+    exp_df$expected_cn[unresolved_sex] <- NA_integer_
     cell_df <- cell_df %>%
       left_join(sample_cn_df, by = "Sample") %>%
-      left_join(data.frame(Sample = kn$SampleName, Chr = kn$ChrID,
-                           expected_cn = kn$ExpectedCN, stringsAsFactors = FALSE),
-                by = c("Sample", "Chr")) %>%
+      left_join(exp_df, by = c("Sample", "Chr")) %>%
       # Sex chromosomes of unknown complement are compared to themselves (not flagged)
       mutate(expected_cn = dplyr::coalesce(as.integer(expected_cn), as.integer(dom_cn)))
     sex_df <- unique(data.frame(Sample = kn$SampleName, Sex = kn$Sex, SexChr = kn$SexChr,
+                                SexChrConsistent = kn$SexChrConsistent,
+                                SexHetCN = kn$SexHetCN, SexHetScore = kn$SexHetScore,
                                 stringsAsFactors = FALSE))
   }
 
@@ -297,9 +336,12 @@ print.count_types <- function(x, ...) {
   cat(sprintf("  Grand total                %d\n", nrow(sample_class)))
   if (!is.null(x$sex)) {
     sx <- table(factor(ifelse(is.na(x$sex$Sex), "unknown", x$sex$Sex),
-                       levels = c("female", "male", "unknown")))
-    cat(sprintf("  Sex: female %d | male %d | unknown %d\n",
-                sx[["female"]], sx[["male"]], sx[["unknown"]]))
+                       levels = c("female", "male", "?", "unknown")))
+    cat(sprintf("  Sex: female %d | male %d | ? %d | unknown %d\n",
+                sx[["female"]], sx[["male"]], sx[["?"]], sx[["unknown"]]))
+    n_check <- sum(x$sex$SexChr %in% "?" | x$sex$SexChrConsistent %in% FALSE)
+    if (n_check > 0)
+      cat(sprintf("  Sex chromosomes to check: %d (see $sex)\n", n_check))
   }
   cat(strrep("=", 52), "\n\n", sep = "")
   invisible(x)

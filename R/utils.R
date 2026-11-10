@@ -15,17 +15,21 @@ pascalTriangle <- function(h) {
 #' Calculate the Statistical Mode
 #'
 #' This function returns the most frequent (modal) value in a vector.
-#' If there are multiple values with the same highest frequency,
-#' it returns the first one encountered.
+#' Missing values are ignored. If there are multiple values with the same
+#' highest frequency, it returns the first one encountered.
 #'
 #' @param x A vector of numeric, character, or factor values.
 #'
-#' @return A single value representing the mode of the input vector.
+#' @return A single value representing the mode of the non-missing values of
+#'   `x`, or a scalar `NA` (of the same type as `x`) when `x` is empty or
+#'   entirely missing.
 #'
 #'
 mode <- function(x) {
-  ux <- unique(x)
-  ux[which.max(tabulate(match(x, ux)))]
+  x_ok <- x[!is.na(x)]
+  if (length(x_ok) == 0L) return(x[NA_integer_])
+  ux <- unique(x_ok)
+  ux[which.max(tabulate(match(x_ok, ux)))]
 }
 
 #' Adjust allele dosage using sequencing error and allele bias - function adapted from updog

@@ -4,7 +4,13 @@
 \alias{karyotype_notation}
 \title{Build ISCN-style karyotype notation from HMM copy-number calls}
 \usage{
-karyotype_notation(df, sample_name = NULL, sex_system = NULL, sex_chr = NULL)
+karyotype_notation(
+  df,
+  sample_name = NULL,
+  sex_system = NULL,
+  sex_chr = NULL,
+  sex_het_depth = NULL
+)
 }
 \arguments{
 \item{df}{A \code{data.frame} with at least the columns \code{SampleName},
@@ -44,8 +50,26 @@ shared by both. Each element may contain several IDs. For
 \code{"XY"}/\code{"ZW"}, the copy number of a missing group is derived
 from the PAR (e.g. Y = PAR - X); when all three groups are given, the
 relation X + Y = PAR is checked and reported in \code{SexChrConsistent}.
-Detecting the absence of Y/W (CN = 0) requires \code{0} in the
-\code{cn_grid} used by the HMM.}
+Detecting the absence of Y/W (CN = 0) from CN calls requires \code{0} in
+the \code{cn_grid} used by the HMM; the depth-based score (see
+\code{sex_het_depth}) does not.}
+
+\item{sex_het_depth}{\code{data.frame} or \code{NULL}. Presence of Y (XY) or
+W (ZW) scored from depth, with columns \code{SampleName}, \code{present}
+(logical), and optionally \code{score} (e.g. \code{"5/9"}). When
+\code{NULL} (default) and \code{df} is an \code{hmm_CN} object, it is
+taken from \code{params$sex_het_depth}, computed by
+\code{\link{hmm_estimate_CN}} from the depth of Y/W-specific markers
+(\code{sex_min_depth}, \code{sex_min_markers}). When available for a
+sample, it decides whether Y/W is present (and so the sex) instead of the
+Y/W CN calls, which are usually missing because Y/W-specific markers are
+removed by single-sex standardization. The number of Y/W copies is then
+taken from CN: called Y/W CN, else PAR - X, else Ploidy - X, else 1;
+unknown when neither X nor Y/W has a CN call.
+Samples without a score fall back to the CN-based inference. Only used
+when \code{sex_system} is \code{"XY"}/\code{"ZW"} and \code{sex_chr}
+defines \code{Y}/\code{W}; otherwise it is ignored (with a warning if
+supplied explicitly).}
 }
 \value{
 A \code{data.frame} with one row per sample-chromosome combination
@@ -63,13 +87,43 @@ A \code{data.frame} with one row per sample-chromosome combination
   }
   When \code{sex_system != "none"}, the following columns are added:
   \describe{
-    \item{\code{Sex}}{\code{"male"}, \code{"female"}, or \code{NA} when it
-      cannot be inferred.}
+    \item{\code{Sex}}{\code{"male"}, \code{"female"}, \code{"?"} when
+      \code{SexChr} is \code{"?"} (conflicting sex-chromosome evidence, to
+      be investigated), or \code{NA} when it cannot be inferred.}
     \item{\code{SexChr}}{Sex-chromosome complement, e.g. \code{"XY"},
-      \code{"XXXY"}, \code{"ZW"}, \code{"X0"}. \code{NA} if unknown.}
-    \item{\code{SexChrConsistent}}{For \code{"XY"}/\code{"ZW"} with all
-      three groups defined: whether X + Y (or Z + W) equals the PAR copy
-      number. \code{NA} otherwise.}
+      \code{"XXXY"}, \code{"XXYY"}, \code{"ZW"}, \code{"X0"}. Each
+      \code{"0"} marks a copy missing relative to the ploidy (e.g.
+      \code{"XXX0"}: tetraploid with PAR = X = 3 and no Y). \code{"?"} when
+      Y/W is absent by depth but PAR > X/Z, so the extra PAR copies are not
+      explained, or when Y/W is present by depth but neither X/Z nor Y/W
+      has a CN call, so PAR cannot be split between them (e.g. PAR 4 could
+      be XXXY, XXYY, or XYYY), or whenever the depth evidence contradicts
+      PAR vs X/Z (\code{SexChrConsistent} is \code{FALSE}): Y/W present
+      with PAR == X/Z (likely contamination), Y/W absent with PAR > X/Z, or
+      PAR < X/Z. These should be investigated; deviating X/Z copies are
+      still flagged. When X/Z is segmental (several CNs) and its modal CN
+      contradicts the depth evidence while another X/Z segment agrees
+      with it, that segment sets the complement and the rest is reported
+      in \code{Segment} as a segmental gain or loss (e.g. Y absent, PAR 2,
+      X 2 on one arm and 1 on the larger other: \code{"XX"}, a female with
+      a partial X deletion). \code{NA} if unknown.}
+    \item{\code{SexChrConsistent}}{For \code{"XY"}/\code{"ZW"}: whether the
+      sex-chromosome evidence agrees. With a Y/W depth score
+      (\code{sex_het_depth}), Y/W present must go with PAR > X/Z
+      (\code{TRUE}), and Y/W absent with PAR == X/Z. Y/W present with
+      PAR == X (likely contamination), PAR > X without Y/W, or PAR < X
+      (impossible) give \code{FALSE}, and \code{SexChr} is then
+      \code{"?"}. Without a score, whether X + Y (or
+      Z + W) equals the PAR copy number when all three groups are called.
+      \code{NA} when the needed groups are missing.}
+    \item{\code{SexHetCN}}{Estimated number of Y (XY) or W (ZW) copies. Y/W
+      has no CN calls of its own, so with a depth score this is 0 when
+      Y/W is absent and PAR - X/Z when present (e.g. ploidy 4, PAR 4, X 2
+      gives 2), falling back to ploidy - X/Z and then 1. \code{NA} when Y/W
+      is present but X/Z has no CN call.}
+    \item{\code{SexHetScore}}{Y/W depth score: Y/W-specific markers with
+      depth above \code{sex_min_depth} over all Y/W-specific markers (e.g.
+      \code{"5/9"}). \code{NA} when not available.}
     \item{\code{ChrType}}{\code{"autosome"}, \code{"X"}, \code{"Y"},
       \code{"Z"}, \code{"W"}, or \code{"PAR"}.}
     \item{\code{ExpectedCN}}{Copy number expected for the chromosome given

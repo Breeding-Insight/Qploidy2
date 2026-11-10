@@ -677,6 +677,66 @@ write_qploidy_standardization <- function(qploidy_standardization_object, out_fi
   vroom_write(qploidy_standardization_object$data, file = out_filename, append = TRUE, col_names = T)
 }
 
+#' Recover raw input data.frames from a qploidy_standardization object
+#'
+#' Extracts the `data`, `genos` and `geno.pos` data.frames, formatted as
+#' required by \code{\link{standardize}}, from an object of class
+#' `qploidy_standardization` (as returned by \code{\link{standardize}},
+#' \code{\link{re_standardize}} or \code{\link{read_qploidy_standardization}}).
+#'
+#' @details
+#' The returned objects reflect the data stored in the standardization object,
+#' which is not always identical to the original inputs:
+#' \itemize{
+#'   \item `genos` has no `prob` column, because genotype probabilities are not
+#'     stored. Calls removed by the `threshold.geno.prob` or depth filters, and
+#'     calls of markers removed by the `threshold.missing.geno` filter, are `NA`.
+#'   \item Reference samples are identified as samples with at least one
+#'     non-missing genotype call; all their rows are returned in `genos`.
+#'   \item If `min.depth`/`max.depth` were used, the filtered `R` and `ratio`
+#'     values are `NA` in `data`.
+#'   \item Samples removed by `threshold.missing.samples` are not present.
+#'   \item `geno.pos` only includes markers with chromosome information.
+#' }
+#'
+#' @param qploidy_standardization An object of class `qploidy_standardization`.
+#'
+#' @return A list with three data.frames:
+#'   \item{data}{columns MarkerName, SampleName, X, Y, R, ratio}
+#'   \item{genos}{columns MarkerName, SampleName, geno}
+#'   \item{geno.pos}{columns MarkerName, Chromosome, Position}
+#'
+#' @examples
+#' # std <- standardize(data, genos, geno.pos, ploidy.standardization = 4)
+#' # raw <- standardized2raw(std)
+#' # std2 <- standardize(raw$data, raw$genos, raw$geno.pos, ploidy.standardization = 4)
+#'
+#' @export
+standardized2raw <- function(qploidy_standardization) {
+  if (!inherits(qploidy_standardization, "qploidy_standardization"))
+    stop("The provided object is not of class 'qploidy_standardization'.")
+
+  std_data <- as.data.frame(qploidy_standardization$data)
+
+  required_cols <- c("MarkerName", "SampleName", "X", "Y", "R", "ratio", "geno", "Chr", "Position")
+  missing_cols <- setdiff(required_cols, colnames(std_data))
+  if (length(missing_cols) > 0)
+    stop("The 'data' element is missing column(s): ", paste(missing_cols, collapse = ", "), ".")
+
+  data <- std_data[, c("MarkerName", "SampleName", "X", "Y", "R", "ratio")]
+
+  ref_samples <- unique(std_data$SampleName[!is.na(std_data$geno)])
+  genos <- std_data[std_data$SampleName %in% ref_samples, c("MarkerName", "SampleName", "geno")]
+
+  geno.pos <- std_data[!duplicated(std_data$MarkerName), c("MarkerName", "Chr", "Position")]
+  geno.pos <- geno.pos[!is.na(geno.pos$Chr), ]
+  colnames(geno.pos) <- c("MarkerName", "Chromosome", "Position")
+
+  rownames(data) <- rownames(genos) <- rownames(geno.pos) <- NULL
+
+  list(data = data, genos = genos, geno.pos = geno.pos)
+}
+
 
 ##' Re-standardize a Qploidy HMM object
 ##'

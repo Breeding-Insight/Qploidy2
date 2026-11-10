@@ -13,6 +13,41 @@ globalVariables(c(
   invisible(NULL)
 }
 
+.check_sex_depth_args <- function(sex_min_depth, sex_min_markers) {
+  if (!is.numeric(sex_min_depth) || length(sex_min_depth) != 1 || is.na(sex_min_depth) ||
+      sex_min_depth < 0)
+    stop("`sex_min_depth` must be a single non-negative number.")
+  if (!is.numeric(sex_min_markers) || length(sex_min_markers) != 1 || is.na(sex_min_markers) ||
+      sex_min_markers < 1 || sex_min_markers != round(sex_min_markers))
+    stop("`sex_min_markers` must be a single positive integer.")
+  invisible(NULL)
+}
+
+# Presence of the heterogametic sex chromosome (Y for XY, W for ZW) from depth.
+# Y/W-specific markers have no reference clusters in single-sex standardizations,
+# so their CN cannot be called; presence is scored from raw depth (R) instead.
+# `d` must be the sample's data before any marker filtering. Returns NULL when
+# not applicable (no XY/ZW system, no Y/W group in sex_chr, or no R column).
+.sex_het_depth <- function(d, sex_system, sex_chr, sex_min_depth = 6, sex_min_markers = 2) {
+  het <- switch(sex_system, XY = "Y", ZW = "W", NULL)
+  if (is.null(het) || is.null(sex_chr[[het]]) || !"R" %in% names(d)) return(NULL)
+  on_het <- !is.na(d$Chr) & as.character(d$Chr) %in% sex_chr[[het]]
+  r <- d$R[on_het]
+  r[is.na(r)] <- 0  # markers with missing depth count as uncovered
+  depth <- if (any(on_het)) tapply(r, d$MarkerName[on_het], max) else numeric(0)
+  n_markers <- length(depth)
+  n_covered <- sum(depth > sex_min_depth)
+  list(
+    chr         = het,
+    n_covered   = n_covered,
+    n_markers   = n_markers,
+    score       = sprintf("%d/%d", n_covered, n_markers),
+    present     = if (n_markers == 0) NA else n_covered >= sex_min_markers,
+    min_depth   = sex_min_depth,
+    min_markers = sex_min_markers
+  )
+}
+
 # Keep only CN states within max_cn_dev of exp_ploidy (CN 0 kept if keep_zero)
 .restrict_cn_grid <- function(cn_grid, exp_ploidy, max_cn_dev, keep_zero = FALSE, verbose = TRUE) {
   if (is.null(max_cn_dev)) return(cn_grid)

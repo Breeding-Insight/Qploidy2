@@ -45,11 +45,16 @@ utils::globalVariables(c(
 ##'   is run internally on \code{df} for \code{sample_name} and used to:
 ##'   \itemize{
 ##'     \item Annotate each chromosome strip with the chromosome-level copy
-##'       number (\code{CN: X}) and any deviating segments
-##'       (\code{g.start_endxXX}), one segment per line.
+##'       number (\code{CN: X}) and, with \code{show_segments = TRUE}, any
+##'       deviating segments (\code{g.start_endxXX}), one segment per line.
 ##'     \item Add \code{Ploidy: X} to the plot subtitle.
 ##'   }
 ##'   Set to \code{FALSE} to omit the annotation.
+##' @param show_segments Logical. If \code{TRUE}, the genomic ranges of
+##'   deviating segments are added to the chromosome strips (only when
+##'   \code{notation = TRUE}). Default \code{FALSE}, since long ranges are
+##'   usually cut off by the strip width; get them from
+##'   \code{\link{karyotype_notation}} (\code{Segment} column) instead.
 ##' @param add_ghost Logical. If \code{TRUE} (default), draws dashed outline
 ##'   rectangles for chromosome copies that are \emph{expected} (based on the
 ##'   sample-wide ploidy mode or the chromosome maximum copy number) but absent
@@ -65,7 +70,14 @@ utils::globalVariables(c(
 ##'   \code{params} is used, falling back to \code{"none"}. When set, ghost
 ##'   copies of sex chromosomes follow the expected sex-chromosome complement
 ##'   (e.g. no ghost second X in an XY male), sex-chromosome strips are
-##'   labelled with their type, and the inferred sex is added to the subtitle.
+##'   labelled with their type, and the inferred sex is added to the subtitle,
+##'   with the Y/W depth score when available: Y/W-specific markers with depth
+##'   above \code{sex_min_depth} over all of them (e.g.
+##'   \code{"Sex: male (XXYY), Y markers covered 5/9"}). Y/W-specific markers have no
+##'   CN calls, so Y/W is not drawn; its copies appear in the complement.
+##'   \code{"[check sex chromosomes]"} is appended when \code{SexChr} is
+##'   \code{"?"} or \code{SexChrConsistent} is \code{FALSE} (see
+##'   \code{\link{karyotype_notation}}).
 ##' @param sex_chr Named list mapping sex-chromosome groups to chromosome IDs,
 ##'   e.g. \code{list(X = "ChrX", Y = "ChrY", PAR = "ChrX_PAR")} (see
 ##'   \code{\link{karyotype_notation}} for the allowed names per system). When
@@ -105,7 +117,8 @@ plot_karyotype <- function(df, sample_name,
                            notation = TRUE,
                            add_ghost = TRUE,
                            sex_system = NULL,
-                           sex_chr = NULL) {
+                           sex_chr = NULL,
+                           show_segments = FALSE) {
     sex <- .resolve_sex_args(df, sex_system, sex_chr)
     sex_system <- sex$sex_system
     sex_chr    <- sex$sex_chr
@@ -118,6 +131,8 @@ plot_karyotype <- function(df, sample_name,
     }
 
     # --- 0. Input checks -----------------------------------------------------
+    # Y/W depth scores live in params; extract them before reducing to by_marker
+    het_depth <- if (.het_depth_applies(sex_system, sex_chr)) .het_depth_table(df)
     if (inherits(df, "hmm_CN")) {
         df <- df$by_marker
     } else if (is.list(df) && !is.data.frame(df) &&
@@ -157,6 +172,9 @@ plot_karyotype <- function(df, sample_name,
     if (!is.logical(notation) || length(notation) != 1)
         stop("`notation` must be TRUE or FALSE.")
 
+    if (!is.logical(show_segments) || length(show_segments) != 1 || is.na(show_segments))
+        stop("`show_segments` must be TRUE or FALSE.")
+
 
     df_sample <- df %>%
         filter(SampleName == sample_name) %>%
@@ -170,7 +188,8 @@ plot_karyotype <- function(df, sample_name,
 
     notation_sample <- if (isTRUE(notation) || sex_system != "none")
         karyotype_notation(df, sample_name = sample_name,
-                           sex_system = sex_system, sex_chr = sex_chr)
+                           sex_system = sex_system, sex_chr = sex_chr,
+                           sex_het_depth = het_depth)
     else NULL
 
     # --- 2. Chromosome ordering ----------------------------------------------
@@ -255,7 +274,9 @@ plot_karyotype <- function(df, sample_name,
                 filter(grey_type != "Filtered") %>%
                 select(Chr, segment_id, copy_num) %>%
                 distinct(),
-            by = c("Chr", "segment_id")
+            by = c("Chr", "segment_id"),
+            # intended: every marker of a segment is repeated on each of its copies
+            relationship = "many-to-many"
         ) %>%
         mutate(
             x_start = copy_num - 0.4,
@@ -359,7 +380,7 @@ plot_karyotype <- function(df, sample_name,
                 chr_title <- if ("ChrType" %in% names(row) && row$ChrType != "autosome")
                     paste0(chr, " (", row$ChrType, ")") else chr
                 cn_line <- paste0("CN: ", row$ChrCN)
-                if (!is.na(row$Segment)) {
+                if (isTRUE(show_segments) && !is.na(row$Segment)) {
                     # Split multiple segments, strip "ChrXX:" prefix from each
                     segs       <- trimws(strsplit(row$Segment, ";", fixed = TRUE)[[1]])
                     segs_clean <- sub(paste0(chr, ":"), "", segs, fixed = TRUE)
@@ -383,9 +404,16 @@ plot_karyotype <- function(df, sample_name,
     sex_text <- if (sex_system != "none" && nrow(notation_sample) > 0) {
         sex    <- notation_sample$Sex[1]
         sexchr <- notation_sample$SexChr[1]
+        score  <- notation_sample$SexHetScore[1]
+        het    <- switch(sex_system, XY = "Y", ZW = "W", NULL)
         paste0("Sex: ", ifelse(is.na(sex), "unknown", sex),
                if (!is.na(sexchr)) paste0(" (", sexchr, ")") else "",
-               if (isFALSE(notation_sample$SexChrConsistent[1])) " [PAR mismatch]" else "")
+               # Y/W has no CN calls of its own: show the depth evidence used
+               if (!is.null(het) && !is.na(score))
+                   paste0(", ", het, " markers covered ", score) else "",
+               # Depth and PAR vs X/Z disagree (or X + Y != PAR without a score)
+               if (identical(sexchr, "?") || isFALSE(notation_sample$SexChrConsistent[1]))
+                   " [check sex chromosomes]" else "")
     } else NULL
 
     # --- 8. Plot -------------------------------------------------------------
@@ -442,7 +470,9 @@ plot_karyotype <- function(df, sample_name,
         # Facet by chromosome
         facet_wrap(~Chr, nrow = nrow, labeller = facet_labeller) +
         labs(
-            title    = paste("Karyotype \u2014", sample_name),
+            # ASCII separator: an em dash triggers a 'mbcsToSbcs' warning on
+            # non-UTF-8 devices (e.g. the default pdf device used by R CMD check)
+            title    = paste("Karyotype -", sample_name),
             subtitle = paste(
                 c(if (!is.null(color_label)) paste("Colored by:", color_label),
                   ploidy_text, sex_text),

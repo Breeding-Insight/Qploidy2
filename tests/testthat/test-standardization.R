@@ -210,3 +210,41 @@ test_that("updog_centers returns correct output structure", {
   expect_equal(sum(result$m1$centers_theta), 1.502, tolerance = 0.001)
 })
 
+
+test_that("standardized2raw recovers standardize inputs", {
+  fake_input <- simulate_standardization_input(n_markers = 10, n_samples = 5, ploidy = 2, seed = 2025)
+
+  std <- standardize(
+    data = fake_input$sample_data,
+    genos = fake_input$geno_data,
+    geno.pos = fake_input$geno_pos,
+    threshold.missing.geno = 1,
+    threshold.geno.prob = 0.5,
+    ploidy.standardization = 2,
+    threshold.n.clusters = 2,
+    n.cores = 1,
+    verbose = FALSE
+  )
+
+  raw <- standardized2raw(std)
+
+  expect_named(raw, c("data", "genos", "geno.pos"))
+  expect_equal(colnames(raw$data), c("MarkerName", "SampleName", "X", "Y", "R", "ratio"))
+  expect_equal(colnames(raw$genos), c("MarkerName", "SampleName", "geno"))
+  expect_equal(colnames(raw$geno.pos), c("MarkerName", "Chromosome", "Position"))
+  expect_equal(nrow(raw$data), nrow(fake_input$sample_data))
+
+  std2 <- standardize(
+    data = raw$data,
+    genos = raw$genos,
+    geno.pos = raw$geno.pos,
+    threshold.missing.geno = 1,
+    ploidy.standardization = 2,
+    threshold.n.clusters = 2,
+    n.cores = 1,
+    verbose = FALSE
+  )
+  expect_s3_class(std2, "qploidy_standardization")
+
+  expect_error(standardized2raw(list()), "qploidy_standardization")
+})

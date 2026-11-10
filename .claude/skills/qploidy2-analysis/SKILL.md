@@ -1,5 +1,6 @@
 ---
-description: Step-by-step workflow for running Qploidy2: batch-effect check, standardization, BAF model selection, HMM copy number estimation, filtering, visualization, and export.
+name: qploidy2-analysis
+description: "Step-by-step workflow for running Qploidy2: batch-effect check, standardization, BAF model selection, HMM copy number estimation, filtering, visualization, and export."
 ---
 
 # Qploidy2 Analysis Workflow
@@ -242,7 +243,50 @@ p$arranged  # all panels
 p$baf; p$z; p$cn; p$baf_dist  # individual panels
 ```
 
-**Understanding `CN_reliability`:** ranges 0–1; combines HMM posterior × BAF weight. Calls relying only on Z-score (no heterozygous markers in window) are capped at 0.25 × post_max. Low values warrant manual inspection.
+### Interpreting `plot_cn_track()` and `plot_karyotype()`
+
+Use this section to explain the two diagnostic figures to a user (e.g. for a figure legend). Describe what the code actually draws; do not improvise.
+
+**`plot_cn_track()` layout.** The `$arranged` figure has a top row with three parts, then three tracks stacked below, faceted with one column per chromosome:
+
+1. **BAF distribution (top left).** Density of the BAF (B-allele frequency, the proportion of reads or signal carrying the alternative allele) of all markers in the sample, pooled across chromosomes. Peak positions show the sample's overall dosage classes, e.g. 0/0.5/1 for a diploid and 0/0.25/0.5/0.75/1 for a tetraploid.
+2. **Legends (top centre).** Colour scales for the BAF weight (`w_baf`, used in the BAF and z tracks) and for the CN reliability (used in the CN track). The CN legend reads `P(CN call)` instead when the object has no `CN_reliability` column (older objects).
+3. **Parameters (top right).** Sample name; `Mean total depth/Z CN` (the `exp_ploidy`, i.e. the CN taken as the sample baseline); the CN grid tested; the minimum SNPs per window; the emission distribution.
+4. **BAF track.** One dot per marker (not per window) at its genomic position, y = BAF.
+   - Heterozygous markers cluster at dosage/CN, e.g. 0.5 in a diploid region. A trisomic region has bands near 0.33 and 0.67 and none at 0.5. A monosomic, hemizygous or LOH region has no heterozygous band.
+   - The grey shape behind the dots is that chromosome's BAF density, drawn sideways.
+   - Dots are coloured by the window's `w_baf`.
+5. **Z-score track.** One dot per marker. The z-score is the marker's depth/intensity `R` compared with the same marker in the reference samples: `z = (R - mean(R_ref)) / sd(R_ref)` (`get_zscore()`). It is per marker against the reference panel, not normalised across autosomes.
+   - Black horizontal segments are the window mean z (`z_by_mean = TRUE`; a loess line otherwise).
+   - Dots are coloured by `w_baf`. Outliers, and with `depth_zero_as_x = TRUE` markers with `R == 0`, are drawn as `x`.
+   - In a euploid sample, the window means stay flat at one level along the genome, with only random scatter. Do not call this a "uniform distribution".
+   - A whole-chromosome gain or loss shifts all windows of that chromosome up or down together. A segmental event is a step change at the breakpoint.
+6. **HMM CN track.** y = `CN_call` per window (Viterbi), drawn as horizontal segments. Single-marker windows are drawn as points. Colour = `CN_reliability`, 0–1, calculated as `post_max × baf_info × zbaf_agree × w_baf_norm`:
+   - `post_max`: HMM posterior probability of the called state.
+   - `baf_info`: 1 − normalised Shannon entropy of a 10-bin BAF histogram for the window. Sharp heterozygous peaks → 1; dispersed BAF → 0.
+   - `zbaf_agree`: 1 − total variation distance between the per-state likelihoods from z and from BAF (softmax-normalised).
+   - `w_baf_norm`: BAF weight normalised to 0–1.
+   - Windows with no BAF support (`w_baf == 0`, depth-only calls) use the floor `z_no_baf_scale` (default 0.25), so they can reach at most 0.25 × `post_max`. They always look low-reliability. Low values warrant manual inspection or `filter_hmm_CN()`.
+
+**`w_baf` (BAF weight).** `sqrt(min(1, n_het / q))`, where `n_het` is the number of heterozygous dosage calls in the window and `q` is a quantile (`het_quantile`) of `n_het` across windows. It tempers the BAF emission in the HMM (`ll = llz + w_baf * llb`), so windows with few heterozygous markers are called mostly from depth (z). When `exp_ploidy` ≈ 1, `w_baf = 1`.
+
+**Sex chromosomes in `plot_cn_track()`** (when `sex_system`/`sex_chr` are set). The X/Z-specific and PAR groups appear as separate facets.
+- The reference panel defines CN = baseline. When the reference contains only the homogametic sex (e.g. female-only standardization in an XY species), X-specific markers sit at baseline in females.
+- In XY males, the X-specific region has about half the reference depth (negative z) and no heterozygous markers, so it is called CN 1 in a diploid. In polyploids, it is called the number of X copies (XXYY → 2, XXXY → 3).
+- Y/W-specific markers have no depth in a homogametic reference, so their z is undefined and they get no CN calls. They do not appear in the CN track; Y presence is reported by `plot_karyotype()` / `karyotype_notation()` instead.
+
+**`plot_karyotype()` layout.** One facet per chromosome. Within a facet, one vertical column is drawn per chromosome copy (x-axis = copy number; y-axis = position in Mb, reversed so the chromosome start is at the top). Each chromosome is not drawn as a single bar.
+- **Segments:** consecutive regions with the same `CN_call` form a segment that shows as many columns as its CN.
+- **Markers:** horizontal ticks on every copy of their segment. Ticks are black when `color_by = NULL`; otherwise they are coloured by `dosage`, `post_max_CN`, `post_max_dosage`, `w_baf` or `CN_reliability`.
+- **Grey areas:** light grey (`grey80`) = gap with no markers; darker grey (`grey60`) = windows filtered out (`CN_call` set to `NA`, e.g. by `filter_hmm_CN()`).
+- **Dashed outlines (ghost copies, `add_ghost = TRUE`):** copies that are expected but absent. Expected = max(sample ploidy mode, highest CN on that chromosome), or the expected sex-chromosome complement when `sex_system` is set (no ghost second X in an XY male). Dashed outlines therefore mark losses, not all aneuploid events:
+  - Whole-chromosome loss → one dashed column along the whole chromosome.
+  - Segmental loss → a dashed column only over the lost region.
+  - Segmental gain → an extra solid column over the gained region, with a dashed outline where that copy is absent elsewhere on the chromosome.
+  - Whole-chromosome gain → an extra solid column with no dashed outline.
+- **Labels (`notation = TRUE`):** strips show the chromosome CN (`CN: X`), plus deviating segments if `show_segments = TRUE`. The subtitle shows `Ploidy: X`. With `sex_system`, it also shows the sex, the sex-chromosome karyotype and Y/W marker coverage, e.g. `Sex: male (XXYY), Y markers covered 5/9`, and `[check sex chromosomes]` when `SexChr` is `?` or inconsistent.
+
+**Suggested figure pairing.** Show `plot_cn_track()` (upper) for the evidence behind the calls, and `plot_karyotype()` (lower) for the resulting karyotype. Read them together: a CN change in the karyotype should be supported by a z-shift and a matching BAF band pattern in the track, with reasonable `CN_reliability`. Depth-only changes (`w_baf` ≈ 0) are weaker evidence.
 
 **Window size (`min_snps_per_window`):** sets the minimum segment length for z-score changepoint detection. Windows are never removed — a chromosome with fewer markers than the minimum becomes a single window. Set it per chromosome with a named vector, e.g. `min_snps_per_window = c(Chr01 = 300, Chr02 = 300, ChrX = 20)`; unnamed chromosomes use the automatic default (printed when verbose).
 
