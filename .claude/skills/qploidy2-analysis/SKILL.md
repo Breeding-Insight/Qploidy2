@@ -452,6 +452,27 @@ final_res <- read_hmm_CN(
 )
 ```
 
+#### Splitting large outputs into sample batches
+
+With many samples × markers the output files can get very large. `write_hmm_CN()` can split them into sample batches; each batch gets its own three files with a batch suffix (`<prefix>_<batch>_by_window.csv.gz`, `<prefix>_<batch>_by_marker.csv.gz`, `<prefix>_<batch>_params.rds`). The params file of each batch keeps only that batch's samples.
+
+```r
+# Option 1: at most N samples per batch (in order of appearance) -> suffixes batch1, batch2, ...
+written <- write_hmm_CN(final_res, prefix = "my_project", max_samples_per_batch = 200)
+
+# Option 2: user-defined batches (list of sample-name vectors).
+# A named list uses the names as suffixes; unnamed -> batch1, batch2, ...
+written <- write_hmm_CN(final_res, prefix = "my_project",
+                        batches = list(fieldA = samples_A, fieldB = samples_B))
+
+written  # invisible data.frame: batch, n_samples, by_window_file, by_marker_file, params_file
+
+# Read back one batch
+b1 <- read_hmm_CN(written$by_marker_file[1], written$by_window_file[1], written$params_file[1])
+```
+
+Rules for `batches`: a sample in more than one batch is an error; object samples not listed in any batch are **not written** (warning); listed samples absent from the object are ignored (warning). If both arguments are given, `batches` wins. Batches read back separately can be recombined with `merge_qploidy_data()`.
+
 ### Summary tables
 
 ```r
@@ -510,7 +531,7 @@ count_types()                       # summarize euploid/aneuploid/segmental
 compare_cn_track_summary()          # population-level karyotype matrix (samples x chromosomes)
 re_standardize()  [optional]        # improve with euploid reference
 call_hmm_dosages()                  # call per-locus dosages
-export_VCF() / write_hmm_CN()       # export results
+export_VCF() / write_hmm_CN()       # export results (write_hmm_CN: max_samples_per_batch / batches to split large outputs)
 ```
 
 Among the visualization functions, these four are particularly useful and complementary:

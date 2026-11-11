@@ -1545,28 +1545,141 @@ print.hmm_CN <- function(x, ...) {
   invisible(x)
 }
 
-#' Write hmm_CN object to three CSV files
+#' Write hmm_CN object to three files
 #'
-#' Writes the three main components of an hmm_CN object (by_window, by_marker, params) to CSV files.
-#' The user must provide a file prefix; files will be named <prefix>_by_window.csv, <prefix>_by_marker.csv, <prefix>_params.csv.
+#' Writes the three main components of an hmm_CN object (by_window, by_marker,
+#' params) to files named \code{<prefix>_by_window.csv.gz},
+#' \code{<prefix>_by_marker.csv.gz} and \code{<prefix>_params.rds}.
+#'
+#' For large datasets the output can optionally be split into sample batches,
+#' either by giving a maximum number of samples per batch
+#' (\code{max_samples_per_batch}) or by giving the batches explicitly
+#' (\code{batches}). Each batch is written as its own set of three files with a
+#' batch suffix added to the prefix: \code{<prefix>_<batch>_by_window.csv.gz},
+#' \code{<prefix>_<batch>_by_marker.csv.gz} and \code{<prefix>_<batch>_params.rds}.
+#' Each set can be read back independently with \code{\link{read_hmm_CN}}, and
+#' the resulting objects can be combined with \code{\link{merge_qploidy_data}}.
+#'
 #' @param hmm_CN An object of class 'hmm_CN'.
 #' @param prefix File prefix for output files (character scalar).
+#' @param max_samples_per_batch Optional positive integer. If provided, samples
+#'   are split, in the order they appear in the object, into consecutive batches
+#'   of at most this many samples. Batch suffixes are \code{batch1},
+#'   \code{batch2}, ... Ignored if \code{batches} is provided.
+#' @param batches Optional list where each element is a character vector with
+#'   the sample names of one batch. If the list is named, the names are used as
+#'   batch suffixes; otherwise suffixes are \code{batch1}, \code{batch2}, ...
+#'   A sample may not appear in more than one batch. Samples in the object that
+#'   are not listed in any batch are not written (a warning is issued).
+#'
+#' @return Invisibly, a data.frame with one row per written batch and columns
+#'   \code{batch}, \code{n_samples}, \code{by_window_file}, \code{by_marker_file}
+#'   and \code{params_file}.
 #'
 #' @importFrom data.table fwrite
 #' @export
-write_hmm_CN <- function(hmm_CN, prefix) {
+write_hmm_CN <- function(hmm_CN, prefix, max_samples_per_batch = NULL, batches = NULL) {
   stopifnot(inherits(hmm_CN, "hmm_CN"))
   stopifnot(is.character(prefix) && length(prefix) == 1)
-  fwrite(hmm_CN$by_window, paste0(prefix, "_by_window.csv.gz"), row.names = FALSE, compress = "gzip")
-  fwrite(hmm_CN$by_marker, paste0(prefix, "_by_marker.csv.gz"), row.names = FALSE, compress = "gzip")
-  # Save params or params_samples as RDS, depending on which is present
-  if (!is.null(hmm_CN$params_samples)) {
-    saveRDS(list(params_samples = hmm_CN$params_samples), file = paste0(prefix, "_params.rds"))
-  } else if (!is.null(hmm_CN$params)) {
-    saveRDS(hmm_CN$params, file = paste0(prefix, "_params.rds"))
-  } else {
+  if (is.null(hmm_CN$params_samples) && is.null(hmm_CN$params)) {
     stop("hmm_CN object must have either 'params' or 'params_samples'.")
   }
+
+  write_one <- function(obj_window, obj_marker, params_obj, pfx, batch_name) {
+    files <- c(
+      by_window_file = paste0(pfx, "_by_window.csv.gz"),
+      by_marker_file = paste0(pfx, "_by_marker.csv.gz"),
+      params_file = paste0(pfx, "_params.rds")
+    )
+    fwrite(obj_window, files[["by_window_file"]], row.names = FALSE, compress = "gzip")
+    fwrite(obj_marker, files[["by_marker_file"]], row.names = FALSE, compress = "gzip")
+    saveRDS(params_obj, file = files[["params_file"]])
+    n_samp <- length(unique(c(obj_window$Sample, obj_marker$SampleName)))
+    data.frame(batch = batch_name, n_samples = n_samp, t(files),
+               stringsAsFactors = FALSE, row.names = NULL)
+  }
+
+  params_out <- function(keep_samples = NULL) {
+    if (!is.null(hmm_CN$params_samples)) {
+      ps <- hmm_CN$params_samples
+      if (!is.null(keep_samples) && !is.null(names(ps))) {
+        ps <- ps[names(ps) %in% keep_samples]
+      }
+      list(params_samples = ps)
+    } else {
+      hmm_CN$params
+    }
+  }
+
+  # No batching: original behaviour
+  if (is.null(max_samples_per_batch) && is.null(batches)) {
+    out <- write_one(hmm_CN$by_window, hmm_CN$by_marker, params_out(),
+                     prefix, NA_character_)
+    return(invisible(out))
+  }
+
+  all_samples <- unique(c(as.character(hmm_CN$by_window$Sample),
+                          as.character(hmm_CN$by_marker$SampleName)))
+  all_samples <- all_samples[!is.na(all_samples)]
+
+  if (!is.null(batches)) {
+    if (!is.null(max_samples_per_batch)) {
+      warning("Both 'batches' and 'max_samples_per_batch' provided; using 'batches'.")
+    }
+    if (!is.list(batches) || length(batches) == 0 ||
+        !all(vapply(batches, function(b) is.character(b) || is.factor(b), logical(1)))) {
+      stop("'batches' must be a non-empty list of character vectors with sample names.")
+    }
+    batches <- lapply(batches, function(b) unique(as.character(b)))
+    dup <- unique(unlist(batches)[duplicated(unlist(batches))])
+    if (length(dup) > 0) {
+      stop(sprintf("Sample(s) assigned to more than one batch: %s",
+                   paste(utils::head(dup, 10), collapse = ", ")))
+    }
+    not_found <- setdiff(unlist(batches), all_samples)
+    if (length(not_found) > 0) {
+      warning(sprintf("%d sample(s) in 'batches' not found in hmm_CN and ignored: %s",
+                      length(not_found), paste(utils::head(not_found, 10), collapse = ", ")))
+    }
+    not_assigned <- setdiff(all_samples, unlist(batches))
+    if (length(not_assigned) > 0) {
+      warning(sprintf("%d sample(s) in hmm_CN not assigned to any batch and not written: %s",
+                      length(not_assigned), paste(utils::head(not_assigned, 10), collapse = ", ")))
+    }
+    batch_names <- names(batches)
+    if (is.null(batch_names)) {
+      batch_names <- paste0("batch", seq_along(batches))
+    } else {
+      empty_nm <- is.na(batch_names) | batch_names == ""
+      batch_names[empty_nm] <- paste0("batch", which(empty_nm))
+    }
+    if (anyDuplicated(batch_names)) stop("Names of 'batches' must be unique.")
+  } else {
+    if (!is.numeric(max_samples_per_batch) || length(max_samples_per_batch) != 1 ||
+        is.na(max_samples_per_batch) || max_samples_per_batch < 1) {
+      stop("'max_samples_per_batch' must be a single positive integer.")
+    }
+    max_samples_per_batch <- as.integer(max_samples_per_batch)
+    batches <- split(all_samples, ceiling(seq_along(all_samples) / max_samples_per_batch))
+    batch_names <- paste0("batch", seq_along(batches))
+  }
+
+  out <- vector("list", length(batches))
+  for (i in seq_along(batches)) {
+    samp <- intersect(batches[[i]], all_samples)
+    if (length(samp) == 0) {
+      warning(sprintf("Batch '%s' has no samples present in hmm_CN; skipped.", batch_names[i]))
+      next
+    }
+    out[[i]] <- write_one(
+      hmm_CN$by_window[hmm_CN$by_window$Sample %in% samp, , drop = FALSE],
+      hmm_CN$by_marker[hmm_CN$by_marker$SampleName %in% samp, , drop = FALSE],
+      params_out(samp),
+      paste0(prefix, "_", batch_names[i]),
+      batch_names[i]
+    )
+  }
+  invisible(do.call(rbind, out))
 }
 
 #' Read hmm_CN object from three files

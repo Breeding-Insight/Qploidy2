@@ -1,3 +1,13 @@
+# Qploidy2 1.25.1
+
+* `write_hmm_CN()` can split its output into sample batches, so large datasets don't produce very large files. Each batch is written as its own three files with a batch suffix: `<prefix>_<batch>_by_window.csv.gz`, `<prefix>_<batch>_by_marker.csv.gz` and `<prefix>_<batch>_params.rds`. Each params file keeps only that batch's samples. Each set can be read back with `read_hmm_CN()` and recombined with `merge_qploidy_data()`. Without the new arguments, output is unchanged.
+  * `max_samples_per_batch` splits the samples, in the order they appear, into consecutive batches of at most that size. The suffixes are `batch1`, `batch2`, and so on.
+  * `batches` takes a list in which each element holds the sample names of one batch. List names become the suffixes; an unnamed list gets `batch1`, `batch2`, and so on. A sample listed in more than one batch is an error. Samples not listed in any batch are not written, and listed samples missing from the object are ignored; both give a warning. If both arguments are given, `batches` is used.
+  * `write_hmm_CN()` now invisibly returns a data.frame with one row per written batch: `batch`, `n_samples`, and the paths in `by_window_file`, `by_marker_file` and `params_file`.
+  * The `qploidy2-analysis` Claude skill documents the new options.
+
+* Update tutorials with new version
+
 # Qploidy2 1.25.0
 
 * For `sex_system = "XY"` or `"ZW"`, the presence of Y (or W) is now scored from read depth instead of from Y/W copy-number calls. Y/W-specific markers have no reference clusters when the standardization uses a single sex, so they are removed before the HMM and their CN is never called.

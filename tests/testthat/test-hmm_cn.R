@@ -177,6 +177,30 @@ test_that("hmm_estimate_CN, plot_cn_track, and other HMM functions work as expec
 
   write_hmm_CN(updated_CN, prefix = paste0(temp_dir, "/", formatted_date))
 
+  # Batched writing by maximum number of samples
+  all_samp <- unique(updated_CN$by_window$Sample)
+  batch_prefix <- file.path(temp_dir, "batch_test")
+  written <- write_hmm_CN(updated_CN, prefix = batch_prefix, max_samples_per_batch = 2)
+  expect_equal(nrow(written), ceiling(length(all_samp) / 2))
+  expect_true(all(written$n_samples <= 2))
+  expect_true(all(file.exists(unlist(written[, c("by_window_file", "by_marker_file", "params_file")]))))
+  expect_true(file.exists(paste0(batch_prefix, "_batch1_by_window.csv.gz")))
+  b1 <- read_hmm_CN(written$by_marker_file[1], written$by_window_file[1], written$params_file[1])
+  expect_setequal(unique(b1$by_window$Sample), all_samp[1:2])
+  expect_setequal(names(b1$params_samples), all_samp[1:2])
+
+  # Batched writing with user-defined (named) batches
+  user_batches <- list(groupA = all_samp[1], groupB = all_samp[-1])
+  written2 <- write_hmm_CN(updated_CN, prefix = batch_prefix, batches = user_batches)
+  expect_equal(written2$batch, c("groupA", "groupB"))
+  expect_equal(written2$n_samples, c(1, length(all_samp) - 1))
+  expect_true(file.exists(paste0(batch_prefix, "_groupB_by_marker.csv.gz")))
+  expect_warning(write_hmm_CN(updated_CN, prefix = batch_prefix, batches = list(all_samp[1])),
+                 "not assigned")
+  expect_error(write_hmm_CN(updated_CN, prefix = batch_prefix,
+                            batches = list(all_samp[1:2], all_samp[2:3])),
+               "more than one batch")
+
   # Test summarize_cn_mode
   summ <- summarize_cn_mode(df = multi_res, level = "sample")
   expect_true(is.data.frame(summ))

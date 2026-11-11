@@ -2,16 +2,43 @@
 % Please edit documentation in R/hmm_main.R
 \name{write_hmm_CN}
 \alias{write_hmm_CN}
-\title{Write hmm_CN object to three CSV files}
+\title{Write hmm_CN object to three files}
 \usage{
-write_hmm_CN(hmm_CN, prefix)
+write_hmm_CN(hmm_CN, prefix, max_samples_per_batch = NULL, batches = NULL)
 }
 \arguments{
 \item{hmm_CN}{An object of class 'hmm_CN'.}
 
 \item{prefix}{File prefix for output files (character scalar).}
+
+\item{max_samples_per_batch}{Optional positive integer. If provided, samples
+are split, in the order they appear in the object, into consecutive batches
+of at most this many samples. Batch suffixes are \code{batch1},
+\code{batch2}, ... Ignored if \code{batches} is provided.}
+
+\item{batches}{Optional list where each element is a character vector with
+the sample names of one batch. If the list is named, the names are used as
+batch suffixes; otherwise suffixes are \code{batch1}, \code{batch2}, ...
+A sample may not appear in more than one batch. Samples in the object that
+are not listed in any batch are not written (a warning is issued).}
+}
+\value{
+Invisibly, a data.frame with one row per written batch and columns
+  \code{batch}, \code{n_samples}, \code{by_window_file}, \code{by_marker_file}
+  and \code{params_file}.
 }
 \description{
-Writes the three main components of an hmm_CN object (by_window, by_marker, params) to CSV files.
-The user must provide a file prefix; files will be named <prefix>_by_window.csv, <prefix>_by_marker.csv, <prefix>_params.csv.
+Writes the three main components of an hmm_CN object (by_window, by_marker,
+params) to files named \code{<prefix>_by_window.csv.gz},
+\code{<prefix>_by_marker.csv.gz} and \code{<prefix>_params.rds}.
+}
+\details{
+For large datasets the output can optionally be split into sample batches,
+either by giving a maximum number of samples per batch
+(\code{max_samples_per_batch}) or by giving the batches explicitly
+(\code{batches}). Each batch is written as its own set of three files with a
+batch suffix added to the prefix: \code{<prefix>_<batch>_by_window.csv.gz},
+\code{<prefix>_<batch>_by_marker.csv.gz} and \code{<prefix>_<batch>_params.rds}.
+Each set can be read back independently with \code{\link{read_hmm_CN}}, and
+the resulting objects can be combined with \code{\link{merge_qploidy_data}}.
 }
